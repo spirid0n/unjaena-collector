@@ -2,12 +2,17 @@
 Token Validation Module
 
 Validates session tokens with the forensics server.
+P1 보안 강화: 토큰 일회용 검증 및 하드웨어 바인딩
+P2-2: 사용자 친화적 에러 메시지 지원
 """
 import requests
-from typing import Optional
+import hashlib
+import time
+from typing import Optional, Set
 from dataclasses import dataclass
 
-from utils.hardware_id import get_hardware_id, get_system_info
+from utils.hardware_id import get_hardware_id, get_system_info, get_hardware_components
+from utils.error_messages import translate_error
 
 
 @dataclass
@@ -22,6 +27,39 @@ class ValidationResult:
     ws_url: Optional[str] = None
     expires_at: Optional[str] = None
     error: Optional[str] = None
+
+
+# P1 보안: 사용된 토큰 추적 (세션 내 재사용 방지)
+_used_tokens: Set[str] = set()
+_token_timestamps: dict = {}  # 토큰 해시 -> 사용 시간
+
+
+def _hash_token(token: str) -> str:
+    """토큰 해시 생성 (보안상 원본 저장 방지)"""
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
+def _is_token_used(token: str) -> bool:
+    """토큰이 이미 사용되었는지 확인"""
+    token_hash = _hash_token(token)
+    return token_hash in _used_tokens
+
+
+def _mark_token_used(token: str):
+    """토큰을 사용됨으로 표시"""
+    token_hash = _hash_token(token)
+    _used_tokens.add(token_hash)
+    _token_timestamps[token_hash] = time.time()
+
+    # 오래된 토큰 정리 (1시간 이상 경과)
+    current_time = time.time()
+    expired_hashes = [
+        h for h, t in _token_timestamps.items()
+        if current_time - t > 3600
+    ]
+    for h in expired_hashes:
+        _used_tokens.discard(h)
+        _token_timestamps.pop(h, None)
 
 
 class TokenValidator:
@@ -42,19 +80,29 @@ class TokenValidator:
         self.server_url = server_url.rstrip('/')
         self.timeout = 30
 
-    def validate(self, session_token: str) -> ValidationResult:
+    def validate(self, session_token: str, allow_revalidation: bool = False) -> ValidationResult:
         """
         Validate a session token with the server.
+        P1 보안 강화: 토큰 일회용 검증 및 하드웨어 바인딩
 
         Args:
             session_token: Token issued from the web platform
+            allow_revalidation: 재검증 허용 여부 (기본 False)
 
         Returns:
             ValidationResult with authentication details
         """
         try:
-            # Get hardware info for binding
+            # P1 보안: 토큰 재사용 방지
+            if not allow_revalidation and _is_token_used(session_token):
+                return ValidationResult(
+                    valid=False,
+                    error="이 토큰은 이미 사용되었습니다. 새 토큰을 발급받으세요.",
+                )
+
+            # Get hardware info for binding (P0-3: 다중 요소)
             hardware_id = get_hardware_id()
+            hardware_components = get_hardware_components()
             system_info = get_system_info()
 
             # Call authentication endpoint
@@ -63,6 +111,7 @@ class TokenValidator:
                 json={
                     "session_token": session_token,
                     "hardware_id": hardware_id,
+                    "hardware_components": hardware_components,  # P0-3: 개별 요소 전송
                     "client_info": system_info,
                 },
                 timeout=self.timeout,
@@ -70,6 +119,10 @@ class TokenValidator:
 
             if response.status_code == 200:
                 data = response.json()
+
+                # P1 보안: 성공 시 토큰 사용 표시
+                _mark_token_used(session_token)
+
                 return ValidationResult(
                     valid=True,
                     session_id=data.get('session_id'),
@@ -87,20 +140,26 @@ class TokenValidator:
                     error=f"Server error ({response.status_code}): {error_detail}",
                 )
 
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
+            # P2-2: 사용자 친화적 에러 메시지
+            friendly = translate_error(f"Connection error: {str(e)}")
             return ValidationResult(
                 valid=False,
-                error="Cannot connect to server. Please check your network connection.",
+                error=f"{friendly.title}\n{friendly.message}\n\n💡 해결 방법:\n{friendly.solution}",
             )
         except requests.exceptions.Timeout:
+            # P2-2: 사용자 친화적 에러 메시지
+            friendly = translate_error("Connection timeout")
             return ValidationResult(
                 valid=False,
-                error="Connection timeout. Please try again.",
+                error=f"{friendly.title}\n{friendly.message}\n\n💡 해결 방법:\n{friendly.solution}",
             )
         except Exception as e:
+            # P2-2: 사용자 친화적 에러 메시지
+            friendly = translate_error(str(e))
             return ValidationResult(
                 valid=False,
-                error=f"Validation error: {str(e)}",
+                error=f"{friendly.title}\n{friendly.message}\n\n💡 해결 방법:\n{friendly.solution}",
             )
 
     def check_server_health(self) -> bool:

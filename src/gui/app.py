@@ -12,15 +12,127 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QLabel, QProgressBar, QListWidget, QListWidgetItem,
     QLineEdit, QCheckBox, QGroupBox, QMessageBox, QFrame, QTextEdit,
-    QStatusBar, QSplitter
+    QStatusBar, QSplitter, QStackedWidget, QScrollArea, QTabWidget,
+    QComboBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QElapsedTimer
 from PyQt6.QtGui import QFont, QColor, QIcon
 
 from core.token_validator import TokenValidator, ValidationResult
 from core.encryptor import FileEncryptor
 from core.uploader import SyncUploader
 from collectors.artifact_collector import ArtifactCollector, ARTIFACT_TYPES
+
+# 서버 아티팩트 이름 -> Collector 아티팩트 이름 매핑
+# 서버는 ArtifactType enum 이름을 사용하고, Collector는 짧은 이름을 사용
+SERVER_TO_COLLECTOR_MAPPING = {
+    # MFT 관련
+    'filesystem_entry': 'mft',
+    'usnjrnl_entry': 'usn_journal',
+    'logfile_entry': 'logfile',
+
+    # 브라우저 - 통합 (Chrome, Edge, Firefox)
+    'history': 'browser',
+    'searchkeyword': 'browser',
+    'download': 'browser',
+    'chrome': 'browser',
+    'chrome_history': 'browser',
+    'edge': 'browser',
+    'edge_history': 'browser',
+    'firefox': 'browser',
+    'browser': 'browser',
+    'browser_chrome': 'browser',  # 레거시 호환
+    'browser_edge': 'browser',    # 레거시 호환
+
+    # 파일시스템
+    'recycle_bin': 'recycle_bin',
+    'recyclebin': 'recycle_bin',  # 레거시 호환
+    'partition': 'mft',
+
+    # 실행 흔적
+    'prefetch': 'prefetch',
+    'amcache': 'amcache',
+    'shimcache': 'registry',  # ShimCache는 레지스트리 기반
+    'userassist': 'userassist',
+    'bam_dam': 'registry',
+    'jumplist': 'recent',
+    'lnk': 'recent',
+    'shortcut': 'recent',
+    'runmru': 'registry',
+
+    # 이벤트/로그
+    'eventlog': 'eventlog',
+    'login': 'eventlog',
+
+    # USB
+    'usb': 'usb',
+    'mountpoint': 'usb',
+
+    # 레지스트리
+    'registry': 'registry',
+    'opensavemru': 'registry',
+    'typedpaths': 'registry',
+    'typedurls': 'registry',
+    'explorerkeyword': 'registry',
+    'lastvisitedmru': 'registry',
+    'streamsmru': 'registry',
+
+    # 탐색기
+    'shellbags': 'registry',
+    'recent': 'recent',
+    'thumbcache': 'recent',
+
+    # 시스템
+    'system_info': 'registry',
+    'user_profile': 'registry',
+    'windows_info': 'registry',
+    'srum': 'srum',
+
+    # 계정
+    'account_info': 'registry',
+    'sam': 'registry',
+    'ntuser': 'registry',
+
+    # 기타
+    'autorun': 'registry',
+    'service': 'registry',
+    'scheduled_task': 'registry',
+
+    # === 메모리 포렌식 ===
+    'memory_dump': 'memory_dump',
+    'memory_process': 'memory_process',
+    'memory_network': 'memory_network',
+    'memory_module': 'memory_module',
+    'memory_handle': 'memory_handle',
+    'memory_registry': 'memory_registry',
+    'memory_credential': 'memory_credential',
+    'memory_malware': 'memory_malware',
+
+    # === Android 포렌식 ===
+    'mobile_android_sms': 'mobile_android_sms',
+    'mobile_android_call': 'mobile_android_call',
+    'mobile_android_contacts': 'mobile_android_contacts',
+    'mobile_android_app': 'mobile_android_app',
+    'mobile_android_wifi': 'mobile_android_wifi',
+    'mobile_android_location': 'mobile_android_location',
+    'mobile_android_media': 'mobile_android_media',
+
+    # === iOS 포렌식 ===
+    'mobile_ios_sms': 'mobile_ios_sms',
+    'mobile_ios_call': 'mobile_ios_call',
+    'mobile_ios_contacts': 'mobile_ios_contacts',
+    'mobile_ios_app': 'mobile_ios_app',
+    'mobile_ios_safari': 'mobile_ios_safari',
+    'mobile_ios_location': 'mobile_ios_location',
+    'mobile_ios_backup': 'mobile_ios_backup',
+
+    # === 추후 지원 예정 ===
+    # 'email': 'email',
+    # 'document': 'document',
+    # 'compress': 'compress',
+    # 'image': 'media',
+    # 'video': 'media',
+}
 
 
 class CollectorWindow(QMainWindow):
@@ -122,40 +234,158 @@ class CollectorWindow(QMainWindow):
 
         layout.addWidget(token_group)
 
-        # Step 2: Artifacts
+        # Step 2: Artifacts (탭 기반 - Phase 2.1)
         artifacts_group = QGroupBox("2. Select Artifacts")
-        artifacts_layout = QVBoxLayout(artifacts_group)
+        artifacts_outer_layout = QVBoxLayout(artifacts_group)
+        artifacts_outer_layout.setContentsMargins(5, 15, 5, 5)
 
-        self.select_all_cb = QCheckBox("Select All")
-        self.select_all_cb.stateChanged.connect(self._toggle_select_all)
-        artifacts_layout.addWidget(self.select_all_cb)
+        # 탭 위젯 생성
+        self.artifacts_tab = QTabWidget()
+        self.artifacts_tab.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #333;
+                border-radius: 4px;
+                background-color: #0f3460;
+            }
+            QTabBar::tab {
+                background-color: #1a1a2e;
+                border: 1px solid #333;
+                padding: 6px 12px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #0f3460;
+                border-bottom-color: #0f3460;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #16213e;
+            }
+        """)
 
+        # 아티팩트 체크박스 저장소
         self.artifact_checks: Dict[str, QCheckBox] = {}
-        for artifact_type, info in ARTIFACT_TYPES.items():
-            cb = QCheckBox(f"{info['name']} ({artifact_type})")
-            cb.setEnabled(False)  # Enable after token validation
-            if info.get('requires_admin'):
-                cb.setToolTip("Requires administrator privileges")
-            self.artifact_checks[artifact_type] = cb
-            artifacts_layout.addWidget(cb)
+
+        # Tab 1: Windows Artifacts
+        windows_tab = self._create_windows_tab()
+        self.artifacts_tab.addTab(windows_tab, "Windows")
+
+        # Tab 2: Memory Forensics
+        memory_tab = self._create_memory_tab()
+        self.artifacts_tab.addTab(memory_tab, "Memory")
+
+        # Tab 3: Android
+        android_tab = self._create_android_tab()
+        self.artifacts_tab.addTab(android_tab, "Android")
+
+        # Tab 4: iOS
+        ios_tab = self._create_ios_tab()
+        self.artifacts_tab.addTab(ios_tab, "iOS")
+
+        artifacts_outer_layout.addWidget(self.artifacts_tab)
+
+        # Select All (현재 탭에만 적용)
+        select_all_layout = QHBoxLayout()
+        self.select_all_cb = QCheckBox("Select All (current tab)")
+        self.select_all_cb.stateChanged.connect(self._toggle_select_all)
+        select_all_layout.addWidget(self.select_all_cb)
+        select_all_layout.addStretch()
+        artifacts_outer_layout.addLayout(select_all_layout)
 
         layout.addWidget(artifacts_group)
 
-        # Step 3: Progress
+        # Step 3: Progress (P2-1: 단계별 진행률 표시, 스크롤 가능)
         progress_group = QGroupBox("3. Collection Progress")
-        progress_layout = QVBoxLayout(progress_group)
+        progress_outer_layout = QVBoxLayout(progress_group)
+        progress_outer_layout.setContentsMargins(5, 15, 5, 5)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setValue(0)
-        progress_layout.addWidget(self.progress_bar)
+        # QScrollArea로 감싸기
+        progress_scroll = QScrollArea()
+        progress_scroll.setWidgetResizable(True)
+        progress_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        progress_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        progress_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        self.current_file_label = QLabel("Ready to collect")
-        progress_layout.addWidget(self.current_file_label)
+        progress_content = QWidget()
+        progress_content.setStyleSheet("background: transparent;")
+        progress_layout = QVBoxLayout(progress_content)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(8)
 
+        # 전체 진행률
+        overall_layout = QHBoxLayout()
+        overall_label = QLabel("전체 진행률:")
+        overall_label.setMinimumWidth(80)
+        self.overall_progress = QProgressBar()
+        self.overall_progress.setTextVisible(True)
+        self.overall_progress.setValue(0)
+        overall_layout.addWidget(overall_label)
+        overall_layout.addWidget(self.overall_progress)
+        progress_layout.addLayout(overall_layout)
+
+        # 단계별 진행률
+        stages_frame = QFrame()
+        stages_frame.setObjectName("stagesFrame")
+        stages_layout = QGridLayout(stages_frame)
+        stages_layout.setContentsMargins(5, 5, 5, 5)
+        stages_layout.setSpacing(8)
+
+        # 1. 수집 단계
+        self.stage1_indicator = QLabel("○")
+        self.stage1_indicator.setObjectName("stageIndicator")
+        self.stage1_label = QLabel("1. 수집")
+        self.stage1_progress = QProgressBar()
+        self.stage1_progress.setMaximumHeight(12)
+        self.stage1_progress.setTextVisible(False)
+        stages_layout.addWidget(self.stage1_indicator, 0, 0)
+        stages_layout.addWidget(self.stage1_label, 0, 1)
+        stages_layout.addWidget(self.stage1_progress, 0, 2)
+
+        # 2. 암호화 단계
+        self.stage2_indicator = QLabel("○")
+        self.stage2_indicator.setObjectName("stageIndicator")
+        self.stage2_label = QLabel("2. 암호화")
+        self.stage2_progress = QProgressBar()
+        self.stage2_progress.setMaximumHeight(12)
+        self.stage2_progress.setTextVisible(False)
+        stages_layout.addWidget(self.stage2_indicator, 1, 0)
+        stages_layout.addWidget(self.stage2_label, 1, 1)
+        stages_layout.addWidget(self.stage2_progress, 1, 2)
+
+        # 3. 업로드 단계
+        self.stage3_indicator = QLabel("○")
+        self.stage3_indicator.setObjectName("stageIndicator")
+        self.stage3_label = QLabel("3. 업로드")
+        self.stage3_progress = QProgressBar()
+        self.stage3_progress.setMaximumHeight(12)
+        self.stage3_progress.setTextVisible(False)
+        stages_layout.addWidget(self.stage3_indicator, 2, 0)
+        stages_layout.addWidget(self.stage3_label, 2, 1)
+        stages_layout.addWidget(self.stage3_progress, 2, 2)
+
+        stages_layout.setColumnStretch(2, 1)
+        progress_layout.addWidget(stages_frame)
+
+        # 현재 작업 및 예상 시간
+        status_layout = QHBoxLayout()
+        self.current_file_label = QLabel("준비 완료")
+        self.current_file_label.setWordWrap(True)
+        status_layout.addWidget(self.current_file_label, 1)
+
+        self.time_estimate_label = QLabel("")
+        self.time_estimate_label.setObjectName("timeEstimate")
+        self.time_estimate_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        status_layout.addWidget(self.time_estimate_label)
+        progress_layout.addLayout(status_layout)
+
+        # 수집된 파일 목록
         self.collected_list = QListWidget()
-        self.collected_list.setMaximumHeight(150)
+        self.collected_list.setMaximumHeight(120)
         progress_layout.addWidget(self.collected_list)
+
+        progress_scroll.setWidget(progress_content)
+        progress_outer_layout.addWidget(progress_scroll)
 
         layout.addWidget(progress_group)
 
@@ -191,13 +421,405 @@ class CollectorWindow(QMainWindow):
         self.log_text.setFont(QFont("Consolas", 9))
         log_layout.addWidget(self.log_text)
 
-        clear_btn = QPushButton("Clear Log")
-        clear_btn.clicked.connect(self.log_text.clear)
-        log_layout.addWidget(clear_btn)
-
         layout.addWidget(log_group)
 
         return panel
+
+    # =========================================================================
+    # Tab Creation Methods (Phase 2.1)
+    # =========================================================================
+
+    def _create_windows_tab(self) -> QWidget:
+        """Create Windows artifacts tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # QScrollArea로 감싸기
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(2)
+
+        # Windows 카테고리 아티팩트만 표시
+        for artifact_type, info in ARTIFACT_TYPES.items():
+            category = info.get('category', 'windows')
+            if category != 'windows' and 'category' in info:
+                continue
+            # 메모리/모바일 제외
+            if artifact_type.startswith(('memory_', 'mobile_')):
+                continue
+
+            cb = QCheckBox(f"{info['name']}")
+            cb.setEnabled(False)  # Enable after token validation
+            cb.setProperty("artifact_type", artifact_type)
+
+            tooltip_parts = [info.get('description', '')]
+            if info.get('requires_admin'):
+                tooltip_parts.append("Requires administrator privileges")
+            if info.get('requires_mft'):
+                tooltip_parts.append("Requires MFT collection (pytsk3)")
+            cb.setToolTip(" | ".join(tooltip_parts))
+
+            self.artifact_checks[artifact_type] = cb
+            content_layout.addWidget(cb)
+
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def _create_memory_tab(self) -> QWidget:
+        """Create Memory Forensics tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # 상태 정보 섹션
+        status_frame = QFrame()
+        status_frame.setStyleSheet("QFrame { background-color: #1a1a2e; border-radius: 4px; padding: 5px; }")
+        status_layout = QGridLayout(status_frame)
+
+        # 시스템 메모리 정보
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            mem_gb = mem.total / (1024**3)
+            self.memory_size_label = QLabel(f"System Memory: {mem_gb:.1f} GB")
+        except ImportError:
+            self.memory_size_label = QLabel("System Memory: Unknown")
+        status_layout.addWidget(self.memory_size_label, 0, 0)
+
+        # WinPmem 상태
+        from collectors.artifact_collector import MEMORY_AVAILABLE, VOLATILITY_AVAILABLE
+        winpmem_status = "Available" if MEMORY_AVAILABLE else "Not Found"
+        self.winpmem_status_label = QLabel(f"WinPmem: {winpmem_status}")
+        self.winpmem_status_label.setStyleSheet(
+            f"color: {'#4cc9f0' if MEMORY_AVAILABLE else '#ff6b6b'};"
+        )
+        status_layout.addWidget(self.winpmem_status_label, 0, 1)
+
+        # Volatility 상태
+        vol_status = "Available" if VOLATILITY_AVAILABLE else "Not Installed"
+        self.volatility_status_label = QLabel(f"Volatility3: {vol_status}")
+        self.volatility_status_label.setStyleSheet(
+            f"color: {'#4cc9f0' if VOLATILITY_AVAILABLE else '#ff6b6b'};"
+        )
+        status_layout.addWidget(self.volatility_status_label, 1, 0)
+
+        # 예상 덤프 시간
+        try:
+            import psutil
+            mem_gb = psutil.virtual_memory().total / (1024**3)
+            est_time = int(mem_gb * 1.5)  # ~1.5분/GB
+            self.dump_time_label = QLabel(f"Est. Dump Time: ~{est_time} min")
+        except ImportError:
+            self.dump_time_label = QLabel("Est. Dump Time: Unknown")
+        status_layout.addWidget(self.dump_time_label, 1, 1)
+
+        layout.addWidget(status_frame)
+
+        # 관리자 권한 경고
+        admin_warning = QLabel("Warning: Memory acquisition requires administrator privileges")
+        admin_warning.setStyleSheet("color: #ffc107; font-size: 11px;")
+        layout.addWidget(admin_warning)
+
+        # 스크롤 영역
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(2)
+
+        # 메모리 카테고리 아티팩트
+        for artifact_type, info in ARTIFACT_TYPES.items():
+            if info.get('category') != 'memory':
+                continue
+
+            cb = QCheckBox(f"{info['name']}")
+            cb.setEnabled(False)  # Enable after token validation
+            cb.setProperty("artifact_type", artifact_type)
+
+            tooltip_parts = [info.get('description', '')]
+            if info.get('requires_volatility'):
+                tooltip_parts.append("Requires Volatility3")
+            cb.setToolTip(" | ".join(tooltip_parts))
+
+            self.artifact_checks[artifact_type] = cb
+            content_layout.addWidget(cb)
+
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def _create_android_tab(self) -> QWidget:
+        """Create Android Forensics tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # 상태 정보 섹션
+        status_frame = QFrame()
+        status_frame.setStyleSheet("QFrame { background-color: #1a1a2e; border-radius: 4px; padding: 5px; }")
+        status_layout = QGridLayout(status_frame)
+
+        # ADB 상태
+        from collectors.artifact_collector import ADB_AVAILABLE
+        adb_status = "Available" if ADB_AVAILABLE else "Not Found"
+        self.adb_status_label = QLabel(f"ADB: {adb_status}")
+        self.adb_status_label.setStyleSheet(
+            f"color: {'#4cc9f0' if ADB_AVAILABLE else '#ff6b6b'};"
+        )
+        status_layout.addWidget(self.adb_status_label, 0, 0)
+
+        # 기기 연결 상태
+        self.android_device_label = QLabel("Device: Not connected")
+        self.android_device_label.setStyleSheet("color: #888;")
+        status_layout.addWidget(self.android_device_label, 0, 1)
+
+        # 기기 새로고침 버튼
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMaximumWidth(80)
+        refresh_btn.clicked.connect(self._refresh_android_devices)
+        status_layout.addWidget(refresh_btn, 0, 2)
+
+        # 기기 정보 (루팅 상태 등)
+        self.android_info_label = QLabel("")
+        status_layout.addWidget(self.android_info_label, 1, 0, 1, 3)
+
+        layout.addWidget(status_frame)
+
+        # USB 디버깅 가이드
+        guide_label = QLabel("Enable USB Debugging: Settings > Developer Options > USB Debugging")
+        guide_label.setStyleSheet("color: #888; font-size: 10px;")
+        guide_label.setWordWrap(True)
+        layout.addWidget(guide_label)
+
+        # 스크롤 영역
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(2)
+
+        # Android 카테고리 아티팩트
+        for artifact_type, info in ARTIFACT_TYPES.items():
+            if info.get('category') != 'android':
+                continue
+
+            cb = QCheckBox(f"{info['name']}")
+            cb.setEnabled(False)  # Enable after token validation
+            cb.setProperty("artifact_type", artifact_type)
+
+            tooltip_parts = [info.get('description', '')]
+            if info.get('requires_root'):
+                tooltip_parts.append("Requires rooted device")
+            cb.setToolTip(" | ".join(tooltip_parts))
+
+            # 루트 필요 항목 표시
+            if info.get('requires_root'):
+                cb.setText(f"{info['name']} (Root)")
+
+            self.artifact_checks[artifact_type] = cb
+            content_layout.addWidget(cb)
+
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+
+        return tab
+
+    def _create_ios_tab(self) -> QWidget:
+        """Create iOS Forensics tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # 상태 정보 섹션
+        status_frame = QFrame()
+        status_frame.setStyleSheet("QFrame { background-color: #1a1a2e; border-radius: 4px; padding: 5px; }")
+        status_layout = QVBoxLayout(status_frame)
+
+        # 백업 선택
+        backup_row = QHBoxLayout()
+        backup_label = QLabel("Backup:")
+        self.ios_backup_combo = QComboBox()
+        self.ios_backup_combo.setMinimumWidth(200)
+        self.ios_backup_combo.currentIndexChanged.connect(self._on_ios_backup_selected)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMaximumWidth(80)
+        refresh_btn.clicked.connect(self._refresh_ios_backups)
+
+        backup_row.addWidget(backup_label)
+        backup_row.addWidget(self.ios_backup_combo, 1)
+        backup_row.addWidget(refresh_btn)
+        status_layout.addLayout(backup_row)
+
+        # 백업 정보
+        self.ios_info_label = QLabel("No backup selected")
+        self.ios_info_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.ios_info_label.setWordWrap(True)
+        status_layout.addWidget(self.ios_info_label)
+
+        layout.addWidget(status_frame)
+
+        # 백업 생성 가이드
+        guide_label = QLabel("Create backup: Connect device to iTunes/Finder > Back Up Now (unencrypted)")
+        guide_label.setStyleSheet("color: #888; font-size: 10px;")
+        guide_label.setWordWrap(True)
+        layout.addWidget(guide_label)
+
+        # 스크롤 영역
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(2)
+
+        # iOS 카테고리 아티팩트
+        for artifact_type, info in ARTIFACT_TYPES.items():
+            if info.get('category') != 'ios':
+                continue
+
+            cb = QCheckBox(f"{info['name']}")
+            cb.setEnabled(False)  # Enable after token validation
+            cb.setProperty("artifact_type", artifact_type)
+            cb.setToolTip(info.get('description', ''))
+
+            self.artifact_checks[artifact_type] = cb
+            content_layout.addWidget(cb)
+
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+
+        # 초기 백업 목록 로드
+        QTimer.singleShot(100, self._refresh_ios_backups)
+
+        return tab
+
+    def _refresh_android_devices(self):
+        """Refresh Android device list"""
+        try:
+            from collectors.artifact_collector import ADB_AVAILABLE
+            if not ADB_AVAILABLE:
+                self.android_device_label.setText("Device: ADB not available")
+                return
+
+            import subprocess
+            result = subprocess.run(
+                ['adb', 'devices', '-l'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            lines = result.stdout.strip().split('\n')[1:]  # Skip header
+            devices = []
+            for line in lines:
+                if line.strip() and 'device' in line:
+                    parts = line.split()
+                    serial = parts[0]
+                    model = "Unknown"
+                    for part in parts:
+                        if part.startswith('model:'):
+                            model = part.split(':')[1]
+                    devices.append((serial, model))
+
+            if devices:
+                serial, model = devices[0]
+                self.android_device_label.setText(f"Device: {model}")
+                self.android_device_label.setStyleSheet("color: #4cc9f0;")
+                self.android_info_label.setText(f"Serial: {serial}")
+                # Store for collection
+                self._android_device_serial = serial
+            else:
+                self.android_device_label.setText("Device: Not connected")
+                self.android_device_label.setStyleSheet("color: #ff6b6b;")
+                self.android_info_label.setText("")
+                self._android_device_serial = None
+
+        except Exception as e:
+            self.android_device_label.setText(f"Device: Error")
+            self.android_info_label.setText(str(e))
+            self._android_device_serial = None
+
+    def _refresh_ios_backups(self):
+        """Refresh iOS backup list"""
+        self.ios_backup_combo.clear()
+        self.ios_backup_combo.addItem("-- Select Backup --", None)
+
+        try:
+            from collectors.artifact_collector import IOS_AVAILABLE
+            if not IOS_AVAILABLE:
+                self.ios_info_label.setText("iOS backup support not available")
+                return
+
+            from collectors.ios_collector import find_ios_backups
+
+            backups = find_ios_backups()
+            for backup in backups:
+                display = f"{backup.device_name} ({backup.ios_version}) - {backup.backup_date.strftime('%Y-%m-%d')}"
+                if backup.encrypted:
+                    display += " [Encrypted]"
+                self.ios_backup_combo.addItem(display, str(backup.path))
+
+            if not backups:
+                self.ios_info_label.setText("No iOS backups found on this system")
+
+        except Exception as e:
+            self.ios_info_label.setText(f"Error loading backups: {e}")
+
+    def _on_ios_backup_selected(self, index: int):
+        """Handle iOS backup selection"""
+        if index <= 0:
+            self.ios_info_label.setText("No backup selected")
+            self._ios_backup_path = None
+            return
+
+        backup_path = self.ios_backup_combo.currentData()
+        self._ios_backup_path = backup_path
+
+        try:
+            from collectors.ios_collector import parse_backup_info
+            from pathlib import Path
+
+            backup_info = parse_backup_info(Path(backup_path))
+            if backup_info:
+                info_text = f"Device: {backup_info.device_name} | iOS: {backup_info.ios_version} | Size: {backup_info.size_mb:.1f} MB"
+                if backup_info.encrypted:
+                    info_text += " | ENCRYPTED (cannot extract)"
+                    self.ios_info_label.setStyleSheet("color: #ff6b6b;")
+                else:
+                    self.ios_info_label.setStyleSheet("color: #4cc9f0;")
+                self.ios_info_label.setText(info_text)
+        except Exception as e:
+            self.ios_info_label.setText(f"Error: {e}")
 
     def _get_stylesheet(self) -> str:
         """Get application stylesheet"""
@@ -293,6 +915,20 @@ class CollectorWindow(QMainWindow):
                 background-color: #16213e;
                 color: #888;
             }
+            #stagesFrame {
+                background-color: #0f3460;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            #stageIndicator {
+                font-size: 14px;
+                min-width: 20px;
+            }
+            #timeEstimate {
+                color: #4cc9f0;
+                font-size: 11px;
+                min-width: 100px;
+            }
         """
 
     def check_server_connection(self):
@@ -317,11 +953,34 @@ class CollectorWindow(QMainWindow):
             self.show_token_btn.setText("Show")
 
     def _toggle_select_all(self, state):
-        """Toggle all artifact checkboxes"""
+        """Toggle artifact checkboxes for current tab only"""
         checked = state == Qt.CheckState.Checked.value
-        for cb in self.artifact_checks.values():
-            if cb.isEnabled():
-                cb.setChecked(checked)
+
+        # 현재 탭 인덱스에 따라 카테고리 결정
+        current_tab = self.artifacts_tab.currentIndex()
+        category_map = {0: 'windows', 1: 'memory', 2: 'android', 3: 'ios'}
+        current_category = category_map.get(current_tab, 'windows')
+
+        for artifact_type, cb in self.artifact_checks.items():
+            if not cb.isEnabled():
+                continue
+
+            # 아티팩트 카테고리 확인
+            artifact_info = ARTIFACT_TYPES.get(artifact_type, {})
+            artifact_category = artifact_info.get('category', 'windows')
+
+            # Windows 탭: category가 없거나 'windows'인 것, 메모리/모바일 제외
+            if current_category == 'windows':
+                if artifact_type.startswith(('memory_', 'mobile_')):
+                    continue
+                if artifact_category not in ('windows', None) and 'category' in artifact_info:
+                    continue
+
+            # 다른 탭: 해당 카테고리만
+            elif artifact_category != current_category:
+                continue
+
+            cb.setChecked(checked)
 
     def _validate_token(self):
         """Validate the session token"""
@@ -352,8 +1011,20 @@ class CollectorWindow(QMainWindow):
             self._log(f"Allowed artifacts: {', '.join(self.allowed_artifacts)}")
 
             # Enable artifact selection
+            # 서버 아티팩트 이름을 Collector 이름으로 변환하여 매칭
+            mapped_allowed = set()
+            for server_name in self.allowed_artifacts:
+                # 직접 매핑 확인
+                if server_name in SERVER_TO_COLLECTOR_MAPPING:
+                    mapped_allowed.add(SERVER_TO_COLLECTOR_MAPPING[server_name])
+                # 이미 Collector 이름인 경우
+                if server_name in ARTIFACT_TYPES:
+                    mapped_allowed.add(server_name)
+
+            self._log(f"Mapped artifacts for GUI: {', '.join(sorted(mapped_allowed))}")
+
             for artifact_type, cb in self.artifact_checks.items():
-                if artifact_type in self.allowed_artifacts or 'all' in self.allowed_artifacts:
+                if artifact_type in mapped_allowed or 'all' in self.allowed_artifacts:
                     cb.setEnabled(True)
                     cb.setChecked(True)
 
@@ -372,6 +1043,22 @@ class CollectorWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Please select at least one artifact type")
             return
 
+        # 법적 동의 확인 (필수)
+        from gui.consent_dialog import show_consent_dialog
+        consent_record = show_consent_dialog(self)
+
+        if not consent_record:
+            self._log("Collection cancelled: User did not consent", error=True)
+            QMessageBox.information(
+                self,
+                "수집 취소",
+                "법적 동의가 필요합니다.\n동의 없이는 수집을 진행할 수 없습니다."
+            )
+            return
+
+        # 동의 기록 저장
+        self.consent_record = consent_record
+        self._log(f"Legal consent obtained: {consent_record['consent_hash'][:16]}...")
         self._log(f"Starting collection for: {', '.join(selected)}")
 
         # Disable controls
@@ -381,6 +1068,10 @@ class CollectorWindow(QMainWindow):
         for cb in self.artifact_checks.values():
             cb.setEnabled(False)
 
+        # Phase 2.1: Android/iOS 옵션 가져오기
+        android_serial = getattr(self, '_android_device_serial', None)
+        ios_backup = getattr(self, '_ios_backup_path', None)
+
         # Start worker thread
         self.worker = CollectionWorker(
             server_url=self.server_url,
@@ -389,6 +1080,10 @@ class CollectorWindow(QMainWindow):
             collection_token=self.collection_token,
             case_id=self.case_id,
             artifacts=selected,
+            consent_record=self.consent_record,  # P0 법적 필수
+            # Phase 2.1: 메모리/모바일 옵션
+            android_device_serial=android_serial,
+            ios_backup_path=ios_backup,
         )
         self.worker.progress_updated.connect(self._update_progress)
         self.worker.file_collected.connect(self._add_collected_file)
@@ -402,10 +1097,50 @@ class CollectorWindow(QMainWindow):
             self.worker.cancel()
             self._log("Collection cancelled by user")
 
-    def _update_progress(self, value: int, message: str):
-        """Update progress bar"""
-        self.progress_bar.setValue(value)
+    def _update_progress(self, stage: int, stage_progress: int, overall_progress: int,
+                         message: str, time_remaining: str):
+        """
+        Update progress bars (P2-1: 단계별 진행률)
+
+        Args:
+            stage: 현재 단계 (1=수집, 2=암호화, 3=업로드)
+            stage_progress: 현재 단계 내 진행률 (0-100)
+            overall_progress: 전체 진행률 (0-100)
+            message: 현재 작업 설명
+            time_remaining: 예상 남은 시간 문자열
+        """
+        # 전체 진행률
+        self.overall_progress.setValue(overall_progress)
+
+        # 단계별 UI 업데이트
+        indicators = [self.stage1_indicator, self.stage2_indicator, self.stage3_indicator]
+        progress_bars = [self.stage1_progress, self.stage2_progress, self.stage3_progress]
+        labels = [self.stage1_label, self.stage2_label, self.stage3_label]
+
+        for i, (indicator, progress, label) in enumerate(zip(indicators, progress_bars, labels), 1):
+            if i < stage:
+                # 완료된 단계
+                indicator.setText("✓")
+                indicator.setStyleSheet("color: #4cc9f0;")
+                progress.setValue(100)
+                progress.setStyleSheet("QProgressBar::chunk { background-color: #4cc9f0; }")
+            elif i == stage:
+                # 현재 진행 중인 단계
+                indicator.setText("●")
+                indicator.setStyleSheet("color: #f0c14c;")
+                progress.setValue(stage_progress)
+                progress.setStyleSheet("QProgressBar::chunk { background-color: #f0c14c; }")
+            else:
+                # 대기 중인 단계
+                indicator.setText("○")
+                indicator.setStyleSheet("color: #666;")
+                progress.setValue(0)
+                progress.setStyleSheet("")
+
+        # 현재 작업 및 시간 표시
         self.current_file_label.setText(message)
+        if time_remaining:
+            self.time_estimate_label.setText(f"예상: {time_remaining}")
 
     def _add_collected_file(self, filename: str, success: bool):
         """Add file to collected list"""
@@ -447,12 +1182,20 @@ class CollectorWindow(QMainWindow):
 
 
 class CollectionWorker(QThread):
-    """Background worker for collection"""
+    """Background worker for collection (P2-1: 단계별 진행률)"""
 
-    progress_updated = pyqtSignal(int, str)
+    # P2-1: 확장된 시그널 (stage, stage_progress, overall_progress, message, time_remaining)
+    progress_updated = pyqtSignal(int, int, int, str, str)
     file_collected = pyqtSignal(str, bool)
     log_message = pyqtSignal(str, bool)
     finished = pyqtSignal(bool, str)
+
+    # 단계별 가중치 (총 100%)
+    STAGE_WEIGHTS = {
+        1: 30,   # 수집: 30%
+        2: 30,   # 암호화: 30%
+        3: 40,   # 업로드: 40%
+    }
 
     def __init__(
         self,
@@ -462,6 +1205,11 @@ class CollectionWorker(QThread):
         collection_token: str,
         case_id: str,
         artifacts: List[str],
+        consent_record: dict = None,
+        # Phase 2.1: 메모리/모바일 옵션
+        android_device_serial: str = None,
+        ios_backup_path: str = None,
+        memory_dump_path: str = None,
     ):
         super().__init__()
         self.server_url = server_url
@@ -470,68 +1218,184 @@ class CollectionWorker(QThread):
         self.collection_token = collection_token
         self.case_id = case_id
         self.artifacts = artifacts
+        self.consent_record = consent_record  # P0 법적 필수
         self._cancelled = False
+
+        # Phase 2.1: 메모리/모바일 옵션
+        self.android_device_serial = android_device_serial
+        self.ios_backup_path = ios_backup_path
+        self.memory_dump_path = memory_dump_path
+
+        # P2-1: 시간 추적
+        self._start_time = None
+        self._stage_start_time = None
+        self._processed_bytes = 0
+        self._total_bytes_estimate = 0
 
     def cancel(self):
         """Cancel the collection"""
         self._cancelled = True
 
+    def _calculate_overall_progress(self, stage: int, stage_progress: int) -> int:
+        """전체 진행률 계산"""
+        completed_weight = sum(
+            self.STAGE_WEIGHTS[s] for s in range(1, stage)
+        )
+        current_weight = self.STAGE_WEIGHTS[stage] * stage_progress / 100
+        return int(completed_weight + current_weight)
+
+    def _estimate_remaining_time(self, stage: int, stage_progress: int, items_done: int, total_items: int) -> str:
+        """예상 남은 시간 계산"""
+        import time
+
+        if not self._start_time or stage_progress <= 0:
+            return ""
+
+        elapsed = time.time() - self._start_time
+        overall_progress = self._calculate_overall_progress(stage, stage_progress)
+
+        if overall_progress <= 0:
+            return ""
+
+        # 예상 총 시간 계산
+        estimated_total = elapsed / (overall_progress / 100)
+        remaining = max(0, estimated_total - elapsed)
+
+        if remaining < 60:
+            return f"{int(remaining)}초"
+        elif remaining < 3600:
+            minutes = int(remaining / 60)
+            seconds = int(remaining % 60)
+            return f"{minutes}분 {seconds}초"
+        else:
+            hours = int(remaining / 3600)
+            minutes = int((remaining % 3600) / 60)
+            return f"{hours}시간 {minutes}분"
+
     def run(self):
-        """Run collection in background"""
+        """Run collection in background (P2-1: 단계별 진행률)"""
+        import time
+        import os
+
         try:
+            self._start_time = time.time()
+
             import tempfile
             output_dir = tempfile.mkdtemp(prefix="forensic_")
 
             collector = ArtifactCollector(output_dir)
             encryptor = FileEncryptor()
 
-            collected_files = []
+            # ========================================
+            # STAGE 1: 수집 (30%)
+            # ========================================
+            self.log_message.emit("📂 아티팩트 수집을 시작합니다...", False)
+            collected_raw_files = []  # (file_path, artifact_type, metadata)
             total_artifacts = len(self.artifacts)
 
             for i, artifact_type in enumerate(self.artifacts):
                 if self._cancelled:
-                    self.finished.emit(False, "Collection cancelled")
+                    self.finished.emit(False, "수집이 취소되었습니다")
                     return
 
-                self.log_message.emit(f"Collecting {artifact_type}...", False)
+                stage_progress = int(((i + 1) / total_artifacts) * 100)
+                overall_progress = self._calculate_overall_progress(1, stage_progress)
+                remaining = self._estimate_remaining_time(1, stage_progress, i + 1, total_artifacts)
+
+                self.progress_updated.emit(
+                    1, stage_progress, overall_progress,
+                    f"수집 중: {artifact_type}...",
+                    remaining
+                )
+                self.log_message.emit(f"수집 중: {artifact_type}", False)
 
                 try:
-                    files = list(collector.collect(artifact_type))
+                    # Phase 2.1: 카테고리별 kwargs 전달
+                    collect_kwargs = {}
+                    artifact_info = ARTIFACT_TYPES.get(artifact_type, {})
+                    category = artifact_info.get('category', 'windows')
 
+                    if category == 'android' and self.android_device_serial:
+                        collect_kwargs['device_serial'] = self.android_device_serial
+                    elif category == 'ios' and self.ios_backup_path:
+                        collect_kwargs['backup_path'] = self.ios_backup_path
+                    elif category == 'memory' and artifact_type != 'memory_dump':
+                        # 메모리 분석은 덤프 경로 필요
+                        if self.memory_dump_path:
+                            collect_kwargs['memory_dump_path'] = self.memory_dump_path
+
+                    files = list(collector.collect(artifact_type, **collect_kwargs))
                     for file_path, metadata in files:
                         if self._cancelled:
                             break
+                        collected_raw_files.append((file_path, artifact_type, metadata))
+                        self.file_collected.emit(Path(file_path).name, True)
 
-                        # Encrypt file
-                        filename = Path(file_path).name
-                        self.progress_updated.emit(
-                            int((i / total_artifacts) * 100),
-                            f"Encrypting {filename}..."
-                        )
-
-                        enc_result = encryptor.encrypt_file(file_path)
-                        metadata['encryption'] = {
-                            'nonce': enc_result.nonce,
-                            'original_hash': enc_result.original_hash,
-                        }
-
-                        collected_files.append((
-                            enc_result.encrypted_path,
-                            artifact_type,
-                            metadata
-                        ))
-
-                        self.file_collected.emit(filename, True)
+                        # 메모리 덤프 완료 시 경로 저장 (분석에 사용)
+                        if artifact_type == 'memory_dump':
+                            self.memory_dump_path = file_path
 
                 except Exception as e:
-                    self.log_message.emit(f"Error collecting {artifact_type}: {e}", True)
+                    self.log_message.emit(f"수집 실패 ({artifact_type}): {e}", True)
 
             if self._cancelled:
-                self.finished.emit(False, "Collection cancelled")
+                self.finished.emit(False, "수집이 취소되었습니다")
                 return
 
-            # Upload files
-            self.log_message.emit(f"Uploading {len(collected_files)} files...", False)
+            # ========================================
+            # STAGE 2: 암호화 (30%)
+            # ========================================
+            self.log_message.emit(f"🔐 {len(collected_raw_files)}개 파일 암호화 중...", False)
+            encrypted_files = []  # (enc_path, artifact_type, metadata)
+            total_files = len(collected_raw_files)
+
+            for j, (file_path, artifact_type, metadata) in enumerate(collected_raw_files):
+                if self._cancelled:
+                    self.finished.emit(False, "암호화가 취소되었습니다")
+                    return
+
+                filename = Path(file_path).name
+                stage_progress = int(((j + 1) / max(total_files, 1)) * 100)
+                overall_progress = self._calculate_overall_progress(2, stage_progress)
+                remaining = self._estimate_remaining_time(2, stage_progress, j + 1, total_files)
+
+                self.progress_updated.emit(
+                    2, stage_progress, overall_progress,
+                    f"암호화 중: {filename}",
+                    remaining
+                )
+
+                try:
+                    enc_result = encryptor.encrypt_file(file_path)
+
+                    # Add required metadata fields for server
+                    metadata['original_hash'] = enc_result.original_hash
+                    metadata['original_size'] = enc_result.original_size
+                    metadata['collection_time'] = datetime.utcnow().isoformat()
+
+                    # Legacy encryption info (now handled by server)
+                    metadata['encryption'] = {
+                        'nonce': enc_result.nonce,
+                        'original_hash': enc_result.original_hash,
+                    }
+
+                    encrypted_files.append((
+                        enc_result.encrypted_path,
+                        artifact_type,
+                        metadata
+                    ))
+
+                except Exception as e:
+                    self.log_message.emit(f"암호화 실패 ({filename}): {e}", True)
+
+            if self._cancelled:
+                self.finished.emit(False, "암호화가 취소되었습니다")
+                return
+
+            # ========================================
+            # STAGE 3: 업로드 (40%)
+            # ========================================
+            self.log_message.emit(f"☁️ {len(encrypted_files)}개 파일 업로드 중...", False)
 
             uploader = SyncUploader(
                 server_url=self.server_url,
@@ -539,28 +1403,42 @@ class CollectionWorker(QThread):
                 session_id=self.session_id,
                 collection_token=self.collection_token,
                 case_id=self.case_id,
+                consent_record=self.consent_record,  # P0 법적 필수
             )
 
             success_count = 0
-            for j, (file_path, artifact_type, metadata) in enumerate(collected_files):
+            total_upload = len(encrypted_files)
+
+            for k, (file_path, artifact_type, metadata) in enumerate(encrypted_files):
                 if self._cancelled:
                     break
 
+                filename = Path(file_path).name
+                stage_progress = int(((k + 1) / max(total_upload, 1)) * 100)
+                overall_progress = self._calculate_overall_progress(3, stage_progress)
+                remaining = self._estimate_remaining_time(3, stage_progress, k + 1, total_upload)
+
                 self.progress_updated.emit(
-                    int(((j + 1) / len(collected_files)) * 100),
-                    f"Uploading {Path(file_path).name}..."
+                    3, stage_progress, overall_progress,
+                    f"업로드 중: {filename}",
+                    remaining
                 )
 
                 result = uploader.upload_file(file_path, artifact_type, metadata)
                 if result.success:
                     success_count += 1
                 else:
-                    self.log_message.emit(f"Upload failed: {result.error}", True)
+                    self.log_message.emit(f"업로드 실패: {result.error}", True)
 
+            # 완료
+            elapsed = time.time() - self._start_time
+            elapsed_str = f"{int(elapsed)}초" if elapsed < 60 else f"{int(elapsed / 60)}분 {int(elapsed % 60)}초"
+
+            self.progress_updated.emit(3, 100, 100, "완료!", "")
             self.finished.emit(
                 True,
-                f"Collected and uploaded {success_count}/{len(collected_files)} files"
+                f"수집 완료: {success_count}/{total_upload}개 파일 업로드 (소요시간: {elapsed_str})"
             )
 
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.finished.emit(False, f"오류 발생: {str(e)}")
