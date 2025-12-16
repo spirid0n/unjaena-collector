@@ -24,7 +24,8 @@ a = Analysis(
     pathex=[str(src_dir)],
     binaries=[],
     datas=[
-        # Include any data files if needed
+        # WinPmem memory acquisition tool
+        ('resources/winpmem_mini_x64.exe', 'resources'),
     ],
     hiddenimports=[
         # PyQt6 imports
@@ -35,9 +36,6 @@ a = Analysis(
         'aiohttp',
         'websockets',
         'requests',
-        # Encryption
-        'cryptography',
-        'cryptography.hazmat.primitives.ciphers.aead',
         # Windows-specific
         'win32api',
         'win32con',
@@ -45,6 +43,12 @@ a = Analysis(
         'wmi',
         'ctypes',
         'ctypes.wintypes',
+        'psutil',
+        # MFT Collection (pytsk3)
+        'pytsk3',
+        # iOS Forensics
+        'plistlib',
+        'biplist',
         # Standard library
         'asyncio',
         'json',
@@ -52,6 +56,22 @@ a = Analysis(
         'tempfile',
         'shutil',
         'glob',
+        'fnmatch',
+        'socket',
+        'sqlite3',
+        'threading',
+        'subprocess',
+        # Application modules
+        'gui.app',
+        'gui.consent_dialog',
+        'collectors.mft_collector',
+        'collectors.artifact_collector',
+        'collectors.memory_collector',
+        'collectors.android_collector',
+        'collectors.ios_collector',
+        'core.encryptor',
+        'core.token_validator',
+        'core.uploader',
     ],
     hookspath=[],
     hooksconfig={},
