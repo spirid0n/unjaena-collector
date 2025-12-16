@@ -2,6 +2,7 @@
 Real-time Upload Module
 
 Handles file uploads with WebSocket progress reporting.
+P2-2: 사용자 친화적 에러 메시지 지원
 """
 import asyncio
 import json
@@ -12,13 +13,30 @@ from datetime import datetime
 from typing import Callable, Optional
 from dataclasses import dataclass
 
+from utils.error_messages import translate_error, UserFriendlyError
+
 
 @dataclass
 class UploadResult:
-    """Upload result"""
+    """Upload result (P2-2: 확장된 에러 정보)"""
     success: bool
     artifact_id: Optional[str] = None
     error: Optional[str] = None
+    error_title: Optional[str] = None      # P2-2: 사용자 친화적 에러 제목
+    error_solution: Optional[str] = None   # P2-2: 해결 방법
+    is_recoverable: bool = True            # P2-2: 재시도 가능 여부
+
+    @classmethod
+    def from_error(cls, technical_error: str) -> 'UploadResult':
+        """기술적 에러로부터 사용자 친화적 UploadResult 생성"""
+        friendly = translate_error(technical_error)
+        return cls(
+            success=False,
+            error=friendly.message,
+            error_title=friendly.title,
+            error_solution=friendly.solution,
+            is_recoverable=friendly.is_recoverable,
+        )
 
 
 class RealTimeUploader:
@@ -36,6 +54,7 @@ class RealTimeUploader:
         session_id: str,
         collection_token: str,
         case_id: str = None,
+        consent_record: dict = None,
     ):
         """
         Initialize the uploader.
@@ -46,12 +65,14 @@ class RealTimeUploader:
             session_id: Collection session ID
             collection_token: Authentication token for uploads
             case_id: Case ID for the collection
+            consent_record: Legal consent record (P0 법적 필수)
         """
         self.server_url = server_url.rstrip('/')
         self.ws_url = ws_url.rstrip('/')
         self.session_id = session_id
         self.collection_token = collection_token
         self.case_id = case_id
+        self.consent_record = consent_record
         self.ws = None
 
     async def connect_websocket(self):
@@ -131,6 +152,9 @@ class RealTimeUploader:
                     data.add_field('metadata', json.dumps(metadata))
                     if self.case_id:
                         data.add_field('case_id', self.case_id)
+                    # P0 법적 필수: 동의 기록 서버 전송
+                    if self.consent_record:
+                        data.add_field('consent_record', json.dumps(self.consent_record))
 
                     async with session.post(
                         f"{self.server_url}/api/v1/collector/raw-files/upload",
@@ -148,21 +172,17 @@ class RealTimeUploader:
                             )
                         else:
                             error_text = await response.text()
-                            return UploadResult(
-                                success=False,
-                                error=f"Upload failed ({response.status}): {error_text}",
+                            # P2-2: 사용자 친화적 에러 메시지
+                            return UploadResult.from_error(
+                                f"Upload failed ({response.status}): {error_text}"
                             )
 
         except aiohttp.ClientError as e:
-            return UploadResult(
-                success=False,
-                error=f"Connection error: {str(e)}",
-            )
+            # P2-2: 사용자 친화적 에러 메시지
+            return UploadResult.from_error(f"Connection error: {str(e)}")
         except Exception as e:
-            return UploadResult(
-                success=False,
-                error=f"Upload error: {str(e)}",
-            )
+            # P2-2: 사용자 친화적 에러 메시지
+            return UploadResult.from_error(f"Upload error: {str(e)}")
 
     async def upload_batch(
         self,
