@@ -16,17 +16,49 @@ def is_admin() -> bool:
         return False
 
 
-def run_as_admin():
-    """Restart the application with administrator privileges."""
-    if sys.platform == 'win32':
-        ctypes.windll.shell32.ShellExecuteW(
+def run_as_admin() -> bool:
+    """
+    Restart the application with administrator privileges.
+
+    Returns:
+        bool: True if elevation was requested, False otherwise
+    """
+    if sys.platform != 'win32':
+        return False
+
+    try:
+        # Handle PyInstaller frozen executable
+        if getattr(sys, 'frozen', False):
+            # Running as compiled EXE
+            executable = sys.executable
+            # For frozen apps, sys.argv[0] is the exe path
+            args = sys.argv[1:] if len(sys.argv) > 1 else []
+        else:
+            # Running as script
+            executable = sys.executable
+            args = sys.argv
+
+        # Build argument string
+        if args:
+            arg_string = " ".join([f'"{arg}"' for arg in args])
+        else:
+            arg_string = ""
+
+        # Request elevation via ShellExecuteW
+        result = ctypes.windll.shell32.ShellExecuteW(
             None,
             "runas",
-            sys.executable,
-            " ".join([f'"{arg}"' for arg in sys.argv]),
+            executable,
+            arg_string,
             None,
             1  # SW_SHOWNORMAL
         )
+
+        # ShellExecuteW returns > 32 on success
+        return result > 32
+    except Exception as e:
+        print(f"Failed to request elevation: {e}")
+        return False
 
 
 def get_current_user() -> str:

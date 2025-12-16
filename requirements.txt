@@ -1,4 +1,9 @@
 # Forensic Collector - Windows EXE Dependencies
+# v3.0 - Extended forensic collection support
+# - Windows artifacts (MFT, browser, registry, etc.)
+# - Memory forensics (WinPmem + Volatility3)
+# - Android forensics (ADB)
+# - iOS forensics (iTunes/Finder backup)
 
 # GUI
 PyQt6>=6.6.0
@@ -10,15 +15,20 @@ aiohttp>=3.9.0
 # WebSocket
 websockets>=12.0
 
-# Encryption
-cryptography>=42.0.0
-
 # Windows API
 pywin32>=306
 wmi>=1.5.1
+psutil>=5.9.0
 
-# File System
-pytsk3>=20231007      # For raw disk access (optional)
+# File System - MFT Collection (REQUIRED for forensic collection)
+pytsk3>=20231007      # The Sleuth Kit bindings for raw disk/MFT access
+
+# Memory Forensics (OPTIONAL - requires separate installation)
+# volatility3>=2.5.0  # Memory analysis framework
+# yara-python>=4.3.0  # Malware detection rules
+
+# iOS Forensics
+biplist>=1.0.3        # Binary plist parsing for iOS backups
 
 # Build
 pyinstaller>=6.3.0

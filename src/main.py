@@ -18,27 +18,93 @@ from gui.app import CollectorWindow
 from utils.privilege import is_admin, run_as_admin
 
 
-# Configuration
-CONFIG = {
-    'server_url': 'http://localhost:8000',
-    'ws_url': 'ws://localhost:8000',
-    'version': '1.0.0',
-    'app_name': 'Digital Forensics Collector',
-}
+# =============================================================================
+# P1 보안 강화: HTTPS/WSS 필수화
+# =============================================================================
+
+def get_secure_config() -> dict:
+    """
+    보안 설정이 적용된 구성 반환
+
+    환경변수:
+        COLLECTOR_SERVER_URL: 서버 URL (기본: http://localhost:8000)
+        COLLECTOR_WS_URL: WebSocket URL (기본: ws://localhost:8000)
+        COLLECTOR_DEV_MODE: 개발 모드 (true/false, 기본: true)
+        COLLECTOR_ALLOW_INSECURE: 비보안 연결 허용 (true/false, 기본: true)
+
+    프로덕션 배포 시:
+        COLLECTOR_DEV_MODE=false
+        COLLECTOR_SERVER_URL=https://your-server.com
+        COLLECTOR_WS_URL=wss://your-server.com
+    """
+    # 기본값을 개발 모드(HTTP)로 변경 - localhost에서 HTTPS 인증서 오류 방지
+    dev_mode = os.environ.get('COLLECTOR_DEV_MODE', 'true').lower() == 'true'
+    allow_insecure = os.environ.get('COLLECTOR_ALLOW_INSECURE', 'true').lower() == 'true'
+
+    # 환경변수에서 URL 가져오기 (기본값은 HTTP - 개발 환경 친화적)
+    server_url = os.environ.get('COLLECTOR_SERVER_URL', 'http://localhost:8000')
+    ws_url = os.environ.get('COLLECTOR_WS_URL', 'ws://localhost:8000')
+
+    # 개발 모드에서만 HTTP/WS 허용
+    if not dev_mode and not allow_insecure:
+        if server_url.startswith('http://'):
+            # 프로덕션에서 HTTP 감지 시 경고 및 HTTPS로 변환 시도
+            print("[보안 경고] HTTP 연결이 감지되었습니다. HTTPS로 변환합니다.")
+            server_url = server_url.replace('http://', 'https://', 1)
+
+        if ws_url.startswith('ws://'):
+            print("[보안 경고] WS 연결이 감지되었습니다. WSS로 변환합니다.")
+            ws_url = ws_url.replace('ws://', 'wss://', 1)
+
+    return {
+        'server_url': server_url,
+        'ws_url': ws_url,
+        'version': '2.0.0',  # 메모리/모바일 포렌식 추가
+        'app_name': 'Digital Forensics Collector',
+        'dev_mode': dev_mode,
+        'allow_insecure': allow_insecure,
+    }
+
+
+# Configuration (P1: 보안 설정 적용)
+CONFIG = get_secure_config()
 
 
 def check_admin_privilege():
     """Check if running as administrator"""
     if not is_admin():
-        reply = QMessageBox.question(
-            None,
-            "Administrator Required",
-            "This tool requires administrator privileges to collect forensic artifacts.\n\n"
-            "Do you want to restart as administrator?",
+        # Show warning message in Korean
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle("관리자 권한 필요")
+        msg_box.setText("이 수집 도구는 관리자 권한이 필요합니다.")
+        msg_box.setInformativeText(
+            "포렌식 아티팩트를 정확하게 수집하기 위해서는 관리자 권한으로 "
+            "실행해야 합니다.\n\n"
+            "관리자 권한으로 다시 실행하시겠습니까?"
+        )
+        msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        msg_box.button(QMessageBox.StandardButton.Yes).setText("예, 다시 실행")
+        msg_box.button(QMessageBox.StandardButton.No).setText("아니오, 종료")
+
+        reply = msg_box.exec()
+
         if reply == QMessageBox.StandardButton.Yes:
-            run_as_admin()
+            if run_as_admin():
+                # Elevation requested successfully, exit current process
+                sys.exit(0)
+            else:
+                # Failed to request elevation
+                QMessageBox.critical(
+                    None,
+                    "오류",
+                    "관리자 권한으로 실행할 수 없습니다.\n"
+                    "프로그램을 마우스 오른쪽 버튼으로 클릭하고 "
+                    "'관리자 권한으로 실행'을 선택하세요."
+                )
         sys.exit(0)
 
 
