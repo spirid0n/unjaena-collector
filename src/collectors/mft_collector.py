@@ -101,13 +101,16 @@ class MFTCollector:
     # Buffer size for file reading
     CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 
-    def __init__(self, volume: str, output_dir: str):
+    def __init__(self, volume: str, output_dir: str, disk_reader=None):
         """
         Initialize MFT Collector.
 
         Args:
             volume: Drive letter (e.g., 'C')
             output_dir: Directory to store collected artifacts
+            disk_reader: Optional UnifiedDiskReader for BitLocker decrypted volumes
+                         Note: Currently not directly integrated with pytsk3,
+                         will fall back to standard volume access if provided.
         """
         if not PYTSK3_AVAILABLE:
             raise RuntimeError("pytsk3 library is required for MFT collection")
@@ -115,9 +118,17 @@ class MFTCollector:
         self.volume = volume.upper().rstrip(':')
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.disk_reader = disk_reader  # BitLocker decrypted reader (for future use)
 
         self.img = None
         self.fs = None
+
+        # If disk_reader is provided (BitLocker decrypted), skip direct pytsk3 access
+        # TODO: Implement custom pytsk3 Img_Info wrapper for decrypted readers
+        if disk_reader:
+            print("[INFO] BitLocker decrypted reader provided - MFT collection may be limited")
+            print("[INFO] Will attempt standard volume access after decryption")
+
         self._open_volume()
 
     def _open_volume(self):
