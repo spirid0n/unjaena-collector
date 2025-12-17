@@ -23,6 +23,19 @@ from core.encryptor import FileEncryptor
 from core.uploader import SyncUploader
 from collectors.artifact_collector import ArtifactCollector, ARTIFACT_TYPES
 
+# BitLocker 지원
+try:
+    from utils.bitlocker import (
+        detect_bitlocker_on_system_drive,
+        BitLockerDecryptor,
+        BitLockerKeyType,
+        is_pybde_installed,
+        BitLockerError
+    )
+    BITLOCKER_AVAILABLE = True
+except ImportError:
+    BITLOCKER_AVAILABLE = False
+
 # 서버 아티팩트 이름 -> Collector 아티팩트 이름 매핑
 # 서버는 ArtifactType enum 이름을 사용하고, Collector는 짧은 이름을 사용
 SERVER_TO_COLLECTOR_MAPPING = {
@@ -1059,6 +1072,99 @@ class CollectorWindow(QMainWindow):
         # 동의 기록 저장
         self.consent_record = consent_record
         self._log(f"Legal consent obtained: {consent_record['consent_hash'][:16]}...")
+
+        # BitLocker 감지 및 복호화 처리
+        bitlocker_decryptor = None
+        bitlocker_info = None
+
+        if BITLOCKER_AVAILABLE:
+            self._log("BitLocker 암호화 볼륨 확인 중...")
+            bitlocker_result = detect_bitlocker_on_system_drive()
+
+            if bitlocker_result.is_encrypted:
+                self._log(f"BitLocker 암호화 볼륨 감지됨 (파티션 #{bitlocker_result.partition_index})")
+
+                # BitLocker 다이얼로그 표시
+                from gui.bitlocker_dialog import show_bitlocker_dialog
+
+                dialog_result = show_bitlocker_dialog(
+                    partition_info={
+                        'partition_index': bitlocker_result.partition_index,
+                        'partition_offset': bitlocker_result.partition_offset,
+                        'partition_size': bitlocker_result.partition_size,
+                        'encryption_method': bitlocker_result.encryption_method,
+                    },
+                    pybde_available=is_pybde_installed(),
+                    parent=self
+                )
+
+                if dialog_result.success and not dialog_result.skip:
+                    # 복호화 시도
+                    self._log(f"BitLocker 복호화 시도 중... (키 타입: {dialog_result.key_type})")
+
+                    try:
+                        decryptor = BitLockerDecryptor.from_physical_disk(
+                            drive_number=0,
+                            partition_index=bitlocker_result.partition_index
+                        )
+
+                        # 키 타입에 따라 복호화
+                        if dialog_result.key_type == "recovery_password":
+                            unlock_result = decryptor.unlock_with_recovery_password(
+                                dialog_result.key_value
+                            )
+                        elif dialog_result.key_type == "password":
+                            unlock_result = decryptor.unlock_with_password(
+                                dialog_result.key_value
+                            )
+                        elif dialog_result.key_type == "bek_file":
+                            unlock_result = decryptor.unlock_with_bek_file(
+                                dialog_result.bek_path
+                            )
+                        else:
+                            unlock_result = None
+
+                        if unlock_result and unlock_result.success:
+                            bitlocker_decryptor = decryptor
+                            bitlocker_info = unlock_result.volume_info
+                            self._log("BitLocker 복호화 성공! 암호화된 볼륨에서 수집을 진행합니다.")
+                        else:
+                            error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                            self._log(f"BitLocker 복호화 실패: {error_msg}", error=True)
+                            QMessageBox.warning(
+                                self,
+                                "BitLocker 복호화 실패",
+                                f"복호화에 실패했습니다: {error_msg}\n\n"
+                                "이전 방식(암호화된 상태)으로 수집을 진행합니다."
+                            )
+                            # decryptor 정리
+                            decryptor.close()
+
+                    except BitLockerError as e:
+                        self._log(f"BitLocker 오류: {e}", error=True)
+                        QMessageBox.warning(
+                            self,
+                            "BitLocker 오류",
+                            f"BitLocker 처리 중 오류가 발생했습니다:\n{e}\n\n"
+                            "이전 방식으로 수집을 진행합니다."
+                        )
+                    except Exception as e:
+                        self._log(f"예상치 못한 오류: {e}", error=True)
+                        QMessageBox.warning(
+                            self,
+                            "오류",
+                            f"오류가 발생했습니다:\n{e}\n\n"
+                            "이전 방식으로 수집을 진행합니다."
+                        )
+
+                elif dialog_result.skip:
+                    self._log("BitLocker 복호화를 건너뛰고 암호화된 상태로 수집을 진행합니다.")
+                else:
+                    # 취소됨
+                    self._log("BitLocker 다이얼로그가 취소되었습니다.")
+            else:
+                self._log("BitLocker 암호화 볼륨이 감지되지 않았습니다.")
+
         self._log(f"Starting collection for: {', '.join(selected)}")
 
         # Disable controls
@@ -1084,6 +1190,8 @@ class CollectorWindow(QMainWindow):
             # Phase 2.1: 메모리/모바일 옵션
             android_device_serial=android_serial,
             ios_backup_path=ios_backup,
+            # BitLocker 복호화된 볼륨
+            bitlocker_decryptor=bitlocker_decryptor,
         )
         self.worker.progress_updated.connect(self._update_progress)
         self.worker.file_collected.connect(self._add_collected_file)
@@ -1210,6 +1318,8 @@ class CollectionWorker(QThread):
         android_device_serial: str = None,
         ios_backup_path: str = None,
         memory_dump_path: str = None,
+        # BitLocker 복호화된 볼륨
+        bitlocker_decryptor=None,
     ):
         super().__init__()
         self.server_url = server_url
@@ -1225,6 +1335,9 @@ class CollectionWorker(QThread):
         self.android_device_serial = android_device_serial
         self.ios_backup_path = ios_backup_path
         self.memory_dump_path = memory_dump_path
+
+        # BitLocker 복호화된 볼륨
+        self.bitlocker_decryptor = bitlocker_decryptor
 
         # P2-1: 시간 추적
         self._start_time = None
@@ -1283,7 +1396,16 @@ class CollectionWorker(QThread):
             import tempfile
             output_dir = tempfile.mkdtemp(prefix="forensic_")
 
-            collector = ArtifactCollector(output_dir)
+            # BitLocker 복호화된 볼륨이 있으면 decrypted_reader 전달
+            decrypted_reader = None
+            if self.bitlocker_decryptor:
+                try:
+                    decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
+                    self.log_message.emit("BitLocker 복호화된 볼륨을 사용합니다.", False)
+                except Exception as e:
+                    self.log_message.emit(f"BitLocker 볼륨 접근 실패: {e}", True)
+
+            collector = ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
             encryptor = FileEncryptor()
 
             # ========================================
@@ -1442,3 +1564,12 @@ class CollectionWorker(QThread):
 
         except Exception as e:
             self.finished.emit(False, f"오류 발생: {str(e)}")
+
+        finally:
+            # BitLocker decryptor 리소스 정리
+            if self.bitlocker_decryptor:
+                try:
+                    self.bitlocker_decryptor.close()
+                    self.log_message.emit("BitLocker 리소스 정리 완료", False)
+                except Exception as e:
+                    self.log_message.emit(f"BitLocker 정리 중 오류: {e}", True)
