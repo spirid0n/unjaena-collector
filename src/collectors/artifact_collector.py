@@ -526,9 +526,19 @@ class ArtifactCollector:
     - OS 잠금 파일 수집 가능
     - MFT Entry 메타데이터 보존
     - 포렌식 무결성 확보
+
+    BitLocker 지원:
+    - decrypted_reader 파라미터로 복호화된 볼륨 전달 가능
+    - 복호화된 볼륨에서 MFT 기반 수집 수행
     """
 
-    def __init__(self, output_dir: str, use_mft: bool = True, volume: str = 'C'):
+    def __init__(
+        self,
+        output_dir: str,
+        use_mft: bool = True,
+        volume: str = 'C',
+        decrypted_reader=None  # BitLocker 복호화된 UnifiedDiskReader
+    ):
         """
         Initialize the collector.
 
@@ -536,17 +546,28 @@ class ArtifactCollector:
             output_dir: Directory to store collected artifacts
             use_mft: Whether to use MFT-based collection (default: True)
             volume: Volume to collect from (default: 'C')
+            decrypted_reader: BitLocker 복호화된 디스크 리더 (선택적)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.volume = volume
         self.use_mft = use_mft and MFT_AVAILABLE
         self.mft_collector: Optional[MFTCollector] = None
+        self.decrypted_reader = decrypted_reader  # BitLocker 복호화된 볼륨
 
         # Initialize MFT collector if available
         if self.use_mft:
             try:
-                self.mft_collector = MFTCollector(volume, str(output_dir))
+                # BitLocker 복호화된 볼륨이 있으면 해당 볼륨 사용
+                if self.decrypted_reader:
+                    print("[INFO] Using BitLocker decrypted volume for MFT collection")
+                    self.mft_collector = MFTCollector(
+                        volume,
+                        str(output_dir),
+                        disk_reader=self.decrypted_reader
+                    )
+                else:
+                    self.mft_collector = MFTCollector(volume, str(output_dir))
                 self.collection_mode = 'mft'
             except Exception as e:
                 print(f"[WARNING] MFT collection unavailable: {e}")
