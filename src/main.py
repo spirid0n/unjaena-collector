@@ -36,16 +36,21 @@ def get_secure_config() -> dict:
         COLLECTOR_DEV_MODE=false
         COLLECTOR_SERVER_URL=https://your-server.com
         COLLECTOR_WS_URL=wss://your-server.com
+
+    개발 환경에서는:
+        COLLECTOR_DEV_MODE=true
+        COLLECTOR_ALLOW_INSECURE=true
     """
-    # 기본값을 개발 모드(HTTP)로 변경 - localhost에서 HTTPS 인증서 오류 방지
+    # [테스트 모드] 기본값을 개발 모드(HTTP)로 설정
+    # 프로덕션 배포 시 환경변수로 dev_mode=false 설정 필요
     dev_mode = os.environ.get('COLLECTOR_DEV_MODE', 'true').lower() == 'true'
     allow_insecure = os.environ.get('COLLECTOR_ALLOW_INSECURE', 'true').lower() == 'true'
 
-    # 환경변수에서 URL 가져오기 (기본값은 HTTP - 개발 환경 친화적)
+    # [테스트 모드] 기본 URL을 HTTP/WS로 변경 (인증서 없이 테스트 가능)
     server_url = os.environ.get('COLLECTOR_SERVER_URL', 'http://localhost:8000')
     ws_url = os.environ.get('COLLECTOR_WS_URL', 'ws://localhost:8000')
 
-    # 개발 모드에서만 HTTP/WS 허용
+    # 프로덕션 모드에서만 HTTPS/WSS 강제
     if not dev_mode and not allow_insecure:
         if server_url.startswith('http://'):
             # 프로덕션에서 HTTP 감지 시 경고 및 HTTPS로 변환 시도

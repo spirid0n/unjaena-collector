@@ -111,16 +111,6 @@ SERVER_TO_COLLECTOR_MAPPING = {
     'service': 'registry',
     'scheduled_task': 'registry',
 
-    # === 메모리 포렌식 ===
-    'memory_dump': 'memory_dump',
-    'memory_process': 'memory_process',
-    'memory_network': 'memory_network',
-    'memory_module': 'memory_module',
-    'memory_handle': 'memory_handle',
-    'memory_registry': 'memory_registry',
-    'memory_credential': 'memory_credential',
-    'memory_malware': 'memory_malware',
-
     # === Android 포렌식 ===
     'mobile_android_sms': 'mobile_android_sms',
     'mobile_android_call': 'mobile_android_call',
@@ -284,15 +274,11 @@ class CollectorWindow(QMainWindow):
         windows_tab = self._create_windows_tab()
         self.artifacts_tab.addTab(windows_tab, "Windows")
 
-        # Tab 2: Memory Forensics
-        memory_tab = self._create_memory_tab()
-        self.artifacts_tab.addTab(memory_tab, "Memory")
-
-        # Tab 3: Android
+        # Tab 2: Android
         android_tab = self._create_android_tab()
         self.artifacts_tab.addTab(android_tab, "Android")
 
-        # Tab 4: iOS
+        # Tab 3: iOS
         ios_tab = self._create_ios_tab()
         self.artifacts_tab.addTab(ios_tab, "iOS")
 
@@ -465,8 +451,8 @@ class CollectorWindow(QMainWindow):
             category = info.get('category', 'windows')
             if category != 'windows' and 'category' in info:
                 continue
-            # 메모리/모바일 제외
-            if artifact_type.startswith(('memory_', 'mobile_')):
+            # 모바일 제외 (별도 탭)
+            if artifact_type.startswith('mobile_'):
                 continue
 
             cb = QCheckBox(f"{info['name']}")
@@ -478,96 +464,6 @@ class CollectorWindow(QMainWindow):
                 tooltip_parts.append("Requires administrator privileges")
             if info.get('requires_mft'):
                 tooltip_parts.append("Requires MFT collection (pytsk3)")
-            cb.setToolTip(" | ".join(tooltip_parts))
-
-            self.artifact_checks[artifact_type] = cb
-            content_layout.addWidget(cb)
-
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll)
-
-        return tab
-
-    def _create_memory_tab(self) -> QWidget:
-        """Create Memory Forensics tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(5, 5, 5, 5)
-
-        # 상태 정보 섹션
-        status_frame = QFrame()
-        status_frame.setStyleSheet("QFrame { background-color: #1a1a2e; border-radius: 4px; padding: 5px; }")
-        status_layout = QGridLayout(status_frame)
-
-        # 시스템 메모리 정보
-        try:
-            import psutil
-            mem = psutil.virtual_memory()
-            mem_gb = mem.total / (1024**3)
-            self.memory_size_label = QLabel(f"System Memory: {mem_gb:.1f} GB")
-        except ImportError:
-            self.memory_size_label = QLabel("System Memory: Unknown")
-        status_layout.addWidget(self.memory_size_label, 0, 0)
-
-        # WinPmem 상태
-        from collectors.artifact_collector import MEMORY_AVAILABLE, VOLATILITY_AVAILABLE
-        winpmem_status = "Available" if MEMORY_AVAILABLE else "Not Found"
-        self.winpmem_status_label = QLabel(f"WinPmem: {winpmem_status}")
-        self.winpmem_status_label.setStyleSheet(
-            f"color: {'#4cc9f0' if MEMORY_AVAILABLE else '#ff6b6b'};"
-        )
-        status_layout.addWidget(self.winpmem_status_label, 0, 1)
-
-        # Volatility 상태
-        vol_status = "Available" if VOLATILITY_AVAILABLE else "Not Installed"
-        self.volatility_status_label = QLabel(f"Volatility3: {vol_status}")
-        self.volatility_status_label.setStyleSheet(
-            f"color: {'#4cc9f0' if VOLATILITY_AVAILABLE else '#ff6b6b'};"
-        )
-        status_layout.addWidget(self.volatility_status_label, 1, 0)
-
-        # 예상 덤프 시간
-        try:
-            import psutil
-            mem_gb = psutil.virtual_memory().total / (1024**3)
-            est_time = int(mem_gb * 1.5)  # ~1.5분/GB
-            self.dump_time_label = QLabel(f"Est. Dump Time: ~{est_time} min")
-        except ImportError:
-            self.dump_time_label = QLabel("Est. Dump Time: Unknown")
-        status_layout.addWidget(self.dump_time_label, 1, 1)
-
-        layout.addWidget(status_frame)
-
-        # 관리자 권한 경고
-        admin_warning = QLabel("Warning: Memory acquisition requires administrator privileges")
-        admin_warning.setStyleSheet("color: #ffc107; font-size: 11px;")
-        layout.addWidget(admin_warning)
-
-        # 스크롤 영역
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
-        content = QWidget()
-        content.setStyleSheet("background: transparent;")
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(2)
-
-        # 메모리 카테고리 아티팩트
-        for artifact_type, info in ARTIFACT_TYPES.items():
-            if info.get('category') != 'memory':
-                continue
-
-            cb = QCheckBox(f"{info['name']}")
-            cb.setEnabled(False)  # Enable after token validation
-            cb.setProperty("artifact_type", artifact_type)
-
-            tooltip_parts = [info.get('description', '')]
-            if info.get('requires_volatility'):
-                tooltip_parts.append("Requires Volatility3")
             cb.setToolTip(" | ".join(tooltip_parts))
 
             self.artifact_checks[artifact_type] = cb
@@ -971,7 +867,7 @@ class CollectorWindow(QMainWindow):
 
         # 현재 탭 인덱스에 따라 카테고리 결정
         current_tab = self.artifacts_tab.currentIndex()
-        category_map = {0: 'windows', 1: 'memory', 2: 'android', 3: 'ios'}
+        category_map = {0: 'windows', 1: 'android', 2: 'ios'}
         current_category = category_map.get(current_tab, 'windows')
 
         for artifact_type, cb in self.artifact_checks.items():
@@ -982,9 +878,9 @@ class CollectorWindow(QMainWindow):
             artifact_info = ARTIFACT_TYPES.get(artifact_type, {})
             artifact_category = artifact_info.get('category', 'windows')
 
-            # Windows 탭: category가 없거나 'windows'인 것, 메모리/모바일 제외
+            # Windows 탭: category가 없거나 'windows'인 것, 모바일 제외
             if current_category == 'windows':
-                if artifact_type.startswith(('memory_', 'mobile_')):
+                if artifact_type.startswith('mobile_'):
                     continue
                 if artifact_category not in ('windows', None) and 'category' in artifact_info:
                     continue
@@ -1009,7 +905,9 @@ class CollectorWindow(QMainWindow):
         result = validator.validate(token)
 
         if result.valid:
-            self.session_token = token
+            # [보안] 원본 세션 토큰은 저장하지 않음 (검증 완료 후 불필요)
+            # 필요한 정보만 유지: session_id, case_id, collection_token
+            self.session_token = None  # 메모리에서 원본 토큰 제거
             self.session_id = result.session_id
             self.case_id = result.case_id
             self.collection_token = result.collection_token
@@ -1314,10 +1212,9 @@ class CollectionWorker(QThread):
         case_id: str,
         artifacts: List[str],
         consent_record: dict = None,
-        # Phase 2.1: 메모리/모바일 옵션
+        # Phase 2.1: 모바일 옵션
         android_device_serial: str = None,
         ios_backup_path: str = None,
-        memory_dump_path: str = None,
         # BitLocker 복호화된 볼륨
         bitlocker_decryptor=None,
     ):
@@ -1331,10 +1228,9 @@ class CollectionWorker(QThread):
         self.consent_record = consent_record  # P0 법적 필수
         self._cancelled = False
 
-        # Phase 2.1: 메모리/모바일 옵션
+        # Phase 2.1: 모바일 옵션
         self.android_device_serial = android_device_serial
         self.ios_backup_path = ios_backup_path
-        self.memory_dump_path = memory_dump_path
 
         # BitLocker 복호화된 볼륨
         self.bitlocker_decryptor = bitlocker_decryptor
@@ -1441,24 +1337,27 @@ class CollectionWorker(QThread):
                         collect_kwargs['device_serial'] = self.android_device_serial
                     elif category == 'ios' and self.ios_backup_path:
                         collect_kwargs['backup_path'] = self.ios_backup_path
-                    elif category == 'memory' and artifact_type != 'memory_dump':
-                        # 메모리 분석은 덤프 경로 필요
-                        if self.memory_dump_path:
-                            collect_kwargs['memory_dump_path'] = self.memory_dump_path
 
                     files = list(collector.collect(artifact_type, **collect_kwargs))
+
+                    # [Phase 4] 수집 결과 상세 로깅
+                    if not files:
+                        self.log_message.emit(f"⚠️ {artifact_type}: 파일을 찾을 수 없습니다", True)
+                    else:
+                        self.log_message.emit(f"✓ {artifact_type}: {len(files)}개 파일 수집됨", False)
+
                     for file_path, metadata in files:
                         if self._cancelled:
                             break
                         collected_raw_files.append((file_path, artifact_type, metadata))
                         self.file_collected.emit(Path(file_path).name, True)
 
-                        # 메모리 덤프 완료 시 경로 저장 (분석에 사용)
-                        if artifact_type == 'memory_dump':
-                            self.memory_dump_path = file_path
-
                 except Exception as e:
+                    import traceback
+                    import logging
                     self.log_message.emit(f"수집 실패 ({artifact_type}): {e}", True)
+                    # 보안: 스택 트레이스는 logging 모듈로 레벨 제어 (stdout 노출 방지)
+                    logging.debug(f"Collection error for {artifact_type}: {e}")
 
             if self._cancelled:
                 self.finished.emit(False, "수집이 취소되었습니다")
@@ -1549,8 +1448,13 @@ class CollectionWorker(QThread):
                 result = uploader.upload_file(file_path, artifact_type, metadata)
                 if result.success:
                     success_count += 1
+                    self.log_message.emit(f"✓ 업로드 성공: {filename}", False)
                 else:
-                    self.log_message.emit(f"업로드 실패: {result.error}", True)
+                    # [Phase 4] 업로드 실패 상세 로깅
+                    self.log_message.emit(f"✗ 업로드 실패 ({artifact_type}): {result.error}", True)
+                    # 보안: 디버그 정보는 logging 모듈로 레벨 제어
+                    import logging
+                    logging.debug(f"Upload failed: artifact={artifact_type}, error={result.error}")
 
             # 완료
             elapsed = time.time() - self._start_time
