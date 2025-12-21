@@ -210,11 +210,16 @@ class ConsentDialog(QDialog):
             hostname = "unknown"
             ip_address = "unknown"
 
+        # [보안] 개인정보 보호: IP 주소와 호스트명을 해시 처리
+        # 원본 값 대신 해시값만 저장하여 개인정보 노출 방지
+        hostname_hash = hashlib.sha256(hostname.encode()).hexdigest()[:16]
+        ip_hash = hashlib.sha256(ip_address.encode()).hexdigest()[:16]
+
         record = {
             "consent_timestamp": timestamp,
-            "consent_version": "1.0",
-            "hostname": hostname,
-            "ip_address": ip_address,
+            "consent_version": "1.1",  # 버전 업데이트 (해시 처리 적용)
+            "hostname_hash": hostname_hash,  # 원본 대신 해시
+            "ip_hash": ip_hash,  # 원본 대신 해시
             "checks": {
                 "authority_confirmed": self.check_authority.isChecked(),
                 "data_consent": self.check_data_consent.isChecked(),
@@ -222,8 +227,8 @@ class ConsentDialog(QDialog):
             }
         }
 
-        # 동의 기록 해시 (무결성)
-        record_str = f"{timestamp}|{hostname}|{ip_address}|authority|data|legal"
+        # 동의 기록 해시 (무결성) - 해시값 사용
+        record_str = f"{timestamp}|{hostname_hash}|{ip_hash}|authority|data|legal"
         record["consent_hash"] = hashlib.sha256(record_str.encode()).hexdigest()
 
         return record

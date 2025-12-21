@@ -172,6 +172,34 @@ class MFTCollector:
         except (OSError, ValueError, OverflowError):
             return None
 
+    def _get_entry_name_bytes(self, name_info) -> Optional[bytes]:
+        """
+        안전하게 entry.info.name에서 파일명 bytes를 추출.
+
+        pytsk3 버전에 따라 name_info가:
+        - TSK_FS_NAME 객체 (.name 속성 있음)
+        - bytes 객체 (직접 사용)
+        일 수 있음.
+
+        Args:
+            name_info: entry.info.name 값
+
+        Returns:
+            파일명 bytes 또는 None
+        """
+        if name_info is None:
+            return None
+
+        # bytes인 경우 직접 반환
+        if isinstance(name_info, bytes):
+            return name_info
+
+        # 객체인 경우 .name 속성 사용
+        if hasattr(name_info, 'name'):
+            return name_info.name
+
+        return None
+
     def get_mft_entry_info(self, entry) -> Optional[MFTEntryInfo]:
         """
         Extract MFT entry information from pytsk3 file object.
@@ -184,17 +212,22 @@ class MFTCollector:
         """
         try:
             meta = entry.info.meta
-            name = entry.info.name
+            name_info = entry.info.name
 
-            if meta is None or name is None:
+            if meta is None or name_info is None:
+                return None
+
+            # 안전하게 파일명 bytes 추출
+            name_bytes = self._get_entry_name_bytes(name_info)
+            if name_bytes is None:
                 return None
 
             # Skip special entries
-            if name.name in [b'.', b'..']:
+            if name_bytes in [b'.', b'..']:
                 return None
 
             # Decode filename
-            filename = name.name.decode('utf-8', errors='replace')
+            filename = name_bytes.decode('utf-8', errors='replace')
 
             # Determine if deleted
             is_allocated = bool(meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
@@ -210,7 +243,7 @@ class MFTCollector:
             is_directory = bool(meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
 
             # Get parent entry number
-            parent_entry = name.par_addr if hasattr(name, 'par_addr') else 0
+            parent_entry = name_info.par_addr if hasattr(name_info, 'par_addr') else 0
 
             return MFTEntryInfo(
                 entry_number=meta.addr,
@@ -258,12 +291,14 @@ class MFTCollector:
             # Open file through filesystem
             file_obj = self.fs.open(path)
 
-            if file_obj.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
-                # It's a directory - collect all files
-                for entry in self._walk_directory(file_obj, path):
-                    if entry.info.meta and entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_REG:
-                        for result in self._extract_file(entry, f"/{path}", artifact_type):
-                            yield result
+            if file_obj.info.meta and file_obj.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
+                # It's a directory - collect all files (use open_dir for proper listing)
+                dir_obj = self.fs.open_dir(f"/{path}")
+                for entry in self._walk_directory(dir_obj, path):
+                    if hasattr(entry.info, 'meta') and entry.info.meta:
+                        if entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_REG:
+                            for result in self._extract_file(entry, f"/{path}", artifact_type):
+                                yield result
             else:
                 # Single file
                 for result in self._extract_file(file_obj, path, artifact_type):
@@ -297,17 +332,22 @@ class MFTCollector:
             # Normalize path
             base_path = base_path.replace('\\', '/').strip('/')
 
-            # Open directory
-            dir_obj = self.fs.open(f"/{base_path}")
+            # Open directory (use open_dir for proper directory listing)
+            dir_obj = self.fs.open_dir(f"/{base_path}")
 
             for entry in self._walk_directory(dir_obj, base_path, include_deleted):
-                if entry.info.meta is None:
+                # meta 속성 존재 확인
+                if not hasattr(entry.info, 'meta') or entry.info.meta is None:
                     continue
 
                 if entry.info.meta.type != pytsk3.TSK_FS_META_TYPE_REG:
                     continue
 
-                filename = entry.info.name.name.decode('utf-8', errors='replace')
+                # 안전하게 파일명 bytes 추출
+                name_bytes = self._get_entry_name_bytes(entry.info.name)
+                if name_bytes is None:
+                    continue
+                filename = name_bytes.decode('utf-8', errors='replace')
 
                 # Match pattern
                 if fnmatch.fnmatch(filename.lower(), pattern.lower()):
@@ -343,17 +383,26 @@ class MFTCollector:
         """
         try:
             for entry in directory:
-                if entry.info.name is None:
+                # pytsk3.TSK_FS_ATTR 객체는 info.name 속성이 없음 - 건너뜀
+                if not hasattr(entry, 'info') or entry.info is None:
                     continue
 
-                name = entry.info.name.name.decode('utf-8', errors='replace')
+                if not hasattr(entry.info, 'name') or entry.info.name is None:
+                    continue
+
+                # 안전하게 파일명 bytes 추출
+                name_bytes = self._get_entry_name_bytes(entry.info.name)
+                if name_bytes is None:
+                    continue
+
+                name = name_bytes.decode('utf-8', errors='replace')
 
                 # Skip special entries
                 if name in ['.', '..']:
                     continue
 
-                # Check if deleted
-                if entry.info.meta:
+                # Check if deleted (meta가 있는 경우에만)
+                if hasattr(entry.info, 'meta') and entry.info.meta:
                     is_allocated = bool(entry.info.meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
                     if not include_deleted and not is_allocated:
                         continue
@@ -361,13 +410,14 @@ class MFTCollector:
                 yield entry
 
                 # Recursive subdirectory walk
-                if recursive and entry.info.meta and entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
-                    subdir_path = f"{path}/{name}"
-                    try:
-                        subdir = self.fs.open(f"/{subdir_path}")
-                        yield from self._walk_directory(subdir, subdir_path, include_deleted, recursive)
-                    except Exception:
-                        continue
+                if recursive and hasattr(entry.info, 'meta') and entry.info.meta:
+                    if entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
+                        subdir_path = f"{path}/{name}"
+                        try:
+                            subdir = self.fs.open_dir(f"/{subdir_path}")
+                            yield from self._walk_directory(subdir, subdir_path, include_deleted, recursive)
+                        except Exception:
+                            continue
 
         except Exception as e:
             print(f"[MFT] Error walking directory {path}: {e}")
@@ -704,7 +754,10 @@ class MFTCollector:
 
                 # Check extension
                 if extensions:
-                    filename = entry.info.name.name.decode('utf-8', errors='replace')
+                    name_bytes = self._get_entry_name_bytes(entry.info.name)
+                    if name_bytes is None:
+                        continue
+                    filename = name_bytes.decode('utf-8', errors='replace')
                     ext = Path(filename).suffix.lower()
                     if ext not in [e.lower() for e in extensions]:
                         continue

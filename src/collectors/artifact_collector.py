@@ -19,7 +19,17 @@ from pathlib import Path
 from datetime import datetime
 from typing import Generator, Tuple, Dict, Any, Optional, List
 
-# Try to import MFT collector
+# Try to import ForensicDiskAccessor (순수 Python - 우선)
+try:
+    from collectors.forensic_disk import (
+        ForensicDiskAccessor,
+        FORENSIC_DISK_AVAILABLE
+    )
+except ImportError:
+    FORENSIC_DISK_AVAILABLE = False
+    ForensicDiskAccessor = None
+
+# Try to import MFT collector (pytsk3 - 폴백)
 try:
     from collectors.mft_collector import (
         MFTCollector, MFT_ARTIFACT_TYPES,
@@ -29,19 +39,6 @@ try:
 except ImportError:
     MFT_AVAILABLE = False
     MFTCollector = None
-
-# Try to import Memory collector
-try:
-    from collectors.memory_collector import (
-        MemoryCollector, MEMORY_ARTIFACT_TYPES,
-        is_admin as is_memory_admin,
-        get_winpmem_path, VOLATILITY_AVAILABLE
-    )
-    MEMORY_AVAILABLE = get_winpmem_path() is not None
-except ImportError:
-    MEMORY_AVAILABLE = False
-    MEMORY_ARTIFACT_TYPES = {}
-    VOLATILITY_AVAILABLE = False
 
 # Try to import Android collector
 try:
@@ -283,96 +280,6 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # Memory Forensics Artifacts (Phase 2.1)
-    # =========================================================================
-    'memory_dump': {
-        'name': 'Memory Dump',
-        'description': 'Full physical memory acquisition using WinPmem',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'collector': 'collect_memory_dump',
-    },
-    'memory_process': {
-        'name': 'Process List',
-        'description': 'Running processes from memory (Volatility3 pslist)',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'process',
-    },
-    'memory_network': {
-        'name': 'Network Connections',
-        'description': 'Active network connections from memory (Volatility3 netstat)',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'network',
-    },
-    'memory_module': {
-        'name': 'Loaded Modules',
-        'description': 'DLLs and modules loaded in memory (Volatility3 dlllist)',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'module',
-    },
-    'memory_handle': {
-        'name': 'Handles',
-        'description': 'Open handles (files, registry, etc.)',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'handle',
-    },
-    'memory_registry': {
-        'name': 'Registry Hives (Memory)',
-        'description': 'Registry hives loaded in memory',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'registry',
-    },
-    'memory_credential': {
-        'name': 'Credentials',
-        'description': 'Password hashes and credentials from memory',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'credential',
-    },
-    'memory_malware': {
-        'name': 'Malware Detection',
-        'description': 'Suspicious memory regions and injected code (malfind + YARA)',
-        'paths': [],
-        'category': 'memory',
-        'requires_admin': True,
-        'requires_memory': True,
-        'requires_volatility': True,
-        'collector': 'collect_memory_analysis',
-        'analysis_type': 'malware',
-    },
-
-    # =========================================================================
     # Android Forensics Artifacts (Phase 2.1)
     # =========================================================================
     'mobile_android_sms': {
@@ -512,24 +419,175 @@ ARTIFACT_TYPES = {
         'collector': 'collect_ios',
         'artifact_key': 'backup',
     },
+
+    # =========================================================================
+    # 추가 Windows 아티팩트 (Phase 6)
+    # =========================================================================
+    'jumplist': {
+        'name': 'Jump Lists',
+        'description': 'Recent/pinned items in taskbar (AutomaticDestinations, CustomDestinations)',
+        'paths': [
+            r'%APPDATA%\Microsoft\Windows\Recent\AutomaticDestinations\*.automaticDestinations-ms',
+            r'%APPDATA%\Microsoft\Windows\Recent\CustomDestinations\*.customDestinations-ms',
+        ],
+        'mft_config': {
+            'user_path': 'AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations',
+            'pattern': '*.automaticDestinations-ms',
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    'shortcut': {
+        'name': 'Shortcut Files (LNK)',
+        'description': 'Desktop, Start Menu, Startup shortcuts',
+        'paths': [
+            r'%USERPROFILE%\Desktop\*.lnk',
+            r'%APPDATA%\Microsoft\Windows\Start Menu\Programs\*.lnk',
+            r'%APPDATA%\Microsoft\Windows\Start Menu\Programs\**\*.lnk',
+            r'%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\*.lnk',
+            r'%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\*.lnk',
+            r'%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\**\*.lnk',
+        ],
+        'mft_config': {
+            'user_path': 'Desktop',
+            'pattern': '*.lnk',
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    'scheduled_task': {
+        'name': 'Scheduled Tasks',
+        'description': 'Windows Task Scheduler XML definitions',
+        'paths': [
+            r'C:\Windows\System32\Tasks\*',
+            r'C:\Windows\System32\Tasks\**\*',
+        ],
+        'mft_config': {
+            'base_path': 'Windows/System32/Tasks',
+            'pattern': '*',
+            'recursive': True,
+        },
+        'requires_admin': True,
+        'collector': 'collect_glob',
+    },
+    'shellbags': {
+        'name': 'ShellBags (USRCLASS.DAT)',
+        'description': 'Explorer folder browsing history from UsrClass.dat',
+        'paths': [],  # Dynamic per user
+        'mft_config': {
+            'user_path': 'AppData/Local/Microsoft/Windows/UsrClass.dat',
+        },
+        'requires_admin': False,
+        'collector': 'collect_usrclass',
+    },
+    'thumbcache': {
+        'name': 'Thumbnail Cache',
+        'description': 'Windows thumbnail cache (thumbcache_*.db)',
+        'paths': [
+            r'%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db',
+        ],
+        'mft_config': {
+            'user_path': 'AppData/Local/Microsoft/Windows/Explorer',
+            'pattern': 'thumbcache_*.db',
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    'document': {
+        'name': 'Documents',
+        'description': 'Office documents, PDFs, HWP files',
+        'paths': [
+            r'%USERPROFILE%\Documents\**\*.doc',
+            r'%USERPROFILE%\Documents\**\*.docx',
+            r'%USERPROFILE%\Documents\**\*.pdf',
+            r'%USERPROFILE%\Documents\**\*.hwp',
+            r'%USERPROFILE%\Documents\**\*.xls',
+            r'%USERPROFILE%\Documents\**\*.xlsx',
+            r'%USERPROFILE%\Documents\**\*.ppt',
+            r'%USERPROFILE%\Documents\**\*.pptx',
+        ],
+        'mft_config': {
+            'user_path': 'Documents',
+            'pattern': '*.*',
+            'extensions': ['.doc', '.docx', '.pdf', '.hwp', '.xls', '.xlsx', '.ppt', '.pptx'],
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    'email': {
+        'name': 'Email Files',
+        'description': 'Outlook PST/OST, EML, MSG files',
+        'paths': [
+            r'%LOCALAPPDATA%\Microsoft\Outlook\*.ost',
+            r'%USERPROFILE%\Documents\Outlook Files\*.pst',
+            r'%USERPROFILE%\**\*.eml',
+            r'%USERPROFILE%\**\*.msg',
+        ],
+        'mft_config': {
+            'user_path': 'AppData/Local/Microsoft/Outlook',
+            'pattern': '*.ost',
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    # 'compress' 아티팩트 제거됨 - 서버에서 압축파일 분석 미지원
+    'image': {
+        'name': 'Image Files',
+        'description': 'JPEG, PNG, GIF, BMP image files',
+        'paths': [
+            r'%USERPROFILE%\Pictures\**\*.jpg',
+            r'%USERPROFILE%\Pictures\**\*.jpeg',
+            r'%USERPROFILE%\Pictures\**\*.png',
+            r'%USERPROFILE%\Pictures\**\*.gif',
+            r'%USERPROFILE%\Pictures\**\*.bmp',
+        ],
+        'mft_config': {
+            'user_path': 'Pictures',
+            'pattern': '*.*',
+            'extensions': ['.jpg', '.jpeg', '.png', '.gif', '.bmp'],
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
+    'video': {
+        'name': 'Video Files',
+        'description': 'MP4, AVI, MOV, WMV video files',
+        'paths': [
+            r'%USERPROFILE%\Videos\**\*.mp4',
+            r'%USERPROFILE%\Videos\**\*.avi',
+            r'%USERPROFILE%\Videos\**\*.mov',
+            r'%USERPROFILE%\Videos\**\*.wmv',
+            r'%USERPROFILE%\Videos\**\*.mkv',
+        ],
+        'mft_config': {
+            'user_path': 'Videos',
+            'pattern': '*.*',
+            'extensions': ['.mp4', '.avi', '.mov', '.wmv', '.mkv'],
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+    },
 }
 
 
 class ArtifactCollector:
     """
-    Forensic artifact collector with MFT support.
+    Forensic artifact collector with ForensicDiskAccessor and MFT support.
 
-    MFT 기반 수집을 우선 사용하며, 불가능한 경우 레거시 방식으로 폴백합니다.
+    수집 우선순위:
+    1. ForensicDiskAccessor (순수 Python, raw sector access) - 잠긴 파일 직접 읽기
+    2. MFTCollector (pytsk3) - MFT 기반 수집
+    3. Legacy (shutil) - 일반 파일 복사
 
-    MFT 수집의 장점:
-    - 삭제된 파일 복구 가능
+    ForensicDiskAccessor 장점:
+    - 순수 Python 구현 (외부 의존성 없음)
+    - MBR/GPT → VBR → MFT → Cluster Run 직접 파싱
     - OS 잠금 파일 수집 가능
-    - MFT Entry 메타데이터 보존
-    - 포렌식 무결성 확보
+    - ADS (Alternate Data Streams) 지원
+    - 삭제된 파일 복구 가능
 
     BitLocker 지원:
     - decrypted_reader 파라미터로 복호화된 볼륨 전달 가능
-    - 복호화된 볼륨에서 MFT 기반 수집 수행
     """
 
     def __init__(
@@ -551,14 +609,37 @@ class ArtifactCollector:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.volume = volume
-        self.use_mft = use_mft and MFT_AVAILABLE
-        self.mft_collector: Optional[MFTCollector] = None
-        self.decrypted_reader = decrypted_reader  # BitLocker 복호화된 볼륨
+        self.decrypted_reader = decrypted_reader
 
-        # Initialize MFT collector if available
-        if self.use_mft:
+        # Collectors
+        self.forensic_disk_accessor: Optional[ForensicDiskAccessor] = None
+        self.mft_collector: Optional[MFTCollector] = None
+        self.collection_mode = 'legacy'
+
+        # ==========================================================
+        # 우선순위 1: ForensicDiskAccessor (순수 Python)
+        # ==========================================================
+        if use_mft and FORENSIC_DISK_AVAILABLE and ForensicDiskAccessor is not None:
             try:
-                # BitLocker 복호화된 볼륨이 있으면 해당 볼륨 사용
+                # 물리 드라이브 번호 가져오기
+                drive_number = self._get_physical_drive_number()
+                if drive_number is not None:
+                    self.forensic_disk_accessor = ForensicDiskAccessor.from_physical_disk(drive_number)
+                    # 볼륨에 해당하는 파티션 선택
+                    partition_idx = self._find_partition_for_volume()
+                    if partition_idx is not None:
+                        self.forensic_disk_accessor.select_partition(partition_idx)
+                        self.collection_mode = 'forensic_disk_accessor'
+                        print(f"[INFO] ForensicDiskAccessor initialized for {self.volume}: (Drive {drive_number}, Partition {partition_idx})")
+            except Exception as e:
+                print(f"[WARNING] ForensicDiskAccessor unavailable: {e}")
+                self.forensic_disk_accessor = None
+
+        # ==========================================================
+        # 우선순위 2: MFTCollector (pytsk3) - 폴백
+        # ==========================================================
+        if self.collection_mode != 'forensic_disk_accessor' and use_mft and MFT_AVAILABLE:
+            try:
                 if self.decrypted_reader:
                     print("[INFO] Using BitLocker decrypted volume for MFT collection")
                     self.mft_collector = MFTCollector(
@@ -569,16 +650,166 @@ class ArtifactCollector:
                 else:
                     self.mft_collector = MFTCollector(volume, str(output_dir))
                 self.collection_mode = 'mft'
+                print("[INFO] MFTCollector (pytsk3) initialized")
             except Exception as e:
                 print(f"[WARNING] MFT collection unavailable: {e}")
-                print("[INFO] Falling back to legacy collection method")
-                self.use_mft = False
-                self.collection_mode = 'legacy'
-        else:
-            self.collection_mode = 'legacy'
+                self.mft_collector = None
+
+        # ==========================================================
+        # 우선순위 3: Legacy (shutil)
+        # ==========================================================
+        if self.collection_mode == 'legacy':
+            print("[INFO] Using legacy collection method (shutil)")
+
+        # 호환성을 위한 플래그
+        self.use_mft = self.collection_mode in ('forensic_disk_accessor', 'mft')
+
+    def _get_physical_drive_number(self) -> Optional[int]:
+        """볼륨 문자에서 물리 드라이브 번호 가져오기"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            # 볼륨 경로
+            volume_path = f"\\\\.\\{self.volume}:"
+
+            # 볼륨 열기
+            GENERIC_READ = 0x80000000
+            FILE_SHARE_READ = 0x00000001
+            FILE_SHARE_WRITE = 0x00000002
+            OPEN_EXISTING = 3
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.CreateFileW(
+                volume_path,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                0,
+                None
+            )
+
+            if handle == -1:
+                return None
+
+            # IOCTL로 디스크 익스텐트 정보 가져오기
+            IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
+
+            class DISK_EXTENT(ctypes.Structure):
+                _fields_ = [
+                    ("DiskNumber", wintypes.DWORD),
+                    ("StartingOffset", ctypes.c_int64),
+                    ("ExtentLength", ctypes.c_int64),
+                ]
+
+            class VOLUME_DISK_EXTENTS(ctypes.Structure):
+                _fields_ = [
+                    ("NumberOfDiskExtents", wintypes.DWORD),
+                    ("Extents", DISK_EXTENT * 1),
+                ]
+
+            extents = VOLUME_DISK_EXTENTS()
+            bytes_returned = wintypes.DWORD()
+
+            result = kernel32.DeviceIoControl(
+                handle,
+                IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+                None, 0,
+                ctypes.byref(extents),
+                ctypes.sizeof(extents),
+                ctypes.byref(bytes_returned),
+                None
+            )
+
+            kernel32.CloseHandle(handle)
+
+            if result and extents.NumberOfDiskExtents > 0:
+                return extents.Extents[0].DiskNumber
+
+            return None
+
+        except Exception as e:
+            print(f"[WARNING] Cannot get physical drive number: {e}")
+            return None
+
+    def _find_partition_for_volume(self) -> Optional[int]:
+        """
+        현재 볼륨에 해당하는 파티션 인덱스 찾기
+
+        BitLocker 암호화된 파티션은 건너뜁니다.
+        복호화되지 않은 BitLocker 볼륨은 raw sector 접근이 불가능합니다.
+        """
+        if not self.forensic_disk_accessor:
+            return None
+
+        try:
+            partitions = self.forensic_disk_accessor.list_partitions()
+
+            # 1. 볼륨 크기로 가장 큰 NTFS 파티션 찾기 (보통 메인 Windows 파티션)
+            # 2. BitLocker 암호화 파티션은 건너뜀
+            best_partition = None
+            best_size = 0
+
+            for i, part in enumerate(partitions):
+                # BitLocker 암호화된 파티션 건너뛰기
+                if part.filesystem in ('BitLocker', 'bitlocker'):
+                    print(f"[INFO] Partition {i} is BitLocker encrypted - skipping for ForensicDiskAccessor")
+                    continue
+
+                # Recovery 파티션 건너뛰기 (Windows 폴더가 없음)
+                if 'recovery' in part.type_name.lower():
+                    continue
+
+                # NTFS 파티션 중 가장 큰 것 선택
+                if part.filesystem in ('NTFS', 'ntfs'):
+                    if part.size > best_size:
+                        best_size = part.size
+                        best_partition = i
+
+            if best_partition is not None:
+                # 선택한 파티션에 Windows 폴더가 있는지 확인
+                try:
+                    self.forensic_disk_accessor.select_partition(best_partition)
+                    # Windows 폴더 존재 확인 (root의 자식 중 Windows 찾기)
+                    has_windows = False
+                    for entry_num in range(0, 200):
+                        try:
+                            metadata = self.forensic_disk_accessor._extractor.get_file_metadata(entry_num)
+                            if (metadata.parent_ref == 5 and
+                                metadata.is_directory and
+                                metadata.filename.lower() == 'windows'):
+                                has_windows = True
+                                break
+                        except Exception:
+                            continue
+
+                    if has_windows:
+                        return best_partition
+                    else:
+                        print(f"[INFO] Partition {best_partition} has no Windows folder - trying MFTCollector")
+                        return None
+                except Exception as e:
+                    print(f"[WARNING] Cannot verify partition {best_partition}: {e}")
+                    return None
+
+            # NTFS가 없으면 None 반환 (MFTCollector로 폴백)
+            print("[INFO] No suitable NTFS partition found for ForensicDiskAccessor")
+            return None
+
+        except Exception as e:
+            print(f"[WARNING] Cannot find partition: {e}")
+            return None
 
     def close(self):
         """Clean up resources"""
+        if self.forensic_disk_accessor:
+            try:
+                self.forensic_disk_accessor.close()
+            except Exception:
+                pass
+            self.forensic_disk_accessor = None
+
         if self.mft_collector:
             self.mft_collector.close()
             self.mft_collector = None
@@ -606,16 +837,6 @@ class ArtifactCollector:
                 available = False
                 unavailable_reason = 'MFT collection required (pytsk3)'
 
-            # Check if requires Memory (WinPmem)
-            if info.get('requires_memory', False) and not MEMORY_AVAILABLE:
-                available = False
-                unavailable_reason = 'WinPmem not available'
-
-            # Check if requires Volatility
-            if info.get('requires_volatility', False) and not VOLATILITY_AVAILABLE:
-                available = False
-                unavailable_reason = 'Volatility3 not installed'
-
             # Check if requires ADB
             if info.get('requires_adb', False) and not ADB_AVAILABLE:
                 available = False
@@ -633,8 +854,6 @@ class ArtifactCollector:
                 'category': info.get('category', 'windows'),
                 'requires_admin': info.get('requires_admin', False),
                 'requires_mft': info.get('requires_mft', False),
-                'requires_memory': info.get('requires_memory', False),
-                'requires_volatility': info.get('requires_volatility', False),
                 'requires_adb': info.get('requires_adb', False),
                 'requires_root': info.get('requires_root', False),
                 'requires_backup': info.get('requires_backup', False),
@@ -649,7 +868,7 @@ class ArtifactCollector:
         Get available artifacts filtered by category.
 
         Args:
-            category: 'windows', 'memory', 'android', or 'ios'
+            category: 'windows', 'android', or 'ios'
 
         Returns:
             List of artifact info dictionaries for the category
@@ -674,7 +893,6 @@ class ArtifactCollector:
             **kwargs: Additional arguments for specific collectors
                 - device_serial: Android device serial (for android category)
                 - backup_path: iOS backup path (for ios category)
-                - memory_dump_path: Path to existing memory dump (for memory analysis)
 
         Yields:
             Tuple of (file_path, metadata) for each collected file
@@ -701,14 +919,6 @@ class ArtifactCollector:
             print(f"[WARNING] {artifact_type} requires MFT collection (pytsk3)")
             return
 
-        if artifact_info.get('requires_memory', False) and not MEMORY_AVAILABLE:
-            print(f"[WARNING] {artifact_type} requires WinPmem (not available)")
-            return
-
-        if artifact_info.get('requires_volatility', False) and not VOLATILITY_AVAILABLE:
-            print(f"[WARNING] {artifact_type} requires Volatility3 (not installed)")
-            return
-
         if artifact_info.get('requires_adb', False) and not ADB_AVAILABLE:
             print(f"[WARNING] {artifact_type} requires ADB (not in PATH)")
             return
@@ -722,12 +932,7 @@ class ArtifactCollector:
         artifact_dir.mkdir(exist_ok=True)
 
         # Route to appropriate collector based on category
-        if category == 'memory':
-            yield from self._collect_memory(
-                artifact_type, artifact_info, artifact_dir,
-                progress_callback, **kwargs
-            )
-        elif category == 'android':
+        if category == 'android':
             yield from self._collect_android(
                 artifact_type, artifact_info, artifact_dir,
                 progress_callback, **kwargs
@@ -743,13 +948,20 @@ class ArtifactCollector:
                 artifact_info, artifact_dir, progress_callback,
                 browser_filter, include_deleted
             )
-        elif self.use_mft and self.mft_collector:
-            # Use MFT collection if available for Windows artifacts
+        elif self.collection_mode == 'forensic_disk_accessor' and self.forensic_disk_accessor:
+            # 우선순위 1: ForensicDiskAccessor (순수 Python)
+            yield from self._collect_forensic_disk(
+                artifact_type, artifact_info, artifact_dir,
+                progress_callback, include_deleted
+            )
+        elif self.collection_mode == 'mft' and self.mft_collector:
+            # 우선순위 2: MFTCollector (pytsk3)
             yield from self._collect_mft(
                 artifact_type, artifact_info, artifact_dir,
                 progress_callback, include_deleted
             )
         else:
+            # 우선순위 3: Legacy (shutil)
             yield from self._collect_legacy(
                 artifact_type, artifact_info, artifact_dir,
                 progress_callback
@@ -888,6 +1100,410 @@ class ArtifactCollector:
                     except (PermissionError, OSError) as e:
                         print(f"[BROWSER] Cannot access {expanded_path}: {e}")
 
+    def _collect_forensic_disk(
+        self,
+        artifact_type: str,
+        artifact_info: Dict[str, Any],
+        artifact_dir: Path,
+        progress_callback: Optional[callable],
+        include_deleted: bool
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        ForensicDiskAccessor를 사용한 아티팩트 수집.
+
+        MBR/GPT → VBR → MFT → Data Runs → Cluster 체인을 따라
+        파일 시스템을 우회하여 직접 디스크에서 파일을 읽습니다.
+
+        장점:
+        - OS 잠금 파일 (SYSTEM, SAM, NTUSER.DAT 등) 직접 수집
+        - 삭제된 파일 복구 가능
+        - ADS (Alternate Data Streams) 지원
+        - $MFT, $UsnJrnl:$J, $LogFile 등 시스템 파일 수집
+        """
+        mft_config = artifact_info.get('mft_config', {})
+
+        # ==========================================================
+        # Special MFT artifacts ($MFT, $UsnJrnl, $LogFile)
+        # ==========================================================
+        if 'special' in mft_config:
+            method_name = mft_config['special']
+            yield from self._collect_forensic_disk_special(
+                method_name, artifact_type, artifact_dir, progress_callback
+            )
+            return
+
+        # ==========================================================
+        # User-specific paths (NTUSER.DAT, browser profiles, etc.)
+        # ==========================================================
+        if 'user_path' in mft_config:
+            yield from self._collect_forensic_disk_user_paths(
+                artifact_type, mft_config, artifact_dir,
+                progress_callback, include_deleted
+            )
+            return
+
+        # ==========================================================
+        # Pattern-based or file list collection
+        # ==========================================================
+        base_path = mft_config.get('base_path', '')
+        pattern = mft_config.get('pattern', None)
+        files = mft_config.get('files', None)
+
+        if pattern:
+            # 패턴 기반 수집
+            yield from self._collect_forensic_disk_pattern(
+                base_path, pattern, artifact_type, artifact_dir,
+                progress_callback, include_deleted
+            )
+        elif files:
+            # 특정 파일 목록 수집
+            for filename in files:
+                file_path = f"{base_path}/{filename}" if base_path else filename
+                yield from self._collect_forensic_disk_file(
+                    file_path, artifact_type, artifact_dir, progress_callback
+                )
+
+    def _collect_forensic_disk_special(
+        self,
+        method_name: str,
+        artifact_type: str,
+        artifact_dir: Path,
+        progress_callback: Optional[callable]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        시스템 MFT 아티팩트 수집 ($MFT, $UsnJrnl:$J, $LogFile)
+
+        NTFS 시스템 파일 inode:
+        - $MFT: inode 0
+        - $MFTMirr: inode 1
+        - $LogFile: inode 2
+        - $Volume: inode 3
+        - $AttrDef: inode 4
+        - . (Root): inode 5
+        - $Bitmap: inode 6
+        - $Boot: inode 7
+        - $UsnJrnl: $Extend/$UsnJrnl (inode varies, ADS stream "$J")
+        """
+        try:
+            if method_name == 'collect_mft_raw':
+                # $MFT (inode 0)
+                print("[ForensicDisk] Collecting $MFT (inode 0)...")
+                data = self.forensic_disk_accessor.read_file_by_inode(0)
+
+                if data:
+                    output_file = artifact_dir / '$MFT'
+                    output_file.write_bytes(data)
+
+                    metadata = {
+                        'artifact_type': artifact_type,
+                        'name': '$MFT',
+                        'original_path': '$MFT',
+                        'size': len(data),
+                        'hash_md5': hashlib.md5(data).hexdigest(),
+                        'hash_sha256': hashlib.sha256(data).hexdigest(),
+                        'collection_method': 'forensic_disk_accessor',
+                        'mft_inode': 0,
+                        'collected_at': datetime.now().isoformat(),
+                    }
+
+                    yield str(output_file), metadata
+                    if progress_callback:
+                        progress_callback(str(output_file))
+
+            elif method_name == 'collect_usn_journal':
+                # $UsnJrnl:$J - $Extend 폴더 내 $UsnJrnl 파일의 $J ADS
+                print("[ForensicDisk] Collecting $UsnJrnl:$J...")
+
+                # $UsnJrnl 수집 - 전용 메서드 사용
+                data = None
+                try:
+                    # 전용 메서드 사용 (올바른 $J 스트림 처리)
+                    data = self.forensic_disk_accessor.read_usnjrnl_raw()
+                except Exception as e1:
+                    print(f"[DEBUG] read_usnjrnl_raw failed: {e1}")
+                    # 대체 방법: $Extend 디렉토리에서 직접 찾기
+                    try:
+                        # $Extend 디렉토리 (inode 11)에서 $UsnJrnl 찾기
+                        usnjrnl_inode = self.forensic_disk_accessor._find_in_directory(11, '$UsnJrnl')
+                        if usnjrnl_inode:
+                            data = self.forensic_disk_accessor.read_file_by_inode(
+                                usnjrnl_inode, stream_name='$J'
+                            )
+                    except Exception as e2:
+                        print(f"[DEBUG] Alternative USN Journal collection failed: {e2}")
+
+                if data and len(data) > 0:
+                    # USN Journal이 스파스 파일인 경우 대부분 0으로 채워짐
+                    # 실제 데이터가 있는지 확인
+                    non_zero_bytes = sum(1 for b in data[:min(len(data), 1024*1024)] if b != 0)
+                    print(f"[ForensicDisk] $UsnJrnl:$J size={len(data)} bytes, non-zero (first 1MB)={non_zero_bytes}")
+
+                    output_file = artifact_dir / '$UsnJrnl_J'
+                    output_file.write_bytes(data)
+
+                    metadata = {
+                        'artifact_type': artifact_type,
+                        'name': '$UsnJrnl:$J',
+                        'original_path': '$Extend/$UsnJrnl:$J',
+                        'size': len(data),
+                        'hash_md5': hashlib.md5(data).hexdigest(),
+                        'hash_sha256': hashlib.sha256(data).hexdigest(),
+                        'collection_method': 'forensic_disk_accessor',
+                        'ads_stream': '$J',
+                        'collected_at': datetime.now().isoformat(),
+                    }
+
+                    yield str(output_file), metadata
+                    if progress_callback:
+                        progress_callback(str(output_file))
+                else:
+                    print("[WARNING] $UsnJrnl:$J not found or empty (data is None or 0 bytes)")
+
+            elif method_name == 'collect_logfile':
+                # $LogFile (inode 2)
+                print("[ForensicDisk] Collecting $LogFile (inode 2)...")
+                data = self.forensic_disk_accessor.read_file_by_inode(2)
+
+                if data:
+                    output_file = artifact_dir / '$LogFile'
+                    output_file.write_bytes(data)
+
+                    metadata = {
+                        'artifact_type': artifact_type,
+                        'name': '$LogFile',
+                        'original_path': '$LogFile',
+                        'size': len(data),
+                        'hash_md5': hashlib.md5(data).hexdigest(),
+                        'hash_sha256': hashlib.sha256(data).hexdigest(),
+                        'collection_method': 'forensic_disk_accessor',
+                        'mft_inode': 2,
+                        'collected_at': datetime.now().isoformat(),
+                    }
+
+                    yield str(output_file), metadata
+                    if progress_callback:
+                        progress_callback(str(output_file))
+
+        except Exception as e:
+            print(f"[ERROR] ForensicDisk special collection failed ({method_name}): {e}")
+
+    def _collect_forensic_disk_file(
+        self,
+        file_path: str,
+        artifact_type: str,
+        artifact_dir: Path,
+        progress_callback: Optional[callable]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        단일 파일 수집 (ForensicDiskAccessor)
+        """
+        try:
+            # 경로 정규화 (Windows → Unix 스타일)
+            normalized_path = file_path.replace('\\', '/')
+            if not normalized_path.startswith('/'):
+                normalized_path = '/' + normalized_path
+
+            print(f"[ForensicDisk] Reading: {normalized_path}")
+            data = self.forensic_disk_accessor.read_file(normalized_path)
+
+            if data:
+                # 출력 파일 이름 생성
+                filename = Path(file_path).name
+                output_file = artifact_dir / filename
+
+                # 중복 방지
+                if output_file.exists():
+                    base = output_file.stem
+                    suffix = output_file.suffix
+                    counter = 1
+                    while output_file.exists():
+                        output_file = artifact_dir / f"{base}_{counter}{suffix}"
+                        counter += 1
+
+                output_file.write_bytes(data)
+
+                metadata = {
+                    'artifact_type': artifact_type,
+                    'name': filename,
+                    'original_path': file_path,
+                    'size': len(data),
+                    'hash_md5': hashlib.md5(data).hexdigest(),
+                    'hash_sha256': hashlib.sha256(data).hexdigest(),
+                    'collection_method': 'forensic_disk_accessor',
+                    'collected_at': datetime.now().isoformat(),
+                }
+
+                yield str(output_file), metadata
+                if progress_callback:
+                    progress_callback(str(output_file))
+
+        except Exception as e:
+            print(f"[WARNING] ForensicDisk cannot read {file_path}: {e}")
+
+    def _collect_forensic_disk_pattern(
+        self,
+        base_path: str,
+        pattern: str,
+        artifact_type: str,
+        artifact_dir: Path,
+        progress_callback: Optional[callable],
+        include_deleted: bool
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        패턴 기반 수집 (ForensicDiskAccessor)
+
+        MFT를 스캔하여 패턴과 일치하는 파일을 수집합니다.
+        """
+        import fnmatch
+
+        try:
+            # MFT 스캔
+            print(f"[ForensicDisk] Scanning for pattern: {base_path}/{pattern}")
+            scan_result = self.forensic_disk_accessor.scan_all_files(
+                include_deleted=include_deleted
+            )
+
+            # 경로 정규화
+            base_normalized = base_path.replace('\\', '/').strip('/')
+
+            # 활성 파일과 삭제된 파일 합치기
+            all_files = scan_result.get('active_files', [])
+            if include_deleted:
+                all_files.extend(scan_result.get('deleted_files', []))
+
+            collected_count = 0
+
+            for entry in all_files:
+                if entry.is_directory:
+                    continue
+
+                # 경로 매칭
+                entry_path = entry.full_path.replace('\\', '/').strip('/')
+
+                # 베이스 경로 확인
+                if base_normalized and not entry_path.lower().startswith(base_normalized.lower()):
+                    continue
+
+                # 패턴 매칭
+                filename = entry.filename
+                if not fnmatch.fnmatch(filename.lower(), pattern.lower()):
+                    continue
+
+                # 파일 수집
+                try:
+                    data = self.forensic_disk_accessor.read_file_by_inode(entry.inode)
+
+                    if data:
+                        # 출력 파일 이름 (삭제된 파일은 접두사 추가)
+                        if entry.is_deleted:
+                            output_filename = f"[DELETED]_{filename}"
+                        else:
+                            output_filename = filename
+
+                        output_file = artifact_dir / output_filename
+
+                        # 중복 방지
+                        if output_file.exists():
+                            base = output_file.stem
+                            suffix = output_file.suffix
+                            counter = 1
+                            while output_file.exists():
+                                output_file = artifact_dir / f"{base}_{counter}{suffix}"
+                                counter += 1
+
+                        output_file.write_bytes(data)
+
+                        metadata = {
+                            'artifact_type': artifact_type,
+                            'name': filename,
+                            'original_path': entry.full_path,
+                            'size': len(data),
+                            'hash_md5': hashlib.md5(data).hexdigest(),
+                            'hash_sha256': hashlib.sha256(data).hexdigest(),
+                            'collection_method': 'forensic_disk_accessor',
+                            'mft_inode': entry.inode,
+                            'is_deleted': entry.is_deleted,
+                            'created_time': entry.created_time,
+                            'modified_time': entry.modified_time,
+                            'collected_at': datetime.now().isoformat(),
+                        }
+
+                        yield str(output_file), metadata
+                        collected_count += 1
+
+                        if progress_callback:
+                            progress_callback(str(output_file))
+
+                except Exception as e:
+                    print(f"[WARNING] Cannot read {entry.full_path}: {e}")
+
+            print(f"[ForensicDisk] Pattern collection completed: {collected_count} files")
+
+        except Exception as e:
+            print(f"[ERROR] ForensicDisk pattern collection failed: {e}")
+
+    def _collect_forensic_disk_user_paths(
+        self,
+        artifact_type: str,
+        mft_config: Dict[str, Any],
+        artifact_dir: Path,
+        progress_callback: Optional[callable],
+        include_deleted: bool
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        사용자별 경로 수집 (NTUSER.DAT, browser profiles 등)
+        """
+        users_dir = Path(r'C:\Users')
+
+        for user_dir in users_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+
+            # 시스템 디렉토리 제외
+            if user_dir.name.lower() in ['public', 'default', 'default user', 'all users']:
+                continue
+
+            user_path = mft_config.get('user_path', '')
+            pattern = mft_config.get('pattern', None)
+            files = mft_config.get('files', None)
+
+            # 사용자별 출력 디렉토리
+            user_output_dir = artifact_dir / user_dir.name
+            user_output_dir.mkdir(exist_ok=True)
+
+            try:
+                if pattern:
+                    # 패턴 기반 수집
+                    full_base_path = f"Users/{user_dir.name}/{user_path}"
+                    for result in self._collect_forensic_disk_pattern(
+                        full_base_path, pattern, artifact_type,
+                        user_output_dir, progress_callback, include_deleted
+                    ):
+                        result[1]['username'] = user_dir.name
+                        yield result
+
+                elif files:
+                    # 파일 목록 수집
+                    for filename in files:
+                        file_path = f"Users/{user_dir.name}/{user_path}/{filename}"
+                        for result in self._collect_forensic_disk_file(
+                            file_path, artifact_type, user_output_dir, progress_callback
+                        ):
+                            result[1]['username'] = user_dir.name
+                            yield result
+
+                elif user_path:
+                    # 단일 파일 (예: NTUSER.DAT)
+                    full_path = f"Users/{user_dir.name}/{user_path}"
+                    for result in self._collect_forensic_disk_file(
+                        full_path, artifact_type, user_output_dir, progress_callback
+                    ):
+                        result[1]['username'] = user_dir.name
+                        yield result
+
+            except Exception as e:
+                print(f"[WARNING] ForensicDisk error for user {user_dir.name}: {e}")
+
     def _collect_mft(
         self,
         artifact_type: str,
@@ -969,6 +1585,7 @@ class ArtifactCollector:
             user_path = mft_config.get('user_path', '')
             pattern = mft_config.get('pattern', None)
             files = mft_config.get('files', None)
+            extensions = mft_config.get('extensions', None)  # [버그 수정] 확장자 필터 추가
 
             full_base_path = f"Users/{user_dir.name}/{user_path}"
 
@@ -977,6 +1594,12 @@ class ArtifactCollector:
                     for result in self.mft_collector.collect_by_pattern(
                         full_base_path, pattern, artifact_type, include_deleted
                     ):
+                        # [버그 수정] 확장자 필터 적용
+                        if extensions:
+                            file_name = result[0].lower()
+                            if not any(file_name.endswith(ext.lower()) for ext in extensions):
+                                continue  # 확장자 불일치 시 건너뛰기
+
                         result[1]['username'] = user_dir.name
                         yield result
                         if progress_callback:
@@ -1211,6 +1834,46 @@ class ArtifactCollector:
                         result[1]['username'] = user_dir.name
                         yield str(final_path), result[1]
 
+    def collect_usrclass(
+        self,
+        _: str,
+        output_dir: Path,
+        artifact_type: str
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        Collect UsrClass.dat files for all users.
+
+        UsrClass.dat contains ShellBags information for folder browsing history.
+        Located at: %LOCALAPPDATA%\\Microsoft\\Windows\\UsrClass.dat
+        """
+        users_dir = Path(r'C:\Users')
+
+        for user_dir in users_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+
+            # Skip system directories
+            if user_dir.name.lower() in ('public', 'default', 'default user', 'all users'):
+                continue
+
+            usrclass_path = user_dir / 'AppData' / 'Local' / 'Microsoft' / 'Windows' / 'UsrClass.dat'
+            if usrclass_path.exists():
+                # UsrClass.dat is usually locked, use locked file collection
+                for result in self.collect_locked_files(
+                    str(usrclass_path), output_dir, artifact_type
+                ):
+                    # Rename to include username
+                    if Path(result[0]).exists():
+                        final_path = output_dir / f"UsrClass.dat_{user_dir.name}"
+                        try:
+                            Path(result[0]).rename(final_path)
+                            result[1]['username'] = user_dir.name
+                            result[1]['artifact_type'] = 'shellbags'
+                            yield str(final_path), result[1]
+                        except Exception as e:
+                            print(f"[WARNING] Failed to rename UsrClass.dat for {user_dir.name}: {e}")
+                            yield result[0], result[1]
+
     def collect_all_browsers(
         self,
         _: str,
@@ -1331,90 +1994,6 @@ class ArtifactCollector:
             'collected_at': datetime.utcnow().isoformat(),
             'collection_method': 'legacy_file_api',
         }
-
-    # =========================================================================
-    # Memory Forensics Collection Methods
-    # =========================================================================
-
-    def _collect_memory(
-        self,
-        artifact_type: str,
-        artifact_info: Dict[str, Any],
-        artifact_dir: Path,
-        progress_callback: Optional[callable],
-        **kwargs
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Collect memory forensics artifacts.
-
-        Args:
-            artifact_type: Type of memory artifact (memory_dump, memory_process, etc.)
-            artifact_info: Artifact configuration
-            artifact_dir: Output directory
-            progress_callback: Progress callback
-            **kwargs: memory_dump_path for analysis artifacts
-        """
-        from collectors.memory_collector import MemoryCollector
-
-        memory_dump_path = kwargs.get('memory_dump_path')
-
-        if artifact_type == 'memory_dump':
-            # Full memory acquisition
-            collector = MemoryCollector(str(artifact_dir))
-            try:
-                dump_path = artifact_dir / 'memory.raw'
-                result = collector.acquire_memory(
-                    str(dump_path),
-                    progress_callback=lambda cur, tot: progress_callback(f"Memory dump: {cur // (1024*1024)} MB / {tot // (1024*1024)} MB") if progress_callback else None
-                )
-                metadata = {
-                    'artifact_type': artifact_type,
-                    'filename': 'memory.raw',
-                    'size': result.get('size', 0),
-                    'sha256': result.get('hash', {}).get('sha256', ''),
-                    'md5': result.get('hash', {}).get('md5', ''),
-                    'collected_at': datetime.utcnow().isoformat(),
-                    'collection_method': 'winpmem',
-                    'system_memory_gb': result.get('system_memory_size', 0) // (1024**3),
-                    'acquisition_time_seconds': result.get('acquisition_time', 0),
-                }
-                yield str(dump_path), metadata
-            except Exception as e:
-                print(f"[MEMORY] Acquisition failed: {e}")
-        else:
-            # Memory analysis (requires dump)
-            if not memory_dump_path:
-                print(f"[MEMORY] {artifact_type} requires memory_dump_path kwarg")
-                return
-
-            analysis_type = artifact_info.get('analysis_type', 'process')
-            collector = MemoryCollector(str(artifact_dir))
-
-            try:
-                results = collector.analyze_memory(
-                    memory_dump_path,
-                    analysis_types=[analysis_type],
-                    progress_callback=progress_callback
-                )
-
-                if analysis_type in results:
-                    output_file = artifact_dir / f"{analysis_type}_analysis.json"
-                    import json
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        json.dump(results[analysis_type], f, indent=2, ensure_ascii=False)
-
-                    metadata = {
-                        'artifact_type': artifact_type,
-                        'filename': output_file.name,
-                        'analysis_type': analysis_type,
-                        'record_count': len(results[analysis_type]) if isinstance(results[analysis_type], list) else 1,
-                        'collected_at': datetime.utcnow().isoformat(),
-                        'collection_method': 'volatility3',
-                        'source_dump': memory_dump_path,
-                    }
-                    yield str(output_file), metadata
-            except Exception as e:
-                print(f"[MEMORY] Analysis failed for {analysis_type}: {e}")
 
     # =========================================================================
     # Android Forensics Collection Methods
