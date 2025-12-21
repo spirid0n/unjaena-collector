@@ -535,7 +535,11 @@ if __name__ == "__main__":
 
     if result.success:
         print(f"잠금 해제 시도: {result.key_type}")
-        print(f"  값: {result.key_value or result.bek_path}")
+        # 보안: 복구키/비밀번호는 로깅하지 않음
+        if result.key_value:
+            print(f"  값: [REDACTED - {len(result.key_value)}자]")
+        elif result.bek_path:
+            print(f"  BEK 파일: {result.bek_path}")
     elif result.skip:
         print("건너뛰기 선택됨")
     else:

@@ -179,7 +179,9 @@ class WinPmemDumper:
         self,
         output_path: str,
         progress_callback: Optional[Callable[[int, int], None]] = None,
-        format: str = 'raw'
+        format: str = 'raw',
+        timeout_seconds: int = 1800,  # 30분 기본 타임아웃
+        stall_timeout_seconds: int = 120  # 진행 없으면 2분 후 타임아웃
     ) -> Dict[str, Any]:
         """
         Acquire full physical memory dump.
@@ -188,6 +190,8 @@ class WinPmemDumper:
             output_path: Path to save the memory dump
             progress_callback: Callback function(current_bytes, total_bytes)
             format: Output format ('raw' or 'aff4')
+            timeout_seconds: Maximum total time for acquisition (default: 1800 = 30분)
+            stall_timeout_seconds: Timeout if no progress (default: 120 = 2분)
 
         Returns:
             Dictionary with acquisition metadata
@@ -195,6 +199,7 @@ class WinPmemDumper:
         Raises:
             PermissionError: If not running as administrator
             RuntimeError: If acquisition fails
+            TimeoutError: If acquisition times out
         """
         if not is_admin():
             raise PermissionError("Memory acquisition requires administrator privileges")
@@ -225,20 +230,51 @@ class WinPmemDumper:
             )
 
             # Monitor progress (approximate based on file size)
+            import time
             last_size = 0
+            last_progress_time = time.time()
+
             while self._process.poll() is None:
                 if self._cancelled:
                     self._process.terminate()
                     raise RuntimeError("Memory acquisition cancelled by user")
 
+                current_time = time.time()
+                elapsed_total = current_time - start_time.timestamp()
+
+                # 전체 타임아웃 확인
+                if elapsed_total > timeout_seconds:
+                    self._process.terminate()
+                    raise TimeoutError(
+                        f"Memory acquisition timed out after {timeout_seconds}s. "
+                        f"Total memory: {total_memory // (1024**3)}GB"
+                    )
+
                 if output_path.exists():
                     current_size = output_path.stat().st_size
-                    if progress_callback and current_size != last_size:
-                        progress_callback(current_size, total_memory)
+
+                    if current_size != last_size:
+                        # 진행 중이면 타이머 리셋
+                        last_progress_time = current_time
+                        if progress_callback:
+                            progress_callback(current_size, total_memory)
                         last_size = current_size
+                    else:
+                        # 진행이 없으면 stall 타임아웃 확인
+                        stall_time = current_time - last_progress_time
+                        if stall_time > stall_timeout_seconds and last_size > 0:
+                            self._process.terminate()
+                            raise TimeoutError(
+                                f"Memory acquisition stalled for {stall_timeout_seconds}s. "
+                                f"Progress: {last_size // (1024**2)}MB / {total_memory // (1024**2)}MB"
+                            )
+                else:
+                    # 파일이 아직 생성되지 않음 - 시작 타임아웃 확인
+                    if current_time - start_time.timestamp() > 30:  # 30초 내에 시작해야 함
+                        self._process.terminate()
+                        raise TimeoutError("WinPmem failed to start within 30 seconds")
 
                 # Small delay to prevent busy-waiting
-                import time
                 time.sleep(0.5)
 
             # Check result

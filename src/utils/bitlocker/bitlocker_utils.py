@@ -121,10 +121,23 @@ def _check_bitlocker_direct() -> BitLockerVolumeDetectionResult:
             # MBR 시그니처 확인
             signature = struct.unpack('<H', mbr[510:512])[0]
             if signature != 0xAA55:
+                return BitLockerVolumeDetectionResult(
+                    is_encrypted=False,
+                    error="Invalid MBR signature"
+                )
+
+            # GPT 보호 MBR 확인 (파티션 타입 0xEE = GPT Protective)
+            # 첫 번째 파티션 엔트리의 타입 확인
+            first_partition_type = mbr[446 + 4]  # 첫 번째 파티션의 타입
+            is_gpt = first_partition_type == 0xEE
+
+            if is_gpt:
                 # GPT 디스크 처리
+                logger.debug("GPT disk detected, checking GPT partitions")
                 return _check_bitlocker_gpt(backend)
 
             # MBR 파티션 확인
+            logger.debug("MBR disk detected, checking MBR partitions")
             for i in range(4):
                 entry_offset = 446 + i * 16
                 entry = mbr[entry_offset:entry_offset + 16]
@@ -141,6 +154,7 @@ def _check_bitlocker_direct() -> BitLockerVolumeDetectionResult:
                 # VBR에서 BitLocker 시그니처 확인
                 vbr = backend.read(partition_offset, 512)
                 if _is_bitlocker_vbr(vbr):
+                    logger.info(f"BitLocker detected on MBR partition {i}")
                     return BitLockerVolumeDetectionResult(
                         is_encrypted=True,
                         partition_index=i,
@@ -168,17 +182,23 @@ def _check_bitlocker_gpt(backend) -> BitLockerVolumeDetectionResult:
         gpt_header = backend.read(512, 512)
 
         if gpt_header[:8] != b'EFI PART':
+            logger.debug("Not a valid GPT header")
             return BitLockerVolumeDetectionResult(is_encrypted=False)
+
+        logger.debug("Valid GPT header found")
 
         # 파티션 엔트리 시작 LBA
         entries_lba = struct.unpack('<Q', gpt_header[72:80])[0]
         num_entries = struct.unpack('<I', gpt_header[80:84])[0]
         entry_size = struct.unpack('<I', gpt_header[84:88])[0]
 
+        logger.debug(f"GPT: {num_entries} partition entries, size={entry_size}")
+
         # 파티션 엔트리 읽기
         entries_offset = entries_lba * 512
         entries_data = backend.read(entries_offset, num_entries * entry_size)
 
+        partitions_found = 0
         for i in range(min(num_entries, 128)):  # 최대 128개 확인
             entry_offset = i * entry_size
             entry = entries_data[entry_offset:entry_offset + entry_size]
@@ -190,6 +210,8 @@ def _check_bitlocker_gpt(backend) -> BitLockerVolumeDetectionResult:
             if type_guid == b'\x00' * 16:
                 continue
 
+            partitions_found += 1
+
             # 파티션 오프셋 및 크기
             first_lba = struct.unpack('<Q', entry[32:40])[0]
             last_lba = struct.unpack('<Q', entry[40:48])[0]
@@ -198,7 +220,16 @@ def _check_bitlocker_gpt(backend) -> BitLockerVolumeDetectionResult:
 
             # VBR에서 BitLocker 시그니처 확인
             vbr = backend.read(partition_offset, 512)
-            if _is_bitlocker_vbr(vbr):
+            is_bitlocker = _is_bitlocker_vbr(vbr)
+
+            logger.debug(
+                f"GPT Partition {i}: offset={partition_offset}, "
+                f"size={partition_size // (1024*1024*1024):.1f}GB, "
+                f"BitLocker={is_bitlocker}"
+            )
+
+            if is_bitlocker:
+                logger.info(f"BitLocker detected on GPT partition {i}")
                 return BitLockerVolumeDetectionResult(
                     is_encrypted=True,
                     partition_index=i,
@@ -206,6 +237,7 @@ def _check_bitlocker_gpt(backend) -> BitLockerVolumeDetectionResult:
                     partition_size=partition_size
                 )
 
+        logger.debug(f"Checked {partitions_found} GPT partitions, no BitLocker found")
         return BitLockerVolumeDetectionResult(is_encrypted=False)
 
     except Exception as e:
