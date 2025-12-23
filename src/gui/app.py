@@ -4,6 +4,7 @@ Main GUI Application
 PyQt6-based graphical interface for the forensic collector.
 """
 import asyncio
+import requests
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -1459,6 +1460,26 @@ class CollectionWorker(QThread):
             # 완료
             elapsed = time.time() - self._start_time
             elapsed_str = f"{int(elapsed)}초" if elapsed < 60 else f"{int(elapsed / 60)}분 {int(elapsed % 60)}초"
+
+            # === 업로드 완료 신호 전송 (파이프라인 상태 전환 트리거) ===
+            if success_count > 0:
+                try:
+                    complete_url = f"{self.server_url}/api/v1/collector/collection/end/{self.session_id}"
+                    complete_response = requests.post(
+                        complete_url,
+                        headers={
+                            'X-Collection-Token': self.collection_token,
+                            'Content-Type': 'application/json',
+                        },
+                        json={'trigger_analysis': True},
+                        timeout=30
+                    )
+                    if complete_response.ok:
+                        self.log_message.emit("✓ 수집 세션 완료 신호 전송 (임베딩 시작)", False)
+                    else:
+                        self.log_message.emit(f"⚠ 세션 완료 신호 실패: {complete_response.status_code}", True)
+                except Exception as e:
+                    self.log_message.emit(f"⚠ 세션 완료 신호 오류: {e}", True)
 
             self.progress_updated.emit(3, 100, 100, "완료!", "")
             self.finished.emit(
