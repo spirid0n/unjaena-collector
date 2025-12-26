@@ -47,6 +47,9 @@ class RealTimeUploader:
     reporting progress via WebSocket connection.
     """
 
+    # M2 보안: 기본 최대 파일 크기 (10GB)
+    DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
+
     def __init__(
         self,
         server_url: str,
@@ -55,6 +58,7 @@ class RealTimeUploader:
         collection_token: str,
         case_id: str = None,
         consent_record: dict = None,
+        max_file_size: int = None,
     ):
         """
         Initialize the uploader.
@@ -66,6 +70,7 @@ class RealTimeUploader:
             collection_token: Authentication token for uploads
             case_id: Case ID for the collection
             consent_record: Legal consent record (P0 법적 필수)
+            max_file_size: Maximum file size in bytes (M2 보안)
         """
         self.server_url = server_url.rstrip('/')
         self.ws_url = ws_url.rstrip('/')
@@ -73,6 +78,7 @@ class RealTimeUploader:
         self.collection_token = collection_token
         self.case_id = case_id
         self.consent_record = consent_record
+        self.max_file_size = max_file_size or self.DEFAULT_MAX_FILE_SIZE
         self.ws = None
 
     async def connect_websocket(self):
@@ -138,6 +144,33 @@ class RealTimeUploader:
         Returns:
             UploadResult with status
         """
+        # M2 보안: 파일 크기 검증 (스토리지 고갈 방지)
+        import os
+        try:
+            file_size = os.path.getsize(file_path)
+        except OSError as e:
+            return UploadResult.from_error(f"Cannot access file: {e}")
+
+        if file_size > self.max_file_size:
+            max_size_gb = self.max_file_size / (1024 * 1024 * 1024)
+            file_size_gb = file_size / (1024 * 1024 * 1024)
+            return UploadResult(
+                success=False,
+                error=f"파일 크기({file_size_gb:.2f}GB)가 최대 허용 크기({max_size_gb:.1f}GB)를 초과합니다.",
+                error_title="파일 크기 초과",
+                error_solution="파일을 분할하거나 관리자에게 문의하세요.",
+                is_recoverable=False,
+            )
+
+        if file_size == 0:
+            return UploadResult(
+                success=False,
+                error="빈 파일은 업로드할 수 없습니다.",
+                error_title="빈 파일",
+                error_solution="파일 내용을 확인하세요.",
+                is_recoverable=False,
+            )
+
         try:
             async with aiohttp.ClientSession() as session:
                 with open(file_path, 'rb') as f:

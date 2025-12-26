@@ -134,10 +134,36 @@ class TokenValidator:
                     expires_at=data.get('expires_at'),
                 )
             else:
-                error_detail = response.json().get('detail', response.text)
+                # M1 보안: 서버 에러 정보 노출 방지 - 사용자 친화적 메시지로 변환
+                status_code = response.status_code
+                try:
+                    error_detail = response.json().get('detail', '')
+                except Exception:
+                    error_detail = ''
+
+                # 상태 코드별 사용자 친화적 메시지
+                if status_code == 401:
+                    user_message = "인증에 실패했습니다. 토큰이 만료되었거나 유효하지 않습니다."
+                elif status_code == 403:
+                    user_message = "접근 권한이 없습니다. 관리자에게 문의하세요."
+                elif status_code == 404:
+                    user_message = "요청한 리소스를 찾을 수 없습니다."
+                elif status_code == 429:
+                    user_message = "너무 많은 요청이 발생했습니다. 잠시 후 다시 시도하세요."
+                elif status_code >= 500:
+                    user_message = "서버에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도하세요."
+                else:
+                    user_message = "요청을 처리할 수 없습니다."
+
+                # 디버깅용 로그 (사용자에게는 노출하지 않음)
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"[TokenValidator] Server error: status={status_code}, detail={error_detail[:200] if error_detail else 'N/A'}"
+                )
+
                 return ValidationResult(
                     valid=False,
-                    error=f"Server error ({response.status_code}): {error_detail}",
+                    error=user_message,
                 )
 
         except requests.exceptions.ConnectionError as e:
