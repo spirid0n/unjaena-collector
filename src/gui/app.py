@@ -933,12 +933,18 @@ class CollectorWindow(QMainWindow):
                 if server_name in ARTIFACT_TYPES:
                     mapped_allowed.add(server_name)
 
+            # 'all'이 포함되었거나 allowed_artifacts가 없으면 모든 아티팩트 허용
+            allow_all = 'all' in self.allowed_artifacts or not result.allowed_artifacts
+
             self._log(f"Mapped artifacts for GUI: {', '.join(sorted(mapped_allowed))}")
+            if allow_all:
+                self._log("All artifacts are allowed - selecting all by default")
 
             for artifact_type, cb in self.artifact_checks.items():
-                if artifact_type in mapped_allowed or 'all' in self.allowed_artifacts:
+                # 모든 아티팩트 허용이거나 매핑된 목록에 있으면 활성화 및 선택
+                if allow_all or artifact_type in mapped_allowed:
                     cb.setEnabled(True)
-                    cb.setChecked(True)
+                    cb.setChecked(True)  # 기본으로 모든 허용된 아티팩트 선택
 
             self.collect_btn.setEnabled(True)
         else:
