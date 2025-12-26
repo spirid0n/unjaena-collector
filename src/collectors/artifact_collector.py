@@ -69,6 +69,61 @@ except ImportError:
     BackupInfo = None
 
 
+# =============================================================================
+# C4 보안: 경로 탈출 공격 방어 유틸리티
+# =============================================================================
+
+def validate_safe_path(base_dir: Path, target_path: Path) -> Path:
+    """
+    경로가 base_dir 내부에 있는지 검증
+
+    Args:
+        base_dir: 허용된 기본 디렉토리
+        target_path: 검증할 대상 경로
+
+    Returns:
+        검증된 경로 (resolve된 상태)
+
+    Raises:
+        ValueError: 경로가 base_dir 외부인 경우
+    """
+    resolved_base = base_dir.resolve()
+    resolved_target = target_path.resolve()
+
+    try:
+        resolved_target.relative_to(resolved_base)
+    except ValueError:
+        raise ValueError(
+            f"[SECURITY] Path traversal detected: '{target_path}' "
+            f"is outside allowed directory '{base_dir}'"
+        )
+
+    return resolved_target
+
+
+def sanitize_path_component(name: str) -> str:
+    """
+    경로 구성 요소에서 위험한 문자 제거
+
+    Args:
+        name: 경로 구성 요소 (파일명 또는 디렉토리명)
+
+    Returns:
+        안전한 이름
+    """
+    # 경로 구분자 및 상위 디렉토리 참조 제거
+    dangerous_chars = ['/', '\\', '..', '\x00']
+    safe_name = name
+    for char in dangerous_chars:
+        safe_name = safe_name.replace(char, '_')
+
+    # 빈 문자열이면 기본값
+    if not safe_name.strip():
+        safe_name = 'unnamed'
+
+    return safe_name
+
+
 # Artifact type definitions
 ARTIFACT_TYPES = {
     'prefetch': {
@@ -224,10 +279,14 @@ ARTIFACT_TYPES = {
         'description': 'USB device connection history',
         'paths': [
             r'C:\Windows\INF\setupapi.dev.log',
+            r'C:\Windows\System32\config\SYSTEM',  # USB 장치 정보 (USBSTOR, MountedDevices 등)
         ],
         'mft_config': {
             'base_path': 'Windows/INF',
             'files': ['setupapi.dev.log'],
+            'additional_paths': [
+                {'base_path': 'Windows/System32/config', 'files': ['SYSTEM']}
+            ],
         },
         'requires_admin': True,
         'collector': 'collect_files',
@@ -928,7 +987,9 @@ class ArtifactCollector:
             return
 
         # Create artifact-specific output directory
-        artifact_dir = self.output_dir / artifact_type
+        # C4 보안: 경로 탈출 공격 방어 - 유틸리티 함수로 검증
+        artifact_dir = self.output_dir / sanitize_path_component(artifact_type)
+        validate_safe_path(self.output_dir, artifact_dir)
         artifact_dir.mkdir(exist_ok=True)
 
         # Route to appropriate collector based on category
@@ -993,7 +1054,9 @@ class ArtifactCollector:
                 continue
 
             browser_name = browser_config.get('name', browser_id)
-            browser_dir = artifact_dir / browser_id
+            # C4 보안: 경로 탈출 방어
+            browser_dir = artifact_dir / sanitize_path_component(browser_id)
+            validate_safe_path(self.output_dir, browser_dir)
             browser_dir.mkdir(exist_ok=True)
 
             # Use MFT collection if available
@@ -1706,7 +1769,7 @@ class ArtifactCollector:
         artifact_type: str
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """Collect files matching a glob pattern (legacy)"""
-        for src_path in glob.glob(pattern):
+        for src_path in glob.glob(pattern, recursive=True):
             try:
                 dst_path = output_dir / Path(src_path).name
                 shutil.copy2(src_path, dst_path)
@@ -1797,7 +1860,7 @@ class ArtifactCollector:
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """Collect files matching a glob pattern with environment variable expansion (legacy)"""
         expanded_pattern = os.path.expandvars(pattern)
-        for src_path in glob.glob(expanded_pattern):
+        for src_path in glob.glob(expanded_pattern, recursive=True):
             try:
                 dst_path = output_dir / Path(src_path).name
                 shutil.copy2(src_path, dst_path)
