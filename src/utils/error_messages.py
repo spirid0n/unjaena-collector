@@ -19,7 +19,18 @@ class UserFriendlyError:
 
 
 # 에러 패턴 매핑 (정규식 패턴 → 사용자 친화적 메시지)
+# 주의: 패턴은 순서대로 매칭되므로 우선순위가 높은 패턴을 먼저 배치
 ERROR_PATTERNS: List[Dict] = [
+    # 취소 관련 (최상위 우선순위 - 다른 패턴보다 먼저 매칭되어야 함)
+    {
+        "pattern": r"(CANCELLED|409.*cancelled|취소됨)",
+        "title": "수집 취소됨",
+        "message": "CANCELLED: 서버에서 수집이 취소되었습니다.",
+        "solution": "사용자 또는 관리자가 수집을 취소했습니다. 새로 수집을 시작하려면 웹 플랫폼에서 다시 시작하세요.",
+        "error_code": "CANCELLED",
+        "is_recoverable": False,
+    },
+
     # 네트워크 관련
     {
         "pattern": r"(Cannot connect|ConnectionError|Connection refused|Unable to connect)",
