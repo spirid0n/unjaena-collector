@@ -357,8 +357,14 @@ class ConsentDialog(QDialog):
         import hmac
         import os
 
-        # 환경변수 또는 세션 토큰 기반 서명 키
-        signing_key = os.getenv("CONSENT_SIGNING_KEY", "forensics_consent_2024")
+        # M5 보안: 세션 토큰에서 파생된 서명 키 사용 (하드코딩된 기본값 제거)
+        # 환경변수가 설정된 경우 우선 사용, 없으면 세션 토큰 기반 파생
+        signing_key = os.getenv("CONSENT_SIGNING_KEY")
+        if not signing_key:
+            # 세션 토큰에서 파생된 서명 키 (재현 가능한 방식)
+            signing_key = hashlib.sha256(
+                f"consent_sign_{record.get('session_token', 'default')}".encode()
+            ).hexdigest()[:32]
 
         # 검증 가능한 필드만 포함 (checks 상태 + 타임스탬프)
         verify_payload = f"{timestamp}|{record['consent_version']}|{record['consent_hash']}"
