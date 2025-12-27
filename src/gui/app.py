@@ -1457,6 +1457,11 @@ class CollectionWorker(QThread):
                     success_count += 1
                     self.log_message.emit(f"✓ 업로드 성공: {filename}", False)
                 else:
+                    # [취소 확인] 서버에서 취소 응답을 받았는지 확인
+                    if result.error and "CANCELLED" in result.error:
+                        self.log_message.emit("🛑 서버에서 수집이 취소되었습니다. 업로드를 중단합니다.", True)
+                        self._cancelled = True
+                        break
                     # [Phase 4] 업로드 실패 상세 로깅
                     self.log_message.emit(f"✗ 업로드 실패 ({artifact_type}): {result.error}", True)
                     # 보안: 디버그 정보는 logging 모듈로 레벨 제어
@@ -1466,6 +1471,13 @@ class CollectionWorker(QThread):
             # 완료
             elapsed = time.time() - self._start_time
             elapsed_str = f"{int(elapsed)}초" if elapsed < 60 else f"{int(elapsed / 60)}분 {int(elapsed % 60)}초"
+
+            # [취소 확인] 취소된 경우 완료 신호를 보내지 않음
+            if self._cancelled:
+                self.log_message.emit(f"🛑 수집 취소됨: {success_count}/{total_upload}개 파일 업로드 후 중단 (소요시간: {elapsed_str})", True)
+                self.progress_updated.emit(3, 0, 0, "취소됨", "")
+                self.finished.emit(False, f"수집 취소됨: {success_count}/{total_upload}개 파일 업로드 후 중단")
+                return
 
             # === 업로드 완료 신호 전송 (파이프라인 상태 전환 트리거) ===
             if success_count > 0:
