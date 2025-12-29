@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+from gui.styles import COLORS
+
 
 class ConsentDialog(QDialog):
     """법적 동의 다이얼로그"""
@@ -138,27 +140,27 @@ class ConsentDialog(QDialog):
 
     def _get_consent_html(self) -> str:
         """동의서 HTML 내용 (개인정보 보호법 준수)"""
-        return """
-        <div style="font-family: 'Malgun Gothic', sans-serif; line-height: 1.8; color: #e0e0e0;">
+        return f"""
+        <div style="font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; line-height: 1.8; color: {COLORS['text_primary']};">
 
         <!-- ===== 1. 개인정보 수집·이용 동의 ===== -->
-        <h3 style="color: #4cc9f0; border-bottom: 2px solid #4cc9f0; padding-bottom: 8px;">
+        <h3 style="color: {COLORS['brand_primary']}; border-bottom: 2px solid {COLORS['brand_primary']}; padding-bottom: 8px;">
             1. 개인정보 수집·이용 동의
         </h3>
         <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
-            <tr style="background: #1a3a5c;">
-                <th style="border: 1px solid #333; padding: 10px; width: 25%;">항목</th>
-                <th style="border: 1px solid #333; padding: 10px;">내용</th>
+            <tr style="background: {COLORS['bg_secondary']};">
+                <th style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; width: 25%;">항목</th>
+                <th style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">내용</th>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px; font-weight: bold;">수집 목적</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; font-weight: bold;">수집 목적</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     디지털 포렌식 분석, 보안 사고 조사, 법적 증거 확보, AI 기반 이상 징후 탐지
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px; font-weight: bold;">수집 항목</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; font-weight: bold;">수집 항목</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     <b>[필수]</b> 시스템 아티팩트(Prefetch, Amcache, ShimCache, UserAssist),
                     이벤트 로그(Security, System, Application), 레지스트리(SYSTEM, SOFTWARE, SAM, NTUSER.DAT),
                     파일 시스템 메타데이터(MFT, USN Journal, $LogFile), USB 연결 이력<br>
@@ -166,15 +168,15 @@ class ConsentDialog(QDialog):
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px; font-weight: bold;">보유 기간</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; font-weight: bold;">보유 기간</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     결제 티어에 따라 7일~365일 (Starter: 7일, Standard: 30일, Professional: 90일, Enterprise: 365일)
                     <br>※ 보유 기간 만료 시 자동 파기
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px; font-weight: bold;">처리 방식</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; font-weight: bold;">처리 방식</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     • SHA-256 해시를 통한 무결성 검증<br>
                     • TLS 1.3 암호화 통신<br>
                     • AES-256-GCM 암호화 저장<br>
@@ -184,55 +186,55 @@ class ConsentDialog(QDialog):
         </table>
 
         <!-- ===== 2. 개인정보 국외이전 고지 ===== -->
-        <h3 style="color: #f0a500; border-bottom: 2px solid #f0a500; padding-bottom: 8px;">
+        <h3 style="color: {COLORS['warning']}; border-bottom: 2px solid {COLORS['warning']}; padding-bottom: 8px;">
             2. 개인정보 국외이전 고지
         </h3>
-        <p style="background: rgba(240, 165, 0, 0.1); padding: 12px; border-radius: 8px; border-left: 4px solid #f0a500;">
+        <p style="background: rgba(210, 153, 34, 0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['warning']};">
             <b>알림:</b> 수집된 데이터는 클라우드 서버에 저장되며, 서버 위치에 따라 국외로 이전될 수 있습니다.
             개인정보 보호법 제28조의8에 따라 아래 사항을 고지합니다.
         </p>
         <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
-            <tr style="background: #3a3a1c;">
-                <th style="border: 1px solid #333; padding: 10px; width: 30%;">항목</th>
-                <th style="border: 1px solid #333; padding: 10px;">내용</th>
+            <tr style="background: {COLORS['bg_secondary']};">
+                <th style="border: 1px solid {COLORS['border_subtle']}; padding: 10px; width: 30%;">항목</th>
+                <th style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">내용</th>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px;">이전받는 자</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">이전받는 자</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     RunPod, Inc. (GPU 서버) / Cloudflare, Inc. (R2 스토리지, CDN)
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px;">이전 국가</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">이전 국가</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     미국 (서버 위치에 따라 변동 가능)
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px;">이전 일시 및 방법</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">이전 일시 및 방법</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     수집 즉시 TLS 암호화 통신으로 실시간 전송
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px;">이전 목적</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">이전 목적</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     암호화된 데이터 저장, AI 분석 처리, 분석 결과 제공
                 </td>
             </tr>
             <tr>
-                <td style="border: 1px solid #333; padding: 10px;">보유 및 이용 기간</td>
-                <td style="border: 1px solid #333; padding: 10px;">
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">보유 및 이용 기간</td>
+                <td style="border: 1px solid {COLORS['border_subtle']}; padding: 10px;">
                     서비스 이용 기간 또는 결제 티어에 따른 보관 기간까지
                 </td>
             </tr>
         </table>
 
         <!-- ===== 3. AI 분석 및 자동화된 의사결정 고지 ===== -->
-        <h3 style="color: #9d4edd; border-bottom: 2px solid #9d4edd; padding-bottom: 8px;">
+        <h3 style="color: {COLORS['brand_accent']}; border-bottom: 2px solid {COLORS['brand_accent']}; padding-bottom: 8px;">
             3. AI 분석 및 자동화된 의사결정 고지
         </h3>
-        <p style="background: rgba(157, 78, 221, 0.1); padding: 12px; border-radius: 8px; border-left: 4px solid #9d4edd;">
+        <p style="background: rgba(212, 165, 116, 0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['brand_accent']};">
             <b>AI 기본법 및 개인정보 보호법 제37조의2에 따른 고지</b>
         </p>
         <ul>
@@ -247,7 +249,7 @@ class ConsentDialog(QDialog):
                     <li>AI 환각(Hallucination)으로 인해 존재하지 않는 정보가 생성될 수 있습니다.</li>
                 </ul>
             </li>
-            <li style="color: #ff6b6b;"><b>법적 분쟁 가능성:</b>
+            <li style="color: {COLORS['error']};"><b>법적 분쟁 가능성:</b>
                 AI 분석 결과를 근거로 법적 조치(고소, 징계, 해고 등)를 취할 경우,
                 분석 결과의 정확성에 대한 법적 분쟁이 발생할 수 있으며,
                 <u>귀하가 법적 소송의 당사자가 될 수 있습니다.</u>
@@ -258,7 +260,7 @@ class ConsentDialog(QDialog):
         </ul>
 
         <!-- ===== 4. 정보주체 권리 안내 ===== -->
-        <h3 style="color: #4cc9f0; border-bottom: 2px solid #4cc9f0; padding-bottom: 8px;">
+        <h3 style="color: {COLORS['success']}; border-bottom: 2px solid {COLORS['success']}; padding-bottom: 8px;">
             4. 정보주체 권리 안내
         </h3>
         <p>귀하는 개인정보 보호법에 따라 다음의 권리를 행사할 수 있습니다:</p>
@@ -272,10 +274,10 @@ class ConsentDialog(QDialog):
         <p>권리 행사: 서비스 관리자 또는 support@forensics-ai.com으로 문의</p>
 
         <!-- ===== 5. 법적 경고 및 면책 ===== -->
-        <h3 style="color: #f72585; border-bottom: 2px solid #f72585; padding-bottom: 8px;">
+        <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 법적 경고 및 면책
         </h3>
-        <p style="background: rgba(247, 37, 133, 0.15); padding: 12px; border-radius: 8px; border-left: 4px solid #f72585;">
+        <p style="background: rgba(248, 81, 73, 0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['error']};">
             <b>경고:</b> 타인의 시스템에서 권한 없이 데이터를 수집하는 행위는
             「정보통신망 이용촉진 및 정보보호 등에 관한 법률」,
             「형법」(컴퓨터 등 사용 사기), 「개인정보 보호법」 등에 의해
@@ -388,81 +390,90 @@ class ConsentDialog(QDialog):
         return self.consent_record if self.consent_given else None
 
     def _get_stylesheet(self) -> str:
-        """스타일시트"""
-        return """
-            QDialog {
-                background-color: #1a1a2e;
-            }
-            #header {
+        """스타일시트 - 플랫폼 통일 테마"""
+        return f"""
+            QDialog {{
+                background-color: {COLORS['bg_primary']};
+            }}
+            #header {{
                 font-size: 20px;
                 font-weight: bold;
-                color: #4cc9f0;
+                color: {COLORS['brand_primary']};
                 padding: 8px;
-            }
-            #warningFrame {
-                background-color: rgba(247, 37, 133, 0.15);
-                border: 1px solid #f72585;
+            }}
+            #warningFrame {{
+                background-color: rgba(248, 81, 73, 0.15);
+                border: 1px solid {COLORS['error']};
                 border-radius: 8px;
                 padding: 12px;
-            }
-            #warningText {
-                color: #f72585;
+            }}
+            #warningText {{
+                color: {COLORS['error']};
                 font-size: 13px;
-            }
-            #checkboxFrame {
-                background-color: #16213e;
-                border: 1px solid #333;
+            }}
+            #checkboxFrame {{
+                background-color: {COLORS['bg_secondary']};
+                border: 1px solid {COLORS['border_subtle']};
                 border-radius: 8px;
                 padding: 16px;
-            }
-            #consentCheck {
-                color: #e0e0e0;
+            }}
+            #consentCheck {{
+                color: {COLORS['text_primary']};
                 font-size: 13px;
                 spacing: 8px;
                 padding: 4px 0;
-            }
-            #consentCheck::indicator {
+            }}
+            #consentCheck::indicator {{
                 width: 20px;
                 height: 20px;
-            }
-            QTextEdit {
-                background-color: #0f3460;
-                border: 1px solid #333;
+                border: 2px solid {COLORS['border_subtle']};
+                border-radius: 4px;
+                background-color: {COLORS['bg_tertiary']};
+            }}
+            #consentCheck::indicator:checked {{
+                background-color: {COLORS['brand_primary']};
+                border-color: {COLORS['brand_primary']};
+            }}
+            QTextEdit {{
+                background-color: {COLORS['bg_tertiary']};
+                border: 1px solid {COLORS['border_subtle']};
                 border-radius: 8px;
-                color: #e0e0e0;
+                color: {COLORS['text_primary']};
                 padding: 12px;
                 font-size: 13px;
-            }
-            QPushButton {
-                background-color: #0f3460;
-                border: 1px solid #333;
+            }}
+            QPushButton {{
+                background-color: {COLORS['bg_tertiary']};
+                border: 1px solid {COLORS['border_subtle']};
                 border-radius: 6px;
-                color: #fff;
+                color: {COLORS['text_primary']};
                 padding: 10px 20px;
                 font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #1a4a7a;
-            }
-            QPushButton:disabled {
-                background-color: #333;
-                color: #666;
-            }
-            #agreeButton {
-                background-color: #4cc9f0;
-                color: #000;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['bg_hover']};
+                border-color: {COLORS['border_default']};
+            }}
+            QPushButton:disabled {{
+                background-color: {COLORS['bg_tertiary']};
+                color: {COLORS['text_tertiary']};
+            }}
+            #agreeButton {{
+                background-color: {COLORS['brand_primary']};
+                border: none;
+                color: {COLORS['bg_primary']};
                 font-weight: bold;
-            }
-            #agreeButton:hover {
-                background-color: #3db8df;
-            }
-            #agreeButton:disabled {
-                background-color: #333;
-                color: #666;
-            }
-            QScrollArea {
+            }}
+            #agreeButton:hover {{
+                background-color: {COLORS['brand_accent']};
+            }}
+            #agreeButton:disabled {{
+                background-color: {COLORS['bg_tertiary']};
+                color: {COLORS['text_tertiary']};
+            }}
+            QScrollArea {{
                 background-color: transparent;
-            }
+            }}
         """
 
 
