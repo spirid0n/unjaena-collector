@@ -575,6 +575,8 @@ class BaseMFTCollector(ABC):
         Yields:
             (로컬 경로, 메타데이터) 튜플
         """
+        import time
+
         inode = entry.inode if hasattr(entry, 'inode') else None
         filename = entry.filename if hasattr(entry, 'filename') else str(entry)
         full_path = entry.full_path if hasattr(entry, 'full_path') else f"MFT_{inode}"
@@ -583,6 +585,10 @@ class BaseMFTCollector(ABC):
 
         if inode is None:
             return
+
+        # 디버깅: 대용량 파일 경고
+        if file_size > 100 * 1024 * 1024:  # 100MB 이상
+            logger.info(f"[DEBUG] Large file detected: {filename} ({file_size / 1024 / 1024:.1f}MB)")
 
         try:
             # 출력 파일명 생성
@@ -607,17 +613,49 @@ class BaseMFTCollector(ABC):
             total_size = 0
             has_data = False
 
+            # 타임아웃 설정 (파일당 최대 5분, 청크당 30초)
+            FILE_TIMEOUT = 300  # 5분
+            CHUNK_TIMEOUT = 30  # 30초
+            start_time = time.time()
+            last_chunk_time = start_time
+
             # 스트리밍 메서드 확인
             if hasattr(self._accessor, 'stream_file_by_inode'):
                 # 청크 스트리밍 (대용량 파일 지원)
-                with open(output_file, 'wb') as f:
-                    for chunk in self._accessor.stream_file_by_inode(inode):
-                        if chunk:
-                            f.write(chunk)
-                            md5_hash.update(chunk)
-                            sha256_hash.update(chunk)
-                            total_size += len(chunk)
-                            has_data = True
+                try:
+                    logger.debug(f"[EXTRACT START] {filename} (inode={inode}, size={file_size})")
+                    with open(output_file, 'wb') as f:
+                        chunk_count = 0
+                        stream_generator = self._accessor.stream_file_by_inode(inode)
+                        logger.debug(f"[STREAM READY] {filename}")
+                        for chunk in stream_generator:
+                            current_time = time.time()
+
+                            # 파일 전체 타임아웃 체크
+                            if current_time - start_time > FILE_TIMEOUT:
+                                logger.warning(f"[TIMEOUT] File extraction timeout ({FILE_TIMEOUT}s): {filename}")
+                                break
+
+                            if chunk:
+                                f.write(chunk)
+                                md5_hash.update(chunk)
+                                sha256_hash.update(chunk)
+                                total_size += len(chunk)
+                                has_data = True
+                                chunk_count += 1
+                                last_chunk_time = current_time
+
+                                # 진행 로그 (100MB마다)
+                                if total_size % (100 * 1024 * 1024) < len(chunk):
+                                    logger.debug(f"[PROGRESS] {filename}: {total_size / 1024 / 1024:.1f}MB written")
+
+                except Exception as stream_error:
+                    logger.warning(f"[STREAM ERROR] {filename}: {stream_error}")
+                    # 부분적으로 쓰인 파일 삭제
+                    if output_file.exists() and total_size == 0:
+                        output_file.unlink()
+                    return
+
             else:
                 # 폴백: 전체 읽기 (작은 파일용)
                 data = self._accessor.read_file_by_inode(inode)

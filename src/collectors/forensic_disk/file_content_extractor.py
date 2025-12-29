@@ -850,15 +850,32 @@ class FileContentExtractor:
         chunk_size: int
     ) -> Generator[bytes, None, None]:
         """Data runs를 따라 파일 데이터 스트리밍"""
+        import time
+
         bytes_read = 0
+        run_index = 0
+        total_runs = len(data_runs)
+        start_time = time.time()
+
+        # 디버깅: 파일 크기 제한 (손상된 MFT로 인한 무한 루프 방지)
+        MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
+        if file_size > MAX_FILE_SIZE:
+            logger.warning(f"[SANITY CHECK] Abnormally large file_size: {file_size / 1024 / 1024 / 1024:.2f}GB - limiting to 10GB")
+            file_size = MAX_FILE_SIZE
 
         for run in data_runs:
             if bytes_read >= file_size:
                 break
 
+            run_index += 1
+
             if run.is_sparse:
                 # Sparse run
                 sparse_remaining = run.length * self.cluster_size
+
+                # 디버깅: sparse run 경고
+                if sparse_remaining > 1024 * 1024 * 1024:  # 1GB 이상
+                    logger.warning(f"[SPARSE] Large sparse run: {sparse_remaining / 1024 / 1024:.1f}MB")
 
                 while sparse_remaining > 0 and bytes_read < file_size:
                     yield_size = min(chunk_size, sparse_remaining, file_size - bytes_read)
@@ -871,16 +888,35 @@ class FileContentExtractor:
                 run_size = run.length * self.cluster_size
                 run_read = 0
 
+                # 디버깅: 오프셋 검증
+                if run_offset < 0 or run.lcn < 0:
+                    logger.warning(f"[INVALID] Negative offset: lcn={run.lcn}, offset={run_offset}")
+                    continue
+
                 while run_read < run_size and bytes_read < file_size:
                     read_size = min(chunk_size, run_size - run_read, file_size - bytes_read)
+
+                    # 디버깅: 읽기 전 시간 측정
+                    read_start = time.time()
                     chunk = self.disk.read(run_offset + run_read, read_size)
+                    read_elapsed = time.time() - read_start
+
+                    # 느린 읽기 경고 (1초 이상)
+                    if read_elapsed > 1.0:
+                        logger.warning(f"[SLOW READ] {read_elapsed:.2f}s for {read_size} bytes at offset {run_offset + run_read}")
 
                     if not chunk:
+                        logger.debug(f"[EMPTY CHUNK] run {run_index}/{total_runs}, offset={run_offset + run_read}")
                         break
 
                     yield chunk
                     run_read += len(chunk)
                     bytes_read += len(chunk)
+
+                    # 타임아웃 체크 (단일 파일 최대 10분)
+                    if time.time() - start_time > 600:
+                        logger.warning(f"[STREAM TIMEOUT] 10min limit reached at {bytes_read / 1024 / 1024:.1f}MB")
+                        return
 
     # ==========================================================================
     # FAT Support
