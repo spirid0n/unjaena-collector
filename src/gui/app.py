@@ -24,6 +24,7 @@ from core.token_validator import TokenValidator, ValidationResult
 from core.encryptor import FileEncryptor
 from core.uploader import SyncUploader
 from collectors.artifact_collector import ArtifactCollector, ARTIFACT_TYPES
+from collectors.e01_artifact_collector import E01ArtifactCollector
 
 # 플랫폼 통일 테마 및 새 컴포넌트
 from gui.styles import get_platform_stylesheet, COLORS
@@ -1238,6 +1239,8 @@ class CollectorWindow(QMainWindow):
             case_id=self.case_id,
             artifacts=selected,
             consent_record=self.consent_record,  # P0 법적 필수
+            # 선택된 디바이스 목록
+            selected_devices=selected_devices,
             # Phase 2.1: 메모리/모바일 옵션
             android_device_serial=android_serial,
             ios_backup_path=ios_backup,
@@ -1377,6 +1380,8 @@ class CollectionWorker(QThread):
         case_id: str,
         artifacts: List[str],
         consent_record: dict = None,
+        # 선택된 디바이스 목록
+        selected_devices: List = None,
         # Phase 2.1: 모바일 옵션
         android_device_serial: str = None,
         ios_backup_path: str = None,
@@ -1392,6 +1397,9 @@ class CollectionWorker(QThread):
         self.artifacts = artifacts
         self.consent_record = consent_record  # P0 법적 필수
         self._cancelled = False
+
+        # 선택된 디바이스 목록
+        self.selected_devices = selected_devices or []
 
         # Phase 2.1: 모바일 옵션
         self.android_device_serial = android_device_serial
@@ -1446,6 +1454,85 @@ class CollectionWorker(QThread):
             minutes = int((remaining % 3600) / 60)
             return f"{hours}시간 {minutes}분"
 
+    def _create_collector_for_device(self, device, output_dir: str):
+        """
+        디바이스 유형에 맞는 수집기 생성
+
+        Args:
+            device: UnifiedDeviceInfo 객체
+            output_dir: 출력 디렉토리
+
+        Returns:
+            적절한 수집기 인스턴스 또는 None
+        """
+        try:
+            device_type = device.device_type
+
+            # E01/RAW 이미지
+            if device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+                file_path = device.metadata.get('file_path')
+                if not file_path:
+                    self.log_message.emit(f"⚠️ 이미지 파일 경로가 없습니다: {device.display_name}", True)
+                    return None
+
+                collector = E01ArtifactCollector(file_path, output_dir)
+
+                # 첫 번째 NTFS 파티션 자동 선택
+                partitions = collector.list_partitions()
+                selected = False
+                for p in partitions:
+                    if p.get('filesystem', '').upper() == 'NTFS':
+                        if collector.select_partition(p['index']):
+                            self.log_message.emit(f"✓ 파티션 선택: {p['filesystem']} ({p.get('size_display', '')})", False)
+                            selected = True
+                            break
+
+                if not selected and partitions:
+                    # NTFS가 없으면 첫 번째 파티션 선택
+                    collector.select_partition(partitions[0]['index'])
+                    self.log_message.emit(f"✓ 첫 번째 파티션 선택: {partitions[0].get('filesystem', 'Unknown')}", False)
+
+                return collector
+
+            # Windows 물리 디스크
+            elif device_type == DeviceType.WINDOWS_PHYSICAL_DISK:
+                # BitLocker 복호화된 볼륨이 있으면 사용
+                decrypted_reader = None
+                if self.bitlocker_decryptor:
+                    try:
+                        decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
+                    except Exception:
+                        pass
+                return ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
+
+            # Android 디바이스
+            elif device_type == DeviceType.ANDROID_DEVICE:
+                from collectors.android_collector import AndroidCollector
+                serial = device.metadata.get('serial')
+                collector = AndroidCollector(output_dir)
+                if serial:
+                    collector.connect(serial)
+                return collector
+
+            # iOS 백업
+            elif device_type == DeviceType.IOS_BACKUP:
+                from collectors.ios_collector import iOSCollector
+                backup_path = device.metadata.get('path')
+                collector = iOSCollector(output_dir)
+                if backup_path:
+                    collector.select_backup(backup_path)
+                return collector
+
+            else:
+                self.log_message.emit(f"⚠️ 지원하지 않는 디바이스 유형: {device_type.name}", True)
+                return None
+
+        except Exception as e:
+            self.log_message.emit(f"⚠️ 수집기 생성 실패: {e}", True)
+            import logging
+            logging.debug(f"Collector creation failed for {device.display_name}: {e}")
+            return None
+
     def run(self):
         """Run collection in background (P2-1: 단계별 진행률)"""
         import time
@@ -1457,16 +1544,6 @@ class CollectionWorker(QThread):
             import tempfile
             output_dir = tempfile.mkdtemp(prefix="forensic_")
 
-            # BitLocker 복호화된 볼륨이 있으면 decrypted_reader 전달
-            decrypted_reader = None
-            if self.bitlocker_decryptor:
-                try:
-                    decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
-                    self.log_message.emit("BitLocker 복호화된 볼륨을 사용합니다.", False)
-                except Exception as e:
-                    self.log_message.emit(f"BitLocker 볼륨 접근 실패: {e}", True)
-
-            collector = ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
             encryptor = FileEncryptor()
 
             # ========================================
@@ -1474,55 +1551,126 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit("📂 아티팩트 수집을 시작합니다...", False)
             collected_raw_files = []  # (file_path, artifact_type, metadata)
-            total_artifacts = len(self.artifacts)
 
-            for i, artifact_type in enumerate(self.artifacts):
-                if self._cancelled:
-                    self.finished.emit(False, "수집이 취소되었습니다")
-                    return
+            # 선택된 디바이스가 있으면 디바이스별로 수집
+            if self.selected_devices:
+                total_items = len(self.selected_devices) * len(self.artifacts)
+                item_index = 0
 
-                stage_progress = int(((i + 1) / total_artifacts) * 100)
-                overall_progress = self._calculate_overall_progress(1, stage_progress)
-                remaining = self._estimate_remaining_time(1, stage_progress, i + 1, total_artifacts)
+                for device in self.selected_devices:
+                    if self._cancelled:
+                        self.finished.emit(False, "수집이 취소되었습니다")
+                        return
 
-                self.progress_updated.emit(
-                    1, stage_progress, overall_progress,
-                    f"수집 중: {artifact_type}...",
-                    remaining
-                )
-                self.log_message.emit(f"수집 중: {artifact_type}", False)
+                    device_name = device.display_name
+                    self.log_message.emit(f"📱 디바이스: {device_name}", False)
 
-                try:
-                    # Phase 2.1: 카테고리별 kwargs 전달
-                    collect_kwargs = {}
-                    artifact_info = ARTIFACT_TYPES.get(artifact_type, {})
-                    category = artifact_info.get('category', 'windows')
+                    # 디바이스 유형에 따라 적절한 수집기 생성
+                    collector = self._create_collector_for_device(device, output_dir)
+                    if not collector:
+                        self.log_message.emit(f"⚠️ {device_name}: 수집기 생성 실패", True)
+                        continue
 
-                    if category == 'android' and self.android_device_serial:
-                        collect_kwargs['device_serial'] = self.android_device_serial
-                    elif category == 'ios' and self.ios_backup_path:
-                        collect_kwargs['backup_path'] = self.ios_backup_path
-
-                    files = list(collector.collect(artifact_type, **collect_kwargs))
-
-                    # [Phase 4] 수집 결과 상세 로깅
-                    if not files:
-                        self.log_message.emit(f"⚠️ {artifact_type}: 파일을 찾을 수 없습니다", True)
-                    else:
-                        self.log_message.emit(f"✓ {artifact_type}: {len(files)}개 파일 수집됨", False)
-
-                    for file_path, metadata in files:
+                    for artifact_type in self.artifacts:
                         if self._cancelled:
                             break
-                        collected_raw_files.append((file_path, artifact_type, metadata))
-                        self.file_collected.emit(Path(file_path).name, True)
 
-                except Exception as e:
-                    import traceback
-                    import logging
-                    self.log_message.emit(f"수집 실패 ({artifact_type}): {e}", True)
-                    # 보안: 스택 트레이스는 logging 모듈로 레벨 제어 (stdout 노출 방지)
-                    logging.debug(f"Collection error for {artifact_type}: {e}")
+                        item_index += 1
+                        stage_progress = int((item_index / max(total_items, 1)) * 100)
+                        overall_progress = self._calculate_overall_progress(1, stage_progress)
+                        remaining = self._estimate_remaining_time(1, stage_progress, item_index, total_items)
+
+                        self.progress_updated.emit(
+                            1, stage_progress, overall_progress,
+                            f"[{device_name}] 수집 중: {artifact_type}...",
+                            remaining
+                        )
+
+                        try:
+                            files = list(collector.collect(artifact_type))
+
+                            if not files:
+                                self.log_message.emit(f"⚠️ [{device_name}] {artifact_type}: 파일을 찾을 수 없습니다", True)
+                            else:
+                                self.log_message.emit(f"✓ [{device_name}] {artifact_type}: {len(files)}개 파일 수집됨", False)
+
+                            for file_path, metadata in files:
+                                if self._cancelled:
+                                    break
+                                # 디바이스 정보를 메타데이터에 추가
+                                metadata['device_id'] = device.device_id
+                                metadata['device_name'] = device_name
+                                metadata['device_type'] = device.device_type.name
+                                collected_raw_files.append((file_path, artifact_type, metadata))
+                                self.file_collected.emit(Path(file_path).name, True)
+
+                        except Exception as e:
+                            import logging
+                            self.log_message.emit(f"수집 실패 [{device_name}] ({artifact_type}): {e}", True)
+                            logging.debug(f"Collection error for {artifact_type} on {device_name}: {e}")
+
+                    # 수집기 정리
+                    if hasattr(collector, 'close'):
+                        collector.close()
+
+            else:
+                # 기존 방식: 선택된 디바이스가 없으면 로컬 시스템에서 수집
+                # BitLocker 복호화된 볼륨이 있으면 decrypted_reader 전달
+                decrypted_reader = None
+                if self.bitlocker_decryptor:
+                    try:
+                        decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
+                        self.log_message.emit("BitLocker 복호화된 볼륨을 사용합니다.", False)
+                    except Exception as e:
+                        self.log_message.emit(f"BitLocker 볼륨 접근 실패: {e}", True)
+
+                collector = ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
+                total_artifacts = len(self.artifacts)
+
+                for i, artifact_type in enumerate(self.artifacts):
+                    if self._cancelled:
+                        self.finished.emit(False, "수집이 취소되었습니다")
+                        return
+
+                    stage_progress = int(((i + 1) / total_artifacts) * 100)
+                    overall_progress = self._calculate_overall_progress(1, stage_progress)
+                    remaining = self._estimate_remaining_time(1, stage_progress, i + 1, total_artifacts)
+
+                    self.progress_updated.emit(
+                        1, stage_progress, overall_progress,
+                        f"수집 중: {artifact_type}...",
+                        remaining
+                    )
+                    self.log_message.emit(f"수집 중: {artifact_type}", False)
+
+                    try:
+                        # Phase 2.1: 카테고리별 kwargs 전달
+                        collect_kwargs = {}
+                        artifact_info = ARTIFACT_TYPES.get(artifact_type, {})
+                        category = artifact_info.get('category', 'windows')
+
+                        if category == 'android' and self.android_device_serial:
+                            collect_kwargs['device_serial'] = self.android_device_serial
+                        elif category == 'ios' and self.ios_backup_path:
+                            collect_kwargs['backup_path'] = self.ios_backup_path
+
+                        files = list(collector.collect(artifact_type, **collect_kwargs))
+
+                        if not files:
+                            self.log_message.emit(f"⚠️ {artifact_type}: 파일을 찾을 수 없습니다", True)
+                        else:
+                            self.log_message.emit(f"✓ {artifact_type}: {len(files)}개 파일 수집됨", False)
+
+                        for file_path, metadata in files:
+                            if self._cancelled:
+                                break
+                            collected_raw_files.append((file_path, artifact_type, metadata))
+                            self.file_collected.emit(Path(file_path).name, True)
+
+                    except Exception as e:
+                        import logging
+                        self.log_message.emit(f"수집 실패 ({artifact_type}): {e}", True)
+                        logging.debug(f"Collection error for {artifact_type}: {e}")
 
             if self._cancelled:
                 self.finished.emit(False, "수집이 취소되었습니다")
