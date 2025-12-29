@@ -34,6 +34,29 @@ from typing import Dict, List, Any, Optional, Generator, Tuple, Set
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# Debug Logging to File
+# =============================================================================
+_DEBUG_LOG_FILE = None
+
+def _debug_log(message: str):
+    """콘솔과 파일 모두에 디버그 로그 출력"""
+    global _DEBUG_LOG_FILE
+    print(message, flush=True)
+
+    # 파일에도 기록
+    try:
+        if _DEBUG_LOG_FILE is None:
+            import tempfile
+            log_path = Path(tempfile.gettempdir()) / "mft_collector_debug.log"
+            _DEBUG_LOG_FILE = open(log_path, 'a', encoding='utf-8')
+            _debug_log(f"[LOG FILE] {log_path}")
+
+        _DEBUG_LOG_FILE.write(f"{datetime.now().isoformat()} {message}\n")
+        _DEBUG_LOG_FILE.flush()
+    except:
+        pass
+
+# =============================================================================
 # Data Classes
 # =============================================================================
 
@@ -503,7 +526,7 @@ class BaseMFTCollector(ABC):
             for ext in extensions:
                 ext_lower = ext.lower()
                 ext_count = len(self._extension_index.get(ext_lower, []))
-                print(f"[SCAN] Extension {ext_lower}: {ext_count} files to process", flush=True)
+                _debug_log(f"[SCAN] Extension {ext_lower}: {ext_count} files to process")
 
                 for entry in self._extension_index.get(ext_lower, []):
                     if not include_deleted and getattr(entry, 'is_deleted', False):
@@ -512,7 +535,7 @@ class BaseMFTCollector(ABC):
                     file_counter += 1
                     filename = entry.filename if hasattr(entry, 'filename') else str(entry)
                     if file_counter % 500 == 0:
-                        print(f"[PROGRESS] {artifact_type}: Processing file #{file_counter} - {filename}", flush=True)
+                        _debug_log(f"[PROGRESS] {artifact_type}: Processing file #{file_counter} - {filename}")
 
                     yield from self._extract_entry(artifact_type, entry, artifact_dir)
             return
@@ -597,7 +620,7 @@ class BaseMFTCollector(ABC):
 
         # 디버깅: 대용량 파일 경고
         if file_size > 100 * 1024 * 1024:  # 100MB 이상
-            print(f"[DEBUG] Large file detected: {filename} ({file_size / 1024 / 1024:.1f}MB)", flush=True)
+            _debug_log(f"[DEBUG] Large file detected: {filename} ({file_size / 1024 / 1024:.1f}MB)")
 
         try:
             # 출력 파일명 생성
@@ -632,17 +655,17 @@ class BaseMFTCollector(ABC):
             if hasattr(self._accessor, 'stream_file_by_inode'):
                 # 청크 스트리밍 (대용량 파일 지원)
                 try:
-                    print(f"[EXTRACT START] {filename} (inode={inode}, size={file_size})", flush=True)
+                    _debug_log(f"[EXTRACT START] {filename} (inode={inode}, size={file_size})")
                     with open(output_file, 'wb') as f:
                         chunk_count = 0
                         stream_generator = self._accessor.stream_file_by_inode(inode)
-                        print(f"[STREAM READY] {filename}", flush=True)
+                        _debug_log(f"[STREAM READY] {filename}")
                         for chunk in stream_generator:
                             current_time = time.time()
 
                             # 파일 전체 타임아웃 체크
                             if current_time - start_time > FILE_TIMEOUT:
-                                print(f"[TIMEOUT] File extraction timeout ({FILE_TIMEOUT}s): {filename}", flush=True)
+                                _debug_log(f"[TIMEOUT] File extraction timeout ({FILE_TIMEOUT}s): {filename}")
                                 break
 
                             if chunk:
@@ -656,10 +679,10 @@ class BaseMFTCollector(ABC):
 
                                 # 진행 로그 (100MB마다)
                                 if total_size % (100 * 1024 * 1024) < len(chunk):
-                                    print(f"[PROGRESS] {filename}: {total_size / 1024 / 1024:.1f}MB written", flush=True)
+                                    _debug_log(f"[PROGRESS] {filename}: {total_size / 1024 / 1024:.1f}MB written")
 
                 except Exception as stream_error:
-                    print(f"[STREAM ERROR] {filename}: {stream_error}", flush=True)
+                    _debug_log(f"[STREAM ERROR] {filename}: {stream_error}")
                     # 부분적으로 쓰인 파일 삭제
                     if output_file.exists() and total_size == 0:
                         output_file.unlink()
