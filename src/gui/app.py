@@ -253,12 +253,12 @@ class CollectorWindow(QMainWindow):
 
         # Step 0: Device Selection (새로 추가)
         device_group = QGroupBox("0. Select Devices")
-        device_group.setMaximumHeight(180)
         device_layout = QVBoxLayout(device_group)
-        device_layout.setContentsMargins(8, 20, 8, 8)
-        device_layout.setSpacing(4)
+        device_layout.setContentsMargins(6, 16, 6, 6)
+        device_layout.setSpacing(2)
 
         self.device_panel = DeviceListPanel(self.device_manager)
+        self.device_panel.setMinimumHeight(60)
         self.device_panel.selection_changed.connect(self._on_device_selection_changed)
         self.device_panel.image_file_requested.connect(self._on_image_file_added)
         device_layout.addWidget(self.device_panel)
@@ -268,40 +268,34 @@ class CollectorWindow(QMainWindow):
         # Step 1: Token
         token_group = QGroupBox("1. Session Token")
         token_layout = QVBoxLayout(token_group)
-        token_layout.setContentsMargins(8, 20, 8, 8)
+        token_layout.setContentsMargins(6, 16, 6, 6)
         token_layout.setSpacing(4)
 
         self.token_input = QLineEdit()
         self.token_input.setPlaceholderText("Paste your session token here")
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token_input.setFixedHeight(28)
         token_layout.addWidget(self.token_input)
 
         token_btn_layout = QHBoxLayout()
         token_btn_layout.setSpacing(4)
         self.show_token_btn = QPushButton("Show")
         self.show_token_btn.setCheckable(True)
-        self.show_token_btn.setFixedHeight(26)
         self.show_token_btn.clicked.connect(self._toggle_token_visibility)
         self.validate_btn = QPushButton("Validate Token")
-        self.validate_btn.setFixedHeight(26)
         self.validate_btn.clicked.connect(self._validate_token)
         token_btn_layout.addWidget(self.show_token_btn)
         token_btn_layout.addWidget(self.validate_btn)
         token_layout.addLayout(token_btn_layout)
 
         self.token_status = QLabel("")
-        self.token_status.setFixedHeight(16)
         token_layout.addWidget(self.token_status)
 
         layout.addWidget(token_group)
 
         # Step 2: Artifacts (탭 기반 - Phase 2.1)
         artifacts_group = QGroupBox("2. Select Artifacts")
-        artifacts_group.setMinimumHeight(150)
-        artifacts_group.setMaximumHeight(250)
         artifacts_outer_layout = QVBoxLayout(artifacts_group)
-        artifacts_outer_layout.setContentsMargins(8, 20, 8, 8)
+        artifacts_outer_layout.setContentsMargins(6, 16, 6, 6)
         artifacts_outer_layout.setSpacing(4)
 
         # 탭 위젯 생성
@@ -357,20 +351,11 @@ class CollectorWindow(QMainWindow):
 
         layout.addWidget(artifacts_group)
 
-        # Step 3: Progress (P2-1: 단계별 진행률 표시, 스크롤 가능)
+        # Step 3: Progress (P2-1: 단계별 진행률 표시)
         progress_group = QGroupBox("3. Collection Progress")
-        progress_group.setMinimumHeight(200)
         progress_outer_layout = QVBoxLayout(progress_group)
-        progress_outer_layout.setContentsMargins(8, 20, 8, 8)
+        progress_outer_layout.setContentsMargins(6, 16, 6, 6)
         progress_outer_layout.setSpacing(4)
-
-        # QScrollArea로 감싸기
-        progress_scroll = QScrollArea()
-        progress_scroll.setWidgetResizable(True)
-        progress_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        progress_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        progress_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        progress_scroll.setMinimumHeight(150)
 
         progress_content = QWidget()
         progress_content.setStyleSheet("background: transparent;")
@@ -446,11 +431,10 @@ class CollectorWindow(QMainWindow):
 
         # 수집된 파일 목록
         self.collected_list = QListWidget()
-        self.collected_list.setMaximumHeight(120)
+        self.collected_list.setMaximumHeight(80)
         progress_layout.addWidget(self.collected_list)
 
-        progress_scroll.setWidget(progress_content)
-        progress_outer_layout.addWidget(progress_scroll)
+        progress_outer_layout.addWidget(progress_content)
 
         layout.addWidget(progress_group)
 
@@ -471,6 +455,9 @@ class CollectorWindow(QMainWindow):
         btn_layout.addWidget(self.collect_btn)
         btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
+
+        # 남은 공간은 stretch로 채움
+        layout.addStretch()
 
         # 스크롤 영역에 패널 설정
         scroll_area.setWidget(panel)
@@ -568,6 +555,10 @@ class CollectorWindow(QMainWindow):
         status_layout = QGridLayout(status_frame)
         status_layout.setContentsMargins(6, 6, 6, 6)
         status_layout.setSpacing(4)
+        # Column stretches: 0=fixed, 1=expand, 2=fixed (prevent button cut-off)
+        status_layout.setColumnStretch(0, 0)
+        status_layout.setColumnStretch(1, 1)
+        status_layout.setColumnStretch(2, 0)
 
         # ADB 상태
         from collectors.artifact_collector import ADB_AVAILABLE
