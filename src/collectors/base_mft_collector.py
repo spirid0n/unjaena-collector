@@ -33,6 +33,17 @@ from typing import Dict, List, Any, Optional, Generator, Tuple, Set
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Constants
+# =============================================================================
+
+# 대용량 파일 스킵 (기본 100MB) - document, image, video, email 아티팩트에 적용
+MAX_FILE_SIZE_MB = 100
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+# 대용량 파일 스킵 대상 아티팩트 (전체 디스크 스캔)
+LARGE_FILE_SKIP_ARTIFACTS = {'document', 'image', 'video', 'email'}
+
 
 # =============================================================================
 # Data Classes
@@ -580,9 +591,16 @@ class BaseMFTCollector(ABC):
         filename = entry.filename if hasattr(entry, 'filename') else str(entry)
         full_path = entry.full_path if hasattr(entry, 'full_path') else f"MFT_{inode}"
         is_deleted = getattr(entry, 'is_deleted', False)
+        file_size = getattr(entry, 'size', 0)
 
         if inode is None:
             return
+
+        # 대용량 파일 스킵 (document, image, video, email 아티팩트)
+        if artifact_type in LARGE_FILE_SKIP_ARTIFACTS:
+            if file_size > MAX_FILE_SIZE_BYTES:
+                logger.info(f"[Skip] Large file ({file_size / 1024 / 1024:.1f}MB > {MAX_FILE_SIZE_MB}MB): {filename}")
+                return
 
         try:
             data = self._accessor.read_file_by_inode(inode)
