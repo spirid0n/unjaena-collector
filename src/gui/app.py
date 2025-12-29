@@ -260,12 +260,14 @@ class CollectorWindow(QMainWindow):
 
         # Step 0: Device Selection (새로 추가)
         device_group = QGroupBox("0. Select Devices")
+        device_group.setMaximumHeight(150)  # 디바이스 목록이 너무 커지지 않도록 제한
         device_layout = QVBoxLayout(device_group)
         device_layout.setContentsMargins(6, 16, 6, 6)
         device_layout.setSpacing(2)
 
         self.device_panel = DeviceListPanel(self.device_manager)
         self.device_panel.setMinimumHeight(60)
+        self.device_panel.setMaximumHeight(120)  # 내부 스크롤로 overflow 처리
         self.device_panel.selection_changed.connect(self._on_device_selection_changed)
         self.device_panel.image_file_requested.connect(self._on_image_file_added)
         device_layout.addWidget(self.device_panel)
@@ -301,6 +303,7 @@ class CollectorWindow(QMainWindow):
 
         # Step 2: Artifacts (탭 기반 - Phase 2.1)
         artifacts_group = QGroupBox("2. Select Artifacts")
+        artifacts_group.setMaximumHeight(220)  # 아티팩트 목록 높이 제한
         artifacts_outer_layout = QVBoxLayout(artifacts_group)
         artifacts_outer_layout.setContentsMargins(6, 16, 6, 6)
         artifacts_outer_layout.setSpacing(4)
