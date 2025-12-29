@@ -83,7 +83,7 @@ class DeviceCard(QFrame):
 
         # 디바이스 이름
         self.name_label = QLabel(self.device.display_name)
-        self.name_label.setFont(QFont("Pretendard", 11, QFont.Weight.Medium))
+        self.name_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
         name_layout.addWidget(self.name_label, 1)
 
         info_layout.addLayout(name_layout)
@@ -92,7 +92,7 @@ class DeviceCard(QFrame):
         details = self._get_device_details()
         self.detail_label = QLabel(details)
         self.detail_label.setObjectName("mutedLabel")
-        self.detail_label.setFont(QFont("Pretendard", 9))
+        self.detail_label.setFont(QFont("Segoe UI", 9))
         info_layout.addWidget(self.detail_label)
 
         layout.addLayout(info_layout, 1)
@@ -100,7 +100,7 @@ class DeviceCard(QFrame):
         # 상태 표시
         self.status_label = QLabel(self._get_status_text())
         self.status_label.setObjectName(self._get_status_object_name())
-        self.status_label.setFont(QFont("Pretendard", 10, QFont.Weight.Medium))
+        self.status_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
         layout.addWidget(self.status_label)
 
     def _get_device_details(self) -> str:
@@ -216,7 +216,7 @@ class DeviceCategoryGroup(QWidget):
 
         self.header_label = QLabel(self.title.upper())
         self.header_label.setObjectName("mutedLabel")
-        self.header_label.setFont(QFont("Pretendard", 10, QFont.Weight.Bold))
+        self.header_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         header_layout.addWidget(self.header_label)
 
         self.count_label = QLabel("(0)")

@@ -55,7 +55,7 @@ class DeviceProgressCard(QFrame):
 
         # 디바이스 이름
         self.name_label = QLabel(self.device.display_name)
-        self.name_label.setFont(QFont("Pretendard", 11, QFont.Weight.Medium))
+        self.name_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
         header_layout.addWidget(self.name_label, 1)
 
         # 상태 아이콘/텍스트
@@ -79,12 +79,12 @@ class DeviceProgressCard(QFrame):
 
         self.current_task_label = QLabel("Waiting...")
         self.current_task_label.setObjectName("mutedLabel")
-        self.current_task_label.setFont(QFont("Pretendard", 9))
+        self.current_task_label.setFont(QFont("Segoe UI", 9))
         detail_layout.addWidget(self.current_task_label, 1)
 
         self.count_label = QLabel("")
         self.count_label.setObjectName("mutedLabel")
-        self.count_label.setFont(QFont("Pretendard", 9))
+        self.count_label.setFont(QFont("Segoe UI", 9))
         detail_layout.addWidget(self.count_label)
 
         layout.addLayout(detail_layout)
