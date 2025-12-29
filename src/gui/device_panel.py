@@ -81,9 +81,17 @@ class DeviceListPanel(QWidget):
         self.devices_layout = QVBoxLayout(self.devices_container)
         self.devices_layout.setContentsMargins(0, 0, 0, 0)
         self.devices_layout.setSpacing(2)
+
+        # 빈 상태 라벨 (디바이스가 없을 때 표시)
+        self.empty_label = QLabel("No devices detected. Click 'Refresh' or '+ Add E01/RAW'")
+        self.empty_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
+        self.empty_label.setWordWrap(True)
+        self.devices_layout.addWidget(self.empty_label)
+
         self.devices_layout.addStretch()
 
         scroll.setWidget(self.devices_container)
+        scroll.setMinimumHeight(40)
         layout.addWidget(scroll, 1)
 
     def _connect_signals(self):
@@ -96,6 +104,9 @@ class DeviceListPanel(QWidget):
         """디바이스 추가"""
         if device.device_id in self.device_checkboxes:
             return
+
+        # 빈 상태 라벨 숨기기
+        self.empty_label.hide()
 
         # 체크박스 생성
         cb = QCheckBox(self._get_device_label(device))
@@ -120,6 +131,10 @@ class DeviceListPanel(QWidget):
             self.devices_layout.removeWidget(cb)
             cb.deleteLater()
             self._update_summary()
+
+            # 디바이스가 없으면 빈 상태 라벨 표시
+            if not self.device_checkboxes:
+                self.empty_label.show()
 
     def _on_device_updated(self, device: UnifiedDeviceInfo):
         """디바이스 업데이트"""
