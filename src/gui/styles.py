@@ -105,20 +105,22 @@ def get_platform_stylesheet() -> str:
     QGroupBox {{
         background-color: {COLORS['bg_secondary']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 8px;
-        margin-top: 16px;
-        padding: 16px;
-        padding-top: 24px;
+        border-radius: 6px;
+        margin-top: 8px;
+        padding: 6px;
+        padding-top: 14px;
         font-weight: 500;
+        font-size: 11px;
     }}
 
     QGroupBox::title {{
         subcontrol-origin: margin;
         subcontrol-position: top left;
-        left: 12px;
-        padding: 0 8px;
-        color: {COLORS['text_primary']};
+        left: 8px;
+        padding: 0 6px;
+        color: {COLORS['brand_primary']};
         background-color: {COLORS['bg_secondary']};
+        font-size: 11px;
     }}
 
     QFrame {{
@@ -150,11 +152,12 @@ def get_platform_stylesheet() -> str:
     QPushButton {{
         background-color: {COLORS['bg_tertiary']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 6px;
-        padding: 8px 16px;
+        border-radius: 4px;
+        padding: 4px 12px;
         color: {COLORS['text_primary']};
         font-weight: 500;
-        min-height: 20px;
+        font-size: 11px;
+        min-height: 16px;
     }}
 
     QPushButton:hover {{
@@ -226,20 +229,20 @@ def get_platform_stylesheet() -> str:
     }}
 
     QLabel#headerLabel {{
-        font-size: 18px;
+        font-size: 14px;
         font-weight: 600;
         color: {COLORS['text_primary']};
     }}
 
     QLabel#subheaderLabel {{
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 500;
         color: {COLORS['text_secondary']};
     }}
 
     QLabel#mutedLabel {{
         color: {COLORS['text_tertiary']};
-        font-size: 12px;
+        font-size: 10px;
     }}
 
     QLabel#statusReady {{
@@ -268,7 +271,8 @@ def get_platform_stylesheet() -> str:
 
     QCheckBox {{
         color: {COLORS['text_primary']};
-        spacing: 8px;
+        spacing: 6px;
+        font-size: 11px;
     }}
 
     QCheckBox:disabled {{
@@ -276,10 +280,10 @@ def get_platform_stylesheet() -> str:
     }}
 
     QCheckBox::indicator {{
-        width: 18px;
-        height: 18px;
-        border: 2px solid {COLORS['border_subtle']};
-        border-radius: 4px;
+        width: 14px;
+        height: 14px;
+        border: 1px solid {COLORS['border_subtle']};
+        border-radius: 3px;
         background-color: {COLORS['bg_secondary']};
     }}
 
@@ -309,9 +313,10 @@ def get_platform_stylesheet() -> str:
     QLineEdit, QTextEdit, QPlainTextEdit {{
         background-color: {COLORS['bg_tertiary']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 6px;
-        padding: 8px 12px;
+        border-radius: 4px;
+        padding: 4px 8px;
         color: {COLORS['text_primary']};
+        font-size: 11px;
         selection-background-color: {COLORS['brand_primary']};
         selection-color: {COLORS['bg_primary']};
     }}
@@ -336,10 +341,11 @@ def get_platform_stylesheet() -> str:
     QComboBox {{
         background-color: {COLORS['bg_tertiary']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 6px;
-        padding: 8px 12px;
+        border-radius: 4px;
+        padding: 4px 8px;
         color: {COLORS['text_primary']};
-        min-width: 100px;
+        font-size: 11px;
+        min-width: 80px;
     }}
 
     QComboBox:hover {{
@@ -375,9 +381,10 @@ def get_platform_stylesheet() -> str:
     QProgressBar {{
         background-color: {COLORS['bg_tertiary']};
         border: none;
-        border-radius: 4px;
-        height: 8px;
+        border-radius: 3px;
+        height: 6px;
         text-align: center;
+        font-size: 9px;
     }}
 
     QProgressBar::chunk {{
@@ -445,12 +452,13 @@ def get_platform_stylesheet() -> str:
     QListWidget {{
         background-color: {COLORS['bg_secondary']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 8px;
+        border-radius: 4px;
         outline: none;
+        font-size: 10px;
     }}
 
     QListWidget::item {{
-        padding: 10px 12px;
+        padding: 4px 8px;
         border-bottom: 1px solid {COLORS['border_muted']};
         color: {COLORS['text_primary']};
     }}
@@ -474,7 +482,7 @@ def get_platform_stylesheet() -> str:
 
     QTabWidget::pane {{
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 8px;
+        border-radius: 4px;
         background-color: {COLORS['bg_secondary']};
         top: -1px;
     }}
@@ -483,11 +491,12 @@ def get_platform_stylesheet() -> str:
         background-color: transparent;
         border: 1px solid transparent;
         border-bottom: none;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
-        padding: 10px 20px;
-        margin-right: 4px;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        padding: 6px 12px;
+        margin-right: 2px;
         color: {COLORS['text_secondary']};
+        font-size: 11px;
     }}
 
     QTabBar::tab:hover {{
@@ -525,6 +534,8 @@ def get_platform_stylesheet() -> str:
         background-color: {COLORS['bg_secondary']};
         border-top: 1px solid {COLORS['border_subtle']};
         color: {COLORS['text_secondary']};
+        font-size: 10px;
+        padding: 2px 8px;
     }}
 
     /* =========================================
@@ -535,10 +546,11 @@ def get_platform_stylesheet() -> str:
         background-color: {COLORS['bg_secondary']};
         border-bottom: 1px solid {COLORS['border_subtle']};
         color: {COLORS['text_primary']};
+        font-size: 11px;
     }}
 
     QMenuBar::item {{
-        padding: 8px 12px;
+        padding: 4px 8px;
         background-color: transparent;
     }}
 
@@ -549,13 +561,14 @@ def get_platform_stylesheet() -> str:
     QMenu {{
         background-color: {COLORS['bg_elevated']};
         border: 1px solid {COLORS['border_subtle']};
-        border-radius: 6px;
-        padding: 4px;
+        border-radius: 4px;
+        padding: 2px;
+        font-size: 11px;
     }}
 
     QMenu::item {{
-        padding: 8px 24px;
-        border-radius: 4px;
+        padding: 4px 16px;
+        border-radius: 3px;
         color: {COLORS['text_primary']};
     }}
 

@@ -176,7 +176,7 @@ class CollectorWindow(QMainWindow):
     def setup_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle(f"{self.config['app_name']} v{self.config['version']}")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(900, 650)
         # 플랫폼 통일 테마 적용
         self.setStyleSheet(get_platform_stylesheet())
 
@@ -184,9 +184,12 @@ class CollectorWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
 
-        # Header
+        # Header (compact)
         header = self._create_header()
+        header.setFixedHeight(40)
         main_layout.addWidget(header)
 
         # Main content with splitter
@@ -200,8 +203,10 @@ class CollectorWindow(QMainWindow):
         right_panel = self._create_right_panel()
         splitter.addWidget(right_panel)
 
-        splitter.setSizes([500, 300])
-        main_layout.addWidget(splitter)
+        splitter.setSizes([550, 350])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        main_layout.addWidget(splitter, 1)  # stretch factor 1
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -209,13 +214,16 @@ class CollectorWindow(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def _create_header(self) -> QWidget:
-        """Create header section"""
+        """Create header section (compact)"""
         frame = QFrame()
         frame.setObjectName("header")
         layout = QHBoxLayout(frame)
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(8)
 
         title = QLabel(self.config['app_name'])
         title.setObjectName("title")
+        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         layout.addWidget(title)
 
         layout.addStretch()
@@ -223,6 +231,7 @@ class CollectorWindow(QMainWindow):
         # Server status indicator
         self.server_status = QLabel("Server: Checking...")
         self.server_status.setObjectName("serverStatus")
+        self.server_status.setFont(QFont("Segoe UI", 9))
         layout.addWidget(self.server_status)
 
         return frame
@@ -234,15 +243,20 @@ class CollectorWindow(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         panel = QWidget()
+        panel.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(panel)
-        layout.setSpacing(8)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         # Step 0: Device Selection (새로 추가)
         device_group = QGroupBox("0. Select Devices")
+        device_group.setMaximumHeight(180)
         device_layout = QVBoxLayout(device_group)
-        device_layout.setContentsMargins(5, 15, 5, 5)
+        device_layout.setContentsMargins(8, 20, 8, 8)
+        device_layout.setSpacing(4)
 
         self.device_panel = DeviceListPanel(self.device_manager)
         self.device_panel.selection_changed.connect(self._on_device_selection_changed)
@@ -254,55 +268,66 @@ class CollectorWindow(QMainWindow):
         # Step 1: Token
         token_group = QGroupBox("1. Session Token")
         token_layout = QVBoxLayout(token_group)
+        token_layout.setContentsMargins(8, 20, 8, 8)
+        token_layout.setSpacing(4)
 
         self.token_input = QLineEdit()
         self.token_input.setPlaceholderText("Paste your session token here")
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_input.setFixedHeight(28)
         token_layout.addWidget(self.token_input)
 
         token_btn_layout = QHBoxLayout()
+        token_btn_layout.setSpacing(4)
         self.show_token_btn = QPushButton("Show")
         self.show_token_btn.setCheckable(True)
+        self.show_token_btn.setFixedHeight(26)
         self.show_token_btn.clicked.connect(self._toggle_token_visibility)
         self.validate_btn = QPushButton("Validate Token")
+        self.validate_btn.setFixedHeight(26)
         self.validate_btn.clicked.connect(self._validate_token)
         token_btn_layout.addWidget(self.show_token_btn)
         token_btn_layout.addWidget(self.validate_btn)
         token_layout.addLayout(token_btn_layout)
 
         self.token_status = QLabel("")
+        self.token_status.setFixedHeight(16)
         token_layout.addWidget(self.token_status)
 
         layout.addWidget(token_group)
 
         # Step 2: Artifacts (탭 기반 - Phase 2.1)
         artifacts_group = QGroupBox("2. Select Artifacts")
+        artifacts_group.setMinimumHeight(150)
+        artifacts_group.setMaximumHeight(250)
         artifacts_outer_layout = QVBoxLayout(artifacts_group)
-        artifacts_outer_layout.setContentsMargins(5, 15, 5, 5)
+        artifacts_outer_layout.setContentsMargins(8, 20, 8, 8)
+        artifacts_outer_layout.setSpacing(4)
 
         # 탭 위젯 생성
         self.artifacts_tab = QTabWidget()
-        self.artifacts_tab.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #333;
+        self.artifacts_tab.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {COLORS['border_subtle']};
                 border-radius: 4px;
-                background-color: #0f3460;
-            }
-            QTabBar::tab {
-                background-color: #1a1a2e;
-                border: 1px solid #333;
-                padding: 6px 12px;
+                background-color: {COLORS['bg_tertiary']};
+            }}
+            QTabBar::tab {{
+                background-color: {COLORS['bg_secondary']};
+                border: 1px solid {COLORS['border_subtle']};
+                padding: 4px 10px;
                 margin-right: 2px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background-color: #0f3460;
-                border-bottom-color: #0f3460;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #16213e;
-            }
+                font-size: 11px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {COLORS['bg_tertiary']};
+                border-bottom-color: {COLORS['bg_tertiary']};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {COLORS['bg_hover']};
+            }}
         """)
 
         # 아티팩트 체크박스 저장소
@@ -334,8 +359,10 @@ class CollectorWindow(QMainWindow):
 
         # Step 3: Progress (P2-1: 단계별 진행률 표시, 스크롤 가능)
         progress_group = QGroupBox("3. Collection Progress")
+        progress_group.setMinimumHeight(200)
         progress_outer_layout = QVBoxLayout(progress_group)
-        progress_outer_layout.setContentsMargins(5, 15, 5, 5)
+        progress_outer_layout.setContentsMargins(8, 20, 8, 8)
+        progress_outer_layout.setSpacing(4)
 
         # QScrollArea로 감싸기
         progress_scroll = QScrollArea()
@@ -343,6 +370,7 @@ class CollectorWindow(QMainWindow):
         progress_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         progress_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         progress_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        progress_scroll.setMinimumHeight(150)
 
         progress_content = QWidget()
         progress_content.setStyleSheet("background: transparent;")
@@ -428,20 +456,21 @@ class CollectorWindow(QMainWindow):
 
         # Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
         self.collect_btn = QPushButton("Start Collection")
         self.collect_btn.setEnabled(False)
+        self.collect_btn.setFixedHeight(32)
         self.collect_btn.clicked.connect(self._start_collection)
         self.collect_btn.setObjectName("primaryButton")
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)
+        self.cancel_btn.setFixedHeight(32)
         self.cancel_btn.clicked.connect(self._cancel_collection)
 
         btn_layout.addWidget(self.collect_btn)
         btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
-
-        layout.addStretch()
 
         # 스크롤 영역에 패널 설정
         scroll_area.setWidget(panel)
