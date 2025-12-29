@@ -45,17 +45,18 @@ class DeviceListPanel(QWidget):
 
         # 헤더 행: 버튼들
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(4)
+        header_layout.setContentsMargins(0, 0, 0, 4)
 
         # 새로고침 버튼
         refresh_btn = QPushButton("Refresh")
-        refresh_btn.setFixedHeight(24)
+        refresh_btn.setFixedHeight(20)
         refresh_btn.clicked.connect(self._on_refresh_clicked)
         header_layout.addWidget(refresh_btn)
 
         # 이미지 추가 버튼
         add_btn = QPushButton("+ Add E01/RAW")
-        add_btn.setFixedHeight(24)
+        add_btn.setFixedHeight(20)
         add_btn.clicked.connect(self._on_add_image_clicked)
         header_layout.addWidget(add_btn)
 
@@ -63,7 +64,7 @@ class DeviceListPanel(QWidget):
 
         # 선택 요약
         self.summary_label = QLabel("0 selected")
-        self.summary_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        self.summary_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 10px;")
         header_layout.addWidget(self.summary_label)
 
         layout.addLayout(header_layout)
