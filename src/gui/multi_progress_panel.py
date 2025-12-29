@@ -46,21 +46,22 @@ class DeviceProgressCard(QFrame):
     def _setup_ui(self):
         """UI 구성"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
 
         # 헤더 행: 이름 + 상태
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(12)
+        header_layout.setSpacing(8)
 
         # 디바이스 이름
         self.name_label = QLabel(self.device.display_name)
-        self.name_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
+        self.name_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
         header_layout.addWidget(self.name_label, 1)
 
         # 상태 아이콘/텍스트
         self.status_label = QLabel("Pending")
         self.status_label.setObjectName("statusPending")
+        self.status_label.setFont(QFont("Segoe UI", 9))
         header_layout.addWidget(self.status_label)
 
         layout.addLayout(header_layout)
@@ -70,21 +71,21 @@ class DeviceProgressCard(QFrame):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setFixedHeight(6)
         layout.addWidget(self.progress_bar)
 
         # 상세 정보 행: 현재 작업 + 수집 개수
         detail_layout = QHBoxLayout()
-        detail_layout.setSpacing(12)
+        detail_layout.setSpacing(8)
 
         self.current_task_label = QLabel("Waiting...")
         self.current_task_label.setObjectName("mutedLabel")
-        self.current_task_label.setFont(QFont("Segoe UI", 9))
+        self.current_task_label.setFont(QFont("Segoe UI", 8))
         detail_layout.addWidget(self.current_task_label, 1)
 
         self.count_label = QLabel("")
         self.count_label.setObjectName("mutedLabel")
-        self.count_label.setFont(QFont("Segoe UI", 9))
+        self.count_label.setFont(QFont("Segoe UI", 8))
         detail_layout.addWidget(self.count_label)
 
         layout.addLayout(detail_layout)
@@ -95,10 +96,11 @@ class DeviceProgressCard(QFrame):
             DeviceProgressCard {{
                 background-color: {COLORS['bg_secondary']};
                 border: 1px solid {COLORS['border_subtle']};
-                border-radius: 8px;
+                border-radius: 4px;
             }}
             QLabel {{
                 color: {COLORS['text_primary']};
+                font-size: 10px;
             }}
             QLabel#mutedLabel {{
                 color: {COLORS['text_tertiary']};
@@ -205,8 +207,8 @@ class MultiProgressPanel(QWidget):
         # 디바이스 카드 컨테이너
         self.cards_container = QWidget()
         self.cards_layout = QVBoxLayout(self.cards_container)
-        self.cards_layout.setContentsMargins(16, 16, 16, 16)
-        self.cards_layout.setSpacing(12)
+        self.cards_layout.setContentsMargins(8, 8, 8, 8)
+        self.cards_layout.setSpacing(6)
         self.cards_layout.addStretch()
 
         scroll.setWidget(self.cards_container)
@@ -221,11 +223,12 @@ class MultiProgressPanel(QWidget):
         header = QWidget()
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setContentsMargins(8, 6, 8, 6)
 
         # 제목
         self.title_label = QLabel("Collection Progress")
         self.title_label.setObjectName("headerLabel")
+        self.title_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
         layout.addWidget(self.title_label)
 
         layout.addStretch()
@@ -233,6 +236,7 @@ class MultiProgressPanel(QWidget):
         # 디바이스 카운트
         self.device_count_label = QLabel("0/0 devices")
         self.device_count_label.setObjectName("mutedLabel")
+        self.device_count_label.setFont(QFont("Segoe UI", 9))
         layout.addWidget(self.device_count_label)
 
         return header
@@ -242,34 +246,39 @@ class MultiProgressPanel(QWidget):
         footer = QWidget()
 
         layout = QVBoxLayout(footer)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
 
         # 전체 진행률
         progress_layout = QHBoxLayout()
+        progress_layout.setSpacing(8)
 
-        progress_label = QLabel("Overall Progress:")
+        progress_label = QLabel("Overall:")
+        progress_label.setFont(QFont("Segoe UI", 9))
         progress_layout.addWidget(progress_label)
 
         self.overall_progress = QProgressBar()
         self.overall_progress.setRange(0, 100)
         self.overall_progress.setValue(0)
         self.overall_progress.setObjectName("largeProgress")
-        self.overall_progress.setFixedHeight(12)
+        self.overall_progress.setFixedHeight(8)
         progress_layout.addWidget(self.overall_progress, 1)
 
         self.overall_percent_label = QLabel("0%")
-        self.overall_percent_label.setFixedWidth(50)
+        self.overall_percent_label.setFixedWidth(35)
+        self.overall_percent_label.setFont(QFont("Segoe UI", 9))
         progress_layout.addWidget(self.overall_percent_label)
 
         layout.addLayout(progress_layout)
 
         # 버튼 영역
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
 
         # 수집 파일 수
         self.total_files_label = QLabel("0 files collected")
         self.total_files_label.setObjectName("mutedLabel")
+        self.total_files_label.setFont(QFont("Segoe UI", 9))
         button_layout.addWidget(self.total_files_label)
 
         button_layout.addStretch()
@@ -277,6 +286,7 @@ class MultiProgressPanel(QWidget):
         # 취소 버튼
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setObjectName("dangerButton")
+        self.cancel_btn.setFixedHeight(24)
         self.cancel_btn.clicked.connect(self._on_cancel_clicked)
         button_layout.addWidget(self.cancel_btn)
 
