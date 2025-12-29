@@ -37,6 +37,30 @@ import logging
 from typing import Optional, List, Tuple, Dict, Generator, Any
 from dataclasses import dataclass, field
 from enum import IntEnum
+from pathlib import Path
+from datetime import datetime
+
+# =============================================================================
+# Debug Logging to File
+# =============================================================================
+_DEBUG_LOG_FILE = None
+
+def _debug_log(message: str):
+    """콘솔과 파일 모두에 디버그 로그 출력"""
+    global _DEBUG_LOG_FILE
+    print(message, flush=True)
+
+    # 파일에도 기록
+    try:
+        if _DEBUG_LOG_FILE is None:
+            import tempfile
+            log_path = Path(tempfile.gettempdir()) / "mft_collector_debug.log"
+            _DEBUG_LOG_FILE = open(log_path, 'a', encoding='utf-8')
+
+        _DEBUG_LOG_FILE.write(f"{datetime.now().isoformat()} {message}\n")
+        _DEBUG_LOG_FILE.flush()
+    except:
+        pass
 
 from .unified_disk_reader import UnifiedDiskReader, FilesystemError
 
@@ -860,7 +884,7 @@ class FileContentExtractor:
         # 디버깅: 파일 크기 제한 (손상된 MFT로 인한 무한 루프 방지)
         MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
         if file_size > MAX_FILE_SIZE:
-            print(f"[SANITY CHECK] Abnormally large file_size: {file_size / 1024 / 1024 / 1024:.2f}GB - limiting to 10GB", flush=True)
+            _debug_log(f"[SANITY CHECK] Abnormally large file_size: {file_size / 1024 / 1024 / 1024:.2f}GB - limiting to 10GB")
             file_size = MAX_FILE_SIZE
 
         for run in data_runs:
@@ -875,7 +899,7 @@ class FileContentExtractor:
 
                 # 디버깅: sparse run 경고
                 if sparse_remaining > 1024 * 1024 * 1024:  # 1GB 이상
-                    print(f"[SPARSE] Large sparse run: {sparse_remaining / 1024 / 1024:.1f}MB", flush=True)
+                    _debug_log(f"[SPARSE] Large sparse run: {sparse_remaining / 1024 / 1024:.1f}MB")
 
                 while sparse_remaining > 0 and bytes_read < file_size:
                     yield_size = min(chunk_size, sparse_remaining, file_size - bytes_read)
@@ -890,7 +914,7 @@ class FileContentExtractor:
 
                 # 디버깅: 오프셋 검증
                 if run_offset < 0 or run.lcn < 0:
-                    print(f"[INVALID] Negative offset: lcn={run.lcn}, offset={run_offset}", flush=True)
+                    _debug_log(f"[INVALID] Negative offset: lcn={run.lcn}, offset={run_offset}")
                     continue
 
                 while run_read < run_size and bytes_read < file_size:
@@ -903,10 +927,10 @@ class FileContentExtractor:
 
                     # 느린 읽기 경고 (1초 이상)
                     if read_elapsed > 1.0:
-                        print(f"[SLOW READ] {read_elapsed:.2f}s for {read_size} bytes at offset {run_offset + run_read}", flush=True)
+                        _debug_log(f"[SLOW READ] {read_elapsed:.2f}s for {read_size} bytes at offset {run_offset + run_read}")
 
                     if not chunk:
-                        print(f"[EMPTY CHUNK] run {run_index}/{total_runs}, offset={run_offset + run_read}", flush=True)
+                        _debug_log(f"[EMPTY CHUNK] run {run_index}/{total_runs}, offset={run_offset + run_read}")
                         break
 
                     yield chunk
@@ -915,7 +939,7 @@ class FileContentExtractor:
 
                     # 타임아웃 체크 (단일 파일 최대 10분)
                     if time.time() - start_time > 600:
-                        print(f"[STREAM TIMEOUT] 10min limit reached at {bytes_read / 1024 / 1024:.1f}MB", flush=True)
+                        _debug_log(f"[STREAM TIMEOUT] 10min limit reached at {bytes_read / 1024 / 1024:.1f}MB")
                         return
 
     # ==========================================================================
