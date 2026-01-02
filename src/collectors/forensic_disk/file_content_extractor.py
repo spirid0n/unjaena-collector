@@ -207,6 +207,12 @@ class FileContentExtractor:
             self._init_fat(vbr)
         elif self.fs_type == 'EXFAT':
             self._init_exfat(vbr)
+        elif self.fs_type in ('ext2', 'ext3', 'ext4', 'EXT2', 'EXT3', 'EXT4'):
+            self._init_ext(vbr)
+        elif self.fs_type in ('APFS', 'apfs'):
+            self._init_apfs(vbr)
+        elif self.fs_type in ('HFS+', 'HFSX', 'HFS', 'hfs+', 'hfsx', 'hfs'):
+            self._init_hfs(vbr)
         else:
             logger.warning(f"Unknown filesystem type: {self.fs_type}")
 
@@ -277,6 +283,329 @@ class FileContentExtractor:
         self.data_area_offset = cluster_heap_offset * self.bytes_per_sector
 
         logger.info(f"[exFAT] Cluster size: {self.cluster_size}, Root cluster: {self.root_cluster}")
+
+    def _init_ext(self, vbr: bytes):
+        """ext2/3/4 파라미터 초기화"""
+        # Superblock is at offset 1024 from partition start
+        sb = self.disk.read(self.partition_offset + 1024, 256)
+
+        # Magic number check (offset 56-57)
+        magic = struct.unpack('<H', sb[56:58])[0]
+        if magic != 0xEF53:
+            raise FilesystemError(f"Invalid ext superblock magic: 0x{magic:04X}")
+
+        # Filesystem parameters from superblock
+        self.ext_inodes_count = struct.unpack('<I', sb[0:4])[0]
+        self.ext_blocks_count = struct.unpack('<I', sb[4:8])[0]
+        self.ext_first_data_block = struct.unpack('<I', sb[20:24])[0]
+        self.ext_block_size_log = struct.unpack('<I', sb[24:28])[0]
+        self.ext_blocks_per_group = struct.unpack('<I', sb[32:36])[0]
+        self.ext_inodes_per_group = struct.unpack('<I', sb[40:44])[0]
+        self.ext_inode_size = struct.unpack('<H', sb[88:90])[0] if len(sb) >= 90 else 128
+
+        # Block size = 1024 << log_block_size
+        self.cluster_size = 1024 << self.ext_block_size_log
+        self.bytes_per_sector = 512
+        self.sectors_per_cluster = self.cluster_size // 512
+
+        # Feature flags for ext3/4 detection
+        self.ext_compat_features = struct.unpack('<I', sb[92:96])[0] if len(sb) >= 96 else 0
+        self.ext_incompat_features = struct.unpack('<I', sb[96:100])[0] if len(sb) >= 100 else 0
+        self.ext_ro_compat_features = struct.unpack('<I', sb[100:104])[0] if len(sb) >= 104 else 0
+
+        # Determine ext version
+        has_extents = (self.ext_incompat_features & 0x40) != 0  # EXT4_FEATURE_INCOMPAT_EXTENTS
+        has_journal = (self.ext_compat_features & 0x04) != 0   # EXT3_FEATURE_COMPAT_HAS_JOURNAL
+
+        if has_extents:
+            self.ext_version = 4
+        elif has_journal:
+            self.ext_version = 3
+        else:
+            self.ext_version = 2
+
+        logger.info(f"[ext{self.ext_version}] Block size: {self.cluster_size}, "
+                   f"Inodes: {self.ext_inodes_count}, Blocks: {self.ext_blocks_count}, "
+                   f"Inode size: {self.ext_inode_size}")
+
+    def _init_apfs(self, vbr: bytes):
+        """APFS 파라미터 초기화"""
+        # APFS Container Superblock (offset 0 or 32)
+        # Check for NXSB magic
+        if len(vbr) >= 36 and vbr[32:36] == b'NXSB':
+            container_sb = vbr
+        else:
+            container_sb = self.disk.read(self.partition_offset, 4096)
+
+        if len(container_sb) < 36 or container_sb[32:36] != b'NXSB':
+            raise FilesystemError("Invalid APFS container superblock")
+
+        # APFS uses 4096 byte blocks typically
+        self.cluster_size = 4096  # Default, actual size in nx_block_size at offset 40
+        if len(container_sb) >= 44:
+            block_size = struct.unpack('<I', container_sb[40:44])[0]
+            if block_size in (512, 1024, 2048, 4096, 8192, 16384, 32768, 65536):
+                self.cluster_size = block_size
+
+        self.bytes_per_sector = 512
+        self.sectors_per_cluster = self.cluster_size // 512
+
+        # APFS uses pytsk3 for full support
+        self.apfs_use_pytsk = True
+
+        logger.info(f"[APFS] Block size: {self.cluster_size} (pytsk3 required for full access)")
+
+    def _init_hfs(self, vbr: bytes):
+        """HFS/HFS+ 파라미터 초기화"""
+        # HFS+ Volume Header is at offset 1024
+        vh = self.disk.read(self.partition_offset + 1024, 512)
+
+        # Check signature (offset 0-1)
+        signature = vh[0:2]
+        if signature == b'H+':
+            self.hfs_type = 'HFS+'
+        elif signature == b'HX':
+            self.hfs_type = 'HFSX'  # Case-sensitive HFS+
+        elif signature == b'BD':
+            self.hfs_type = 'HFS'   # Original HFS
+        else:
+            raise FilesystemError(f"Invalid HFS signature: {signature}")
+
+        # HFS+ Volume Header fields
+        self.hfs_version = struct.unpack('>H', vh[2:4])[0]
+
+        # Block size (offset 40-43, big-endian)
+        self.cluster_size = struct.unpack('>I', vh[40:44])[0]
+        self.bytes_per_sector = 512
+        self.sectors_per_cluster = self.cluster_size // 512
+
+        # Total blocks (offset 44-47)
+        self.hfs_total_blocks = struct.unpack('>I', vh[44:48])[0]
+
+        # Free blocks (offset 48-51)
+        self.hfs_free_blocks = struct.unpack('>I', vh[48:52])[0]
+
+        # HFS uses pytsk3 for full support
+        self.hfs_use_pytsk = True
+
+        logger.info(f"[{self.hfs_type}] Block size: {self.cluster_size}, "
+                   f"Total blocks: {self.hfs_total_blocks} (pytsk3 required for full access)")
+
+    # ==========================================================================
+    # ext2/3/4 Operations
+    # ==========================================================================
+
+    def _get_ext_block_group_descriptor(self, group_num: int) -> dict:
+        """ext 블록 그룹 디스크립터 읽기"""
+        # Block group descriptor table starts at block 1 (or 2 for 1K block size)
+        if self.cluster_size == 1024:
+            gdt_block = 2
+        else:
+            gdt_block = 1
+
+        gdt_offset = self.partition_offset + (gdt_block * self.cluster_size)
+        desc_size = 32 if not (self.ext_incompat_features & 0x80) else 64  # 64-byte for ext4
+
+        desc_data = self.disk.read(gdt_offset + (group_num * desc_size), desc_size)
+
+        return {
+            'block_bitmap': struct.unpack('<I', desc_data[0:4])[0],
+            'inode_bitmap': struct.unpack('<I', desc_data[4:8])[0],
+            'inode_table': struct.unpack('<I', desc_data[8:12])[0],
+            'free_blocks': struct.unpack('<H', desc_data[12:14])[0],
+            'free_inodes': struct.unpack('<H', desc_data[14:16])[0],
+            'used_dirs': struct.unpack('<H', desc_data[16:18])[0],
+        }
+
+    def _read_ext_inode(self, inode_num: int) -> bytes:
+        """ext inode 읽기"""
+        if inode_num < 1:
+            raise FilesystemError(f"Invalid inode number: {inode_num}")
+
+        # Inode numbers start at 1
+        inode_index = inode_num - 1
+
+        # Calculate block group
+        group_num = inode_index // self.ext_inodes_per_group
+        local_index = inode_index % self.ext_inodes_per_group
+
+        # Get block group descriptor
+        bgd = self._get_ext_block_group_descriptor(group_num)
+
+        # Calculate inode offset
+        inode_table_block = bgd['inode_table']
+        inode_offset = self.partition_offset + (inode_table_block * self.cluster_size)
+        inode_offset += local_index * self.ext_inode_size
+
+        return self.disk.read(inode_offset, self.ext_inode_size)
+
+    def _parse_ext_inode(self, inode_data: bytes) -> dict:
+        """ext inode 파싱"""
+        return {
+            'mode': struct.unpack('<H', inode_data[0:2])[0],
+            'uid': struct.unpack('<H', inode_data[2:4])[0],
+            'size': struct.unpack('<I', inode_data[4:8])[0],
+            'atime': struct.unpack('<I', inode_data[8:12])[0],
+            'ctime': struct.unpack('<I', inode_data[12:16])[0],
+            'mtime': struct.unpack('<I', inode_data[16:20])[0],
+            'dtime': struct.unpack('<I', inode_data[20:24])[0],
+            'gid': struct.unpack('<H', inode_data[24:26])[0],
+            'links_count': struct.unpack('<H', inode_data[26:28])[0],
+            'blocks': struct.unpack('<I', inode_data[28:32])[0],
+            'flags': struct.unpack('<I', inode_data[32:36])[0],
+            'block_pointers': inode_data[40:100],  # 15 * 4 bytes
+            'size_high': struct.unpack('<I', inode_data[108:112])[0] if len(inode_data) >= 112 else 0,
+        }
+
+    def _read_ext_file_blocks(self, inode_data: bytes, file_size: int) -> bytes:
+        """ext 파일 블록 읽기 (direct/indirect blocks)"""
+        inode = self._parse_ext_inode(inode_data)
+
+        # Check for extents (ext4)
+        uses_extents = (inode['flags'] & 0x80000) != 0  # EXT4_EXTENTS_FL
+
+        if uses_extents:
+            return self._read_ext4_extents(inode_data, file_size)
+        else:
+            return self._read_ext_indirect_blocks(inode_data, file_size)
+
+    def _read_ext4_extents(self, inode_data: bytes, file_size: int) -> bytes:
+        """ext4 extent tree에서 파일 데이터 읽기"""
+        data = bytearray()
+        bytes_read = 0
+
+        # Extent header is at offset 40 in inode
+        extent_data = inode_data[40:100]  # 60 bytes for extent tree root
+
+        # Parse extent header
+        eh_magic = struct.unpack('<H', extent_data[0:2])[0]
+        if eh_magic != 0xF30A:
+            # Fallback to indirect blocks
+            return self._read_ext_indirect_blocks(inode_data, file_size)
+
+        eh_entries = struct.unpack('<H', extent_data[2:4])[0]
+        eh_depth = struct.unpack('<H', extent_data[6:8])[0]
+
+        if eh_depth == 0:
+            # Leaf node - read extents directly
+            for i in range(eh_entries):
+                extent_offset = 12 + (i * 12)  # Each extent is 12 bytes
+                if extent_offset + 12 > len(extent_data):
+                    break
+
+                ext_block = extent_data[extent_offset:extent_offset + 12]
+                ee_block = struct.unpack('<I', ext_block[0:4])[0]  # Logical block
+                ee_len = struct.unpack('<H', ext_block[4:6])[0]    # Length
+                ee_start_hi = struct.unpack('<H', ext_block[6:8])[0]
+                ee_start_lo = struct.unpack('<I', ext_block[8:12])[0]
+                ee_start = (ee_start_hi << 32) | ee_start_lo
+
+                # Handle uninitialized extent (bit 15 set)
+                if ee_len > 32768:
+                    ee_len -= 32768
+                    # Uninitialized - return zeros
+                    sparse_size = min(ee_len * self.cluster_size, file_size - bytes_read)
+                    data.extend(b'\x00' * sparse_size)
+                    bytes_read += sparse_size
+                else:
+                    # Read extent data
+                    for block_num in range(ee_len):
+                        if bytes_read >= file_size:
+                            break
+                        block_offset = self.partition_offset + ((ee_start + block_num) * self.cluster_size)
+                        read_size = min(self.cluster_size, file_size - bytes_read)
+                        block_data = self.disk.read(block_offset, read_size)
+                        data.extend(block_data)
+                        bytes_read += len(block_data)
+        else:
+            # Internal node - need to read child nodes
+            # For simplicity, we'll use a recursive approach for deep trees
+            logger.warning(f"Deep extent tree (depth={eh_depth}) - simplified reading")
+            # Fallback to reading sequentially
+            return self._read_ext_indirect_blocks(inode_data, file_size)
+
+        return bytes(data[:file_size])
+
+    def _read_ext_indirect_blocks(self, inode_data: bytes, file_size: int) -> bytes:
+        """ext2/3 indirect block 방식으로 파일 읽기"""
+        data = bytearray()
+        bytes_read = 0
+
+        # Block pointers at offset 40 (15 * 4 = 60 bytes)
+        block_ptrs = inode_data[40:100]
+
+        # Direct blocks (0-11)
+        for i in range(12):
+            if bytes_read >= file_size:
+                break
+            block_num = struct.unpack('<I', block_ptrs[i*4:(i+1)*4])[0]
+            if block_num == 0:
+                continue
+            block_offset = self.partition_offset + (block_num * self.cluster_size)
+            read_size = min(self.cluster_size, file_size - bytes_read)
+            block_data = self.disk.read(block_offset, read_size)
+            data.extend(block_data)
+            bytes_read += len(block_data)
+
+        if bytes_read >= file_size:
+            return bytes(data[:file_size])
+
+        # Indirect block (12)
+        indirect_block = struct.unpack('<I', block_ptrs[48:52])[0]
+        if indirect_block != 0:
+            bytes_read = self._read_indirect_block(indirect_block, data, bytes_read, file_size, 1)
+
+        if bytes_read >= file_size:
+            return bytes(data[:file_size])
+
+        # Double indirect block (13)
+        dindirect_block = struct.unpack('<I', block_ptrs[52:56])[0]
+        if dindirect_block != 0:
+            bytes_read = self._read_indirect_block(dindirect_block, data, bytes_read, file_size, 2)
+
+        if bytes_read >= file_size:
+            return bytes(data[:file_size])
+
+        # Triple indirect block (14)
+        tindirect_block = struct.unpack('<I', block_ptrs[56:60])[0]
+        if tindirect_block != 0:
+            bytes_read = self._read_indirect_block(tindirect_block, data, bytes_read, file_size, 3)
+
+        return bytes(data[:file_size])
+
+    def _read_indirect_block(self, block_num: int, data: bytearray, bytes_read: int,
+                             file_size: int, level: int) -> int:
+        """재귀적으로 indirect block 읽기"""
+        if bytes_read >= file_size or block_num == 0:
+            return bytes_read
+
+        # Read the indirect block
+        block_offset = self.partition_offset + (block_num * self.cluster_size)
+        indirect_data = self.disk.read(block_offset, self.cluster_size)
+
+        # Number of pointers per block
+        ptrs_per_block = self.cluster_size // 4
+
+        for i in range(ptrs_per_block):
+            if bytes_read >= file_size:
+                break
+
+            ptr = struct.unpack('<I', indirect_data[i*4:(i+1)*4])[0]
+            if ptr == 0:
+                continue
+
+            if level == 1:
+                # Direct data block
+                data_offset = self.partition_offset + (ptr * self.cluster_size)
+                read_size = min(self.cluster_size, file_size - bytes_read)
+                block_data = self.disk.read(data_offset, read_size)
+                data.extend(block_data)
+                bytes_read += len(block_data)
+            else:
+                # Recurse to lower level
+                bytes_read = self._read_indirect_block(ptr, data, bytes_read, file_size, level - 1)
+
+        return bytes_read
 
     # ==========================================================================
     # MFT Operations
