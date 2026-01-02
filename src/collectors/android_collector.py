@@ -63,47 +63,37 @@ class DeviceInfo:
 
 # Android artifact type definitions
 ANDROID_ARTIFACT_TYPES = {
-    'mobile_android_sms': {
-        'name': 'SMS/MMS Messages',
-        'description': 'Text messages and multimedia messages',
-        'db_path': '/data/data/com.android.providers.telephony/databases/mmssms.db',
-        'requires_root': True,
+    # ==========================================================================
+    # Non-Root Artifacts (비루트로 수집 가능)
+    # ==========================================================================
+
+    'mobile_android_sms_provider': {
+        'name': 'SMS/MMS (Content Provider)',
+        'description': 'Text messages via Content Provider (비루트)',
+        'content_uri': 'content://sms',
+        'requires_root': False,
+        'collection_method': 'content_provider',
     },
-    'mobile_android_call': {
-        'name': 'Call History',
-        'description': 'Incoming, outgoing, and missed calls',
-        'db_path': '/data/data/com.android.providers.contacts/databases/contacts2.db',
-        'requires_root': True,
+    'mobile_android_call_provider': {
+        'name': 'Call History (Content Provider)',
+        'description': 'Call logs via Content Provider (비루트)',
+        'content_uri': 'content://call_log/calls',
+        'requires_root': False,
+        'collection_method': 'content_provider',
     },
-    'mobile_android_contacts': {
-        'name': 'Contacts',
-        'description': 'Contact list and details',
-        'db_path': '/data/data/com.android.providers.contacts/databases/contacts2.db',
-        'requires_root': True,
+    'mobile_android_contacts_provider': {
+        'name': 'Contacts (Content Provider)',
+        'description': 'Contacts via Content Provider (비루트)',
+        'content_uri': 'content://contacts/people',
+        'requires_root': False,
+        'collection_method': 'content_provider',
     },
-    'mobile_android_app': {
-        'name': 'App Data',
-        'description': 'Installed applications and their data',
-        'path': '/data/data/',
-        'requires_root': True,
-    },
-    'mobile_android_wifi': {
-        'name': 'WiFi Settings',
-        'description': 'Saved WiFi networks and credentials',
-        'paths': [
-            '/data/misc/wifi/wpa_supplicant.conf',
-            '/data/misc/wifi/WifiConfigStore.xml',
-        ],
-        'requires_root': True,
-    },
-    'mobile_android_location': {
-        'name': 'Location History',
-        'description': 'GPS and location data',
-        'paths': [
-            '/data/data/com.google.android.gms/databases/herrevad*',
-            '/data/data/com.google.android.gms/databases/location*',
-        ],
-        'requires_root': True,
+    'mobile_android_calendar_provider': {
+        'name': 'Calendar (Content Provider)',
+        'description': 'Calendar events via Content Provider (비루트)',
+        'content_uri': 'content://com.android.calendar/events',
+        'requires_root': False,
+        'collection_method': 'content_provider',
     },
     'mobile_android_media': {
         'name': 'Media Files',
@@ -112,8 +102,95 @@ ANDROID_ARTIFACT_TYPES = {
             '/sdcard/DCIM/',
             '/sdcard/Pictures/',
             '/sdcard/Download/',
+            '/sdcard/Movies/',
+            '/sdcard/Music/',
         ],
         'requires_root': False,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_logcat': {
+        'name': 'System Logs (Logcat)',
+        'description': 'System and application logs (비루트)',
+        'requires_root': False,
+        'collection_method': 'logcat',
+    },
+    'mobile_android_packages': {
+        'name': 'Installed Packages',
+        'description': 'List of installed applications (비루트)',
+        'requires_root': False,
+        'collection_method': 'package_list',
+    },
+    'mobile_android_dumpsys': {
+        'name': 'System Information (Dumpsys)',
+        'description': 'Device info, battery, network status (비루트)',
+        'requires_root': False,
+        'collection_method': 'dumpsys',
+        'dumpsys_services': ['battery', 'wifi', 'netpolicy', 'usagestats', 'activity'],
+    },
+    'mobile_android_settings': {
+        'name': 'Device Settings',
+        'description': 'Secure, system, and global settings (비루트)',
+        'requires_root': False,
+        'collection_method': 'settings',
+    },
+    'mobile_android_backup': {
+        'name': 'ADB Backup',
+        'description': 'Full device backup (requires user confirmation)',
+        'requires_root': False,
+        'collection_method': 'adb_backup',
+    },
+
+    # ==========================================================================
+    # Root-Required Artifacts (루트 필요)
+    # ==========================================================================
+
+    'mobile_android_sms': {
+        'name': 'SMS/MMS Database (Root)',
+        'description': 'SMS database file (루트 필요)',
+        'db_path': '/data/data/com.android.providers.telephony/databases/mmssms.db',
+        'requires_root': True,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_call': {
+        'name': 'Call History Database (Root)',
+        'description': 'Call log database (루트 필요)',
+        'db_path': '/data/data/com.android.providers.contacts/databases/contacts2.db',
+        'requires_root': True,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_contacts': {
+        'name': 'Contacts Database (Root)',
+        'description': 'Contacts database file (루트 필요)',
+        'db_path': '/data/data/com.android.providers.contacts/databases/contacts2.db',
+        'requires_root': True,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_app': {
+        'name': 'App Data (Root)',
+        'description': 'Installed applications data (루트 필요)',
+        'path': '/data/data/',
+        'requires_root': True,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_wifi': {
+        'name': 'WiFi Settings (Root)',
+        'description': 'Saved WiFi networks (루트 필요)',
+        'paths': [
+            '/data/misc/wifi/wpa_supplicant.conf',
+            '/data/misc/wifi/WifiConfigStore.xml',
+        ],
+        'requires_root': True,
+        'collection_method': 'adb_pull',
+    },
+    'mobile_android_location': {
+        'name': 'Location History (Root)',
+        'description': 'GPS and location data (루트 필요)',
+        'paths': [
+            '/data/data/com.google.android.gms/databases/herrevad*',
+            '/data/data/com.google.android.gms/databases/location*',
+        ],
+        'requires_root': True,
+        'collection_method': 'adb_pull',
     },
 }
 
@@ -473,9 +550,61 @@ class AndroidCollector:
         artifact_dir = self.output_dir / artifact_type
         artifact_dir.mkdir(exist_ok=True)
 
-        # Collect based on artifact configuration
-        if 'db_path' in artifact_info:
-            # Single database file
+        # Collect based on collection method
+        collection_method = artifact_info.get('collection_method', 'adb_pull')
+
+        if collection_method == 'content_provider':
+            # Content Provider query (비루트)
+            yield from self._collect_content_provider(
+                artifact_type,
+                artifact_info.get('content_uri', ''),
+                artifact_dir,
+                progress_callback
+            )
+
+        elif collection_method == 'logcat':
+            # Logcat collection (비루트)
+            yield from self._collect_logcat(
+                artifact_type,
+                artifact_dir,
+                progress_callback
+            )
+
+        elif collection_method == 'package_list':
+            # Package list (비루트)
+            yield from self._collect_package_list(
+                artifact_type,
+                artifact_dir,
+                progress_callback
+            )
+
+        elif collection_method == 'dumpsys':
+            # Dumpsys information (비루트)
+            yield from self._collect_dumpsys(
+                artifact_type,
+                artifact_info.get('dumpsys_services', []),
+                artifact_dir,
+                progress_callback
+            )
+
+        elif collection_method == 'settings':
+            # Device settings (비루트)
+            yield from self._collect_settings(
+                artifact_type,
+                artifact_dir,
+                progress_callback
+            )
+
+        elif collection_method == 'adb_backup':
+            # ADB backup (비루트)
+            path, metadata = self.create_backup(
+                str(artifact_dir / f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.ab"),
+                progress_callback
+            )
+            yield path, metadata
+
+        elif 'db_path' in artifact_info:
+            # Single database file (루트)
             yield from self._collect_db(
                 artifact_type,
                 artifact_info['db_path'],
@@ -626,6 +755,225 @@ class AndroidCollector:
             'device_serial': self.device_info.serial,
             'collected_at': datetime.utcnow().isoformat(),
         }
+
+    # ==========================================================================
+    # Non-Root Collection Methods (비루트 수집 메서드)
+    # ==========================================================================
+
+    def _collect_content_provider(
+        self,
+        artifact_type: str,
+        content_uri: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Content Provider를 통한 데이터 수집 (비루트)"""
+        if progress_callback:
+            progress_callback(f"Querying {content_uri}")
+
+        # content 명령어로 데이터 조회
+        cmd = f'content query --uri {content_uri}'
+        output, returncode = self._adb_shell(cmd)
+
+        if returncode != 0 or not output.strip():
+            yield '', {
+                'artifact_type': artifact_type,
+                'status': 'error',
+                'error': f'Failed to query {content_uri}',
+                'content_uri': content_uri,
+            }
+            return
+
+        # 결과를 파일로 저장
+        filename = f"{artifact_type}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+        local_path = output_dir / filename
+        local_path.write_text(output, encoding='utf-8')
+
+        sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+        yield str(local_path), {
+            'artifact_type': artifact_type,
+            'content_uri': content_uri,
+            'filename': filename,
+            'size': local_path.stat().st_size,
+            'sha256': sha256,
+            'device_serial': self.device_info.serial,
+            'device_model': self.device_info.model,
+            'android_version': self.device_info.android_version,
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'content_provider',
+            'root_used': False,
+        }
+
+    def _collect_logcat(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Logcat 시스템 로그 수집 (비루트)"""
+        if progress_callback:
+            progress_callback("Collecting system logs (logcat)")
+
+        # 여러 logcat 버퍼 수집
+        buffers = ['main', 'system', 'crash', 'events']
+
+        for buffer_name in buffers:
+            cmd = f'logcat -d -b {buffer_name} -v threadtime'
+            output, returncode = self._adb_shell(cmd)
+
+            if returncode == 0 and output.strip():
+                filename = f"logcat_{buffer_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+                local_path = output_dir / filename
+                local_path.write_text(output, encoding='utf-8', errors='replace')
+
+                sha256 = hashlib.sha256(output.encode('utf-8', errors='replace')).hexdigest()
+
+                yield str(local_path), {
+                    'artifact_type': artifact_type,
+                    'buffer': buffer_name,
+                    'filename': filename,
+                    'size': local_path.stat().st_size,
+                    'sha256': sha256,
+                    'device_serial': self.device_info.serial,
+                    'collected_at': datetime.utcnow().isoformat(),
+                    'collection_method': 'logcat',
+                    'root_used': False,
+                }
+
+    def _collect_package_list(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """설치된 패키지 목록 수집 (비루트)"""
+        if progress_callback:
+            progress_callback("Collecting installed packages")
+
+        # 다양한 패키지 정보 수집
+        commands = {
+            'all_packages': 'pm list packages -f',
+            'system_packages': 'pm list packages -s',
+            'third_party_packages': 'pm list packages -3',
+            'disabled_packages': 'pm list packages -d',
+            'permissions': 'pm list permissions -g',
+        }
+
+        for info_type, cmd in commands.items():
+            output, returncode = self._adb_shell(cmd)
+
+            if returncode == 0 and output.strip():
+                filename = f"{info_type}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+                local_path = output_dir / filename
+                local_path.write_text(output, encoding='utf-8')
+
+                sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+                yield str(local_path), {
+                    'artifact_type': artifact_type,
+                    'info_type': info_type,
+                    'filename': filename,
+                    'size': local_path.stat().st_size,
+                    'sha256': sha256,
+                    'device_serial': self.device_info.serial,
+                    'collected_at': datetime.utcnow().isoformat(),
+                    'collection_method': 'package_list',
+                    'root_used': False,
+                }
+
+    def _collect_dumpsys(
+        self,
+        artifact_type: str,
+        services: List[str],
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Dumpsys 시스템 정보 수집 (비루트)"""
+        for service in services:
+            if progress_callback:
+                progress_callback(f"Collecting dumpsys {service}")
+
+            cmd = f'dumpsys {service}'
+            output, returncode = self._adb_shell(cmd)
+
+            if returncode == 0 and output.strip():
+                filename = f"dumpsys_{service}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+                local_path = output_dir / filename
+                local_path.write_text(output, encoding='utf-8', errors='replace')
+
+                sha256 = hashlib.sha256(output.encode('utf-8', errors='replace')).hexdigest()
+
+                yield str(local_path), {
+                    'artifact_type': artifact_type,
+                    'service': service,
+                    'filename': filename,
+                    'size': local_path.stat().st_size,
+                    'sha256': sha256,
+                    'device_serial': self.device_info.serial,
+                    'collected_at': datetime.utcnow().isoformat(),
+                    'collection_method': 'dumpsys',
+                    'root_used': False,
+                }
+
+    def _collect_settings(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """디바이스 설정 수집 (비루트)"""
+        if progress_callback:
+            progress_callback("Collecting device settings")
+
+        # 세 가지 설정 네임스페이스 수집
+        namespaces = ['secure', 'system', 'global']
+
+        for namespace in namespaces:
+            cmd = f'settings list {namespace}'
+            output, returncode = self._adb_shell(cmd)
+
+            if returncode == 0 and output.strip():
+                filename = f"settings_{namespace}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+                local_path = output_dir / filename
+                local_path.write_text(output, encoding='utf-8')
+
+                sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+                yield str(local_path), {
+                    'artifact_type': artifact_type,
+                    'namespace': namespace,
+                    'filename': filename,
+                    'size': local_path.stat().st_size,
+                    'sha256': sha256,
+                    'device_serial': self.device_info.serial,
+                    'collected_at': datetime.utcnow().isoformat(),
+                    'collection_method': 'settings',
+                    'root_used': False,
+                }
+
+        # 추가: getprop 시스템 속성 수집
+        cmd = 'getprop'
+        output, returncode = self._adb_shell(cmd)
+
+        if returncode == 0 and output.strip():
+            filename = f"system_properties_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+            local_path = output_dir / filename
+            local_path.write_text(output, encoding='utf-8')
+
+            sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+            yield str(local_path), {
+                'artifact_type': artifact_type,
+                'info_type': 'system_properties',
+                'filename': filename,
+                'size': local_path.stat().st_size,
+                'sha256': sha256,
+                'device_serial': self.device_info.serial,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'getprop',
+                'root_used': False,
+            }
 
     def create_backup(
         self,
