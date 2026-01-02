@@ -1,0 +1,127 @@
+# =============================================================================
+# Forensic Collector - Git Ignore
+# =============================================================================
+
+# 민감한 설정 파일 (API 키, 서버 URL 등)
+config.json
+config.local.json
+*.secret
+*.credentials
+
+# 수집된 아티팩트 (용량 및 개인정보)
+collected_artifacts/
+artifacts/
+output/
+extracted/
+temp/
+tmp/
+
+# 로그 파일
+logs/
+*.log
+
+# 증거 이미지 파일 (대용량)
+*.E01
+*.e01
+*.Ex01
+*.L01
+*.raw
+*.dd
+*.img
+*.dmg
+*.iso
+
+# 모바일 백업 (개인정보)
+**/MobileSync/
+**/Backup/
+*.ab
+*.ab.bak
+
+# iOS 백업 관련
+Manifest.db
+Manifest.plist
+Info.plist
+Status.plist
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Test outputs
+test_output/
+test_artifacts/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation build
+docs/_build/
+
+# Chain of custody logs
+custody_log*.json
+chain_of_custody/
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+*.old
+
+# Database files (might contain evidence)
+*.db
+*.sqlite
+*.sqlite3
+
+# Encryption keys (NEVER commit these)
+*.key
+*.pem
+*.crt
+*.cer
+private/
+keys/
