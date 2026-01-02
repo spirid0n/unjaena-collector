@@ -2,9 +2,11 @@
 iOS Forensics Collector Module
 
 iOS 기기 포렌식 수집 모듈.
-iTunes/Finder 백업을 파싱하여 아티팩트를 추출합니다.
+- iTunes/Finder 백업 파싱
+- libimobiledevice 기기 직접 연결 (idevice 명령어)
 
 수집 가능 아티팩트:
+[백업 기반]
 - mobile_ios_sms: iMessage/SMS 메시지
 - mobile_ios_call: 통화 기록
 - mobile_ios_contacts: 연락처
@@ -13,9 +15,17 @@ iTunes/Finder 백업을 파싱하여 아티팩트를 추출합니다.
 - mobile_ios_location: 위치 기록
 - mobile_ios_backup: 백업 메타데이터
 
+[기기 직접 연결 - libimobiledevice]
+- mobile_ios_device_info: 기기 정보
+- mobile_ios_syslog: 시스템 로그
+- mobile_ios_crash_logs: 크래시 리포트
+- mobile_ios_installed_apps: 설치된 앱 목록
+- mobile_ios_device_backup: 새 백업 생성
+
 Requirements:
     - biplist>=1.0.3 (for binary plist parsing)
     - plistlib (stdlib)
+    - libimobiledevice (optional, for device connection)
 """
 import os
 import re
@@ -23,6 +33,8 @@ import sqlite3
 import hashlib
 import shutil
 import plistlib
+import subprocess
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Generator, Tuple, Dict, Any, Optional, List, Callable
@@ -34,6 +46,37 @@ try:
     BIPLIST_AVAILABLE = True
 except ImportError:
     BIPLIST_AVAILABLE = False
+
+
+# Check for libimobiledevice tools
+def check_libimobiledevice_available() -> Dict[str, bool]:
+    """Check availability of libimobiledevice tools"""
+    tools = {
+        'idevice_id': False,
+        'ideviceinfo': False,
+        'idevicesyslog': False,
+        'idevicecrashreport': False,
+        'ideviceinstaller': False,
+        'idevicebackup2': False,
+    }
+
+    for tool in tools:
+        try:
+            result = subprocess.run(
+                [tool, '--version'] if tool != 'idevice_id' else [tool, '-l'],
+                capture_output=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            tools[tool] = result.returncode == 0 or b'usage' in result.stderr.lower()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    return tools
+
+
+LIBIMOBILEDEVICE_TOOLS = check_libimobiledevice_available()
+LIBIMOBILEDEVICE_AVAILABLE = any(LIBIMOBILEDEVICE_TOOLS.values())
 
 
 @dataclass
@@ -95,6 +138,46 @@ IOS_ARTIFACT_TYPES = {
         'name': 'Backup Metadata',
         'description': 'Backup configuration and device info',
         'files': ['Info.plist', 'Manifest.plist', 'Status.plist'],
+    },
+
+    # =========================================================================
+    # Device Direct Connection Artifacts (libimobiledevice)
+    # =========================================================================
+
+    'mobile_ios_device_info': {
+        'name': 'Device Information',
+        'description': 'iOS device info (UDID, model, iOS version)',
+        'requires_device': True,
+        'tool': 'ideviceinfo',
+        'collection_method': 'device',
+    },
+    'mobile_ios_syslog': {
+        'name': 'System Log',
+        'description': 'Real-time iOS system log',
+        'requires_device': True,
+        'tool': 'idevicesyslog',
+        'collection_method': 'device',
+    },
+    'mobile_ios_crash_logs': {
+        'name': 'Crash Reports',
+        'description': 'Application crash reports',
+        'requires_device': True,
+        'tool': 'idevicecrashreport',
+        'collection_method': 'device',
+    },
+    'mobile_ios_installed_apps': {
+        'name': 'Installed Apps',
+        'description': 'List of installed applications',
+        'requires_device': True,
+        'tool': 'ideviceinstaller',
+        'collection_method': 'device',
+    },
+    'mobile_ios_device_backup': {
+        'name': 'Create Backup',
+        'description': 'Create new iOS backup from device',
+        'requires_device': True,
+        'tool': 'idevicebackup2',
+        'collection_method': 'device',
     },
 }
 
@@ -392,6 +475,388 @@ class iOSBackupParser:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, output_path)
         return True
+
+
+# =============================================================================
+# iOS Device Connector (libimobiledevice)
+# =============================================================================
+
+@dataclass
+class iOSDeviceInfo:
+    """연결된 iOS 기기 정보"""
+    udid: str
+    device_name: str
+    product_type: str
+    ios_version: str
+    serial_number: str
+    is_paired: bool
+
+
+class iOSDeviceConnector:
+    """
+    libimobiledevice를 통한 iOS 기기 연결 클래스
+
+    연결된 iOS 기기에서 직접 포렌식 아티팩트를 수집합니다.
+    idevice* 명령어가 시스템에 설치되어 있어야 합니다.
+    """
+
+    def __init__(self, output_dir: str, udid: Optional[str] = None):
+        """
+        Initialize device connector.
+
+        Args:
+            output_dir: Directory to store collected artifacts
+            udid: Optional specific device UDID (auto-detect if None)
+        """
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.udid = udid
+        self.device_info: Optional[iOSDeviceInfo] = None
+
+    @staticmethod
+    def is_available() -> Dict[str, Any]:
+        """Check libimobiledevice availability"""
+        return {
+            'available': LIBIMOBILEDEVICE_AVAILABLE,
+            'tools': LIBIMOBILEDEVICE_TOOLS,
+        }
+
+    def _run_idevice_cmd(
+        self,
+        cmd: List[str],
+        timeout: int = 30
+    ) -> Tuple[str, int]:
+        """Run idevice command and return output"""
+        if self.udid:
+            cmd = cmd[:1] + ['-u', self.udid] + cmd[1:]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            return result.stdout + result.stderr, result.returncode
+        except subprocess.TimeoutExpired:
+            return 'Command timeout', -1
+        except FileNotFoundError:
+            return f'Command not found: {cmd[0]}', -1
+        except Exception as e:
+            return str(e), -1
+
+    def get_connected_devices(self) -> List[str]:
+        """Get list of connected device UDIDs"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('idevice_id'):
+            return []
+
+        output, returncode = self._run_idevice_cmd(['idevice_id', '-l'])
+        if returncode != 0:
+            return []
+
+        devices = [line.strip() for line in output.split('\n') if line.strip()]
+        return devices
+
+    def connect(self, udid: Optional[str] = None) -> bool:
+        """
+        Connect to an iOS device.
+
+        Args:
+            udid: Device UDID (uses first available if None)
+
+        Returns:
+            True if connected successfully
+        """
+        if not LIBIMOBILEDEVICE_AVAILABLE:
+            raise RuntimeError("libimobiledevice is not installed")
+
+        devices = self.get_connected_devices()
+        if not devices:
+            raise RuntimeError("No iOS device connected")
+
+        if udid:
+            if udid not in devices:
+                raise ValueError(f"Device {udid} not found")
+            self.udid = udid
+        else:
+            self.udid = devices[0]
+
+        # Get device info
+        self.device_info = self._get_device_info()
+        return self.device_info is not None
+
+    def _get_device_info(self) -> Optional[iOSDeviceInfo]:
+        """Get detailed device information"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('ideviceinfo'):
+            return None
+
+        output, returncode = self._run_idevice_cmd(['ideviceinfo'])
+        if returncode != 0:
+            return None
+
+        # Parse ideviceinfo output
+        info = {}
+        for line in output.split('\n'):
+            if ':' in line:
+                key, _, value = line.partition(':')
+                info[key.strip()] = value.strip()
+
+        return iOSDeviceInfo(
+            udid=self.udid,
+            device_name=info.get('DeviceName', 'Unknown'),
+            product_type=info.get('ProductType', 'Unknown'),
+            ios_version=info.get('ProductVersion', 'Unknown'),
+            serial_number=info.get('SerialNumber', 'Unknown'),
+            is_paired=True,  # If we can get info, device is paired
+        )
+
+    def collect_device_info(
+        self,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Collect device information"""
+        if progress_callback:
+            progress_callback("Collecting device information")
+
+        output, returncode = self._run_idevice_cmd(['ideviceinfo'])
+
+        if returncode != 0:
+            yield '', {
+                'artifact_type': 'mobile_ios_device_info',
+                'status': 'error',
+                'error': output,
+            }
+            return
+
+        filename = f"device_info_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+        local_path = output_dir / filename
+        local_path.write_text(output, encoding='utf-8')
+
+        sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+        yield str(local_path), {
+            'artifact_type': 'mobile_ios_device_info',
+            'filename': filename,
+            'size': local_path.stat().st_size,
+            'sha256': sha256,
+            'device_udid': self.udid,
+            'device_name': self.device_info.device_name if self.device_info else 'Unknown',
+            'ios_version': self.device_info.ios_version if self.device_info else 'Unknown',
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'ideviceinfo',
+        }
+
+    def collect_syslog(
+        self,
+        output_dir: Path,
+        duration_seconds: int = 10,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Collect system log for specified duration"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('idevicesyslog'):
+            yield '', {
+                'artifact_type': 'mobile_ios_syslog',
+                'status': 'error',
+                'error': 'idevicesyslog not installed',
+            }
+            return
+
+        if progress_callback:
+            progress_callback(f"Collecting system log ({duration_seconds}s)")
+
+        cmd = ['idevicesyslog']
+        if self.udid:
+            cmd.extend(['-u', self.udid])
+
+        try:
+            # Run syslog capture for limited time
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+
+            import time
+            time.sleep(duration_seconds)
+            process.terminate()
+
+            output, _ = process.communicate(timeout=5)
+            output_text = output.decode('utf-8', errors='replace')
+
+            filename = f"syslog_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+            local_path = output_dir / filename
+            local_path.write_text(output_text, encoding='utf-8')
+
+            sha256 = hashlib.sha256(output_text.encode('utf-8')).hexdigest()
+
+            yield str(local_path), {
+                'artifact_type': 'mobile_ios_syslog',
+                'filename': filename,
+                'size': local_path.stat().st_size,
+                'sha256': sha256,
+                'duration_seconds': duration_seconds,
+                'device_udid': self.udid,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'idevicesyslog',
+            }
+
+        except Exception as e:
+            yield '', {
+                'artifact_type': 'mobile_ios_syslog',
+                'status': 'error',
+                'error': str(e),
+            }
+
+    def collect_crash_logs(
+        self,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Collect crash reports from device"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('idevicecrashreport'):
+            yield '', {
+                'artifact_type': 'mobile_ios_crash_logs',
+                'status': 'error',
+                'error': 'idevicecrashreport not installed',
+            }
+            return
+
+        if progress_callback:
+            progress_callback("Collecting crash reports")
+
+        crash_dir = output_dir / 'crash_reports'
+        crash_dir.mkdir(exist_ok=True)
+
+        cmd = ['idevicecrashreport', '-e', str(crash_dir)]
+        if self.udid:
+            cmd = ['idevicecrashreport', '-u', self.udid, '-e', str(crash_dir)]
+
+        output, returncode = self._run_idevice_cmd(cmd, timeout=120)
+
+        # List collected crash files
+        crash_files = list(crash_dir.rglob('*'))
+        if crash_files:
+            for crash_file in crash_files:
+                if crash_file.is_file():
+                    sha256 = hashlib.sha256()
+                    with open(crash_file, 'rb') as f:
+                        for chunk in iter(lambda: f.read(65536), b''):
+                            sha256.update(chunk)
+
+                    yield str(crash_file), {
+                        'artifact_type': 'mobile_ios_crash_logs',
+                        'filename': crash_file.name,
+                        'size': crash_file.stat().st_size,
+                        'sha256': sha256.hexdigest(),
+                        'device_udid': self.udid,
+                        'collected_at': datetime.utcnow().isoformat(),
+                        'collection_method': 'idevicecrashreport',
+                    }
+        else:
+            yield '', {
+                'artifact_type': 'mobile_ios_crash_logs',
+                'status': 'no_data',
+                'message': 'No crash reports found',
+            }
+
+    def collect_installed_apps(
+        self,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Collect list of installed apps"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('ideviceinstaller'):
+            yield '', {
+                'artifact_type': 'mobile_ios_installed_apps',
+                'status': 'error',
+                'error': 'ideviceinstaller not installed',
+            }
+            return
+
+        if progress_callback:
+            progress_callback("Collecting installed apps list")
+
+        cmd = ['ideviceinstaller', '-l']
+        if self.udid:
+            cmd = ['ideviceinstaller', '-u', self.udid, '-l']
+
+        output, returncode = self._run_idevice_cmd(cmd)
+
+        if returncode != 0:
+            yield '', {
+                'artifact_type': 'mobile_ios_installed_apps',
+                'status': 'error',
+                'error': output,
+            }
+            return
+
+        filename = f"installed_apps_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+        local_path = output_dir / filename
+        local_path.write_text(output, encoding='utf-8')
+
+        sha256 = hashlib.sha256(output.encode('utf-8')).hexdigest()
+
+        yield str(local_path), {
+            'artifact_type': 'mobile_ios_installed_apps',
+            'filename': filename,
+            'size': local_path.stat().st_size,
+            'sha256': sha256,
+            'device_udid': self.udid,
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'ideviceinstaller',
+        }
+
+    def create_backup(
+        self,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Create new iOS backup from device"""
+        if not LIBIMOBILEDEVICE_TOOLS.get('idevicebackup2'):
+            yield '', {
+                'artifact_type': 'mobile_ios_device_backup',
+                'status': 'error',
+                'error': 'idevicebackup2 not installed',
+            }
+            return
+
+        if progress_callback:
+            progress_callback("Creating iOS backup (this may take a while)")
+
+        backup_dir = output_dir / 'backup'
+        backup_dir.mkdir(exist_ok=True)
+
+        cmd = ['idevicebackup2', 'backup', str(backup_dir)]
+        if self.udid:
+            cmd = ['idevicebackup2', '-u', self.udid, 'backup', str(backup_dir)]
+
+        output, returncode = self._run_idevice_cmd(cmd, timeout=3600)  # 1 hour
+
+        if returncode == 0:
+            # Calculate backup size
+            total_size = sum(
+                f.stat().st_size for f in backup_dir.rglob('*') if f.is_file()
+            )
+
+            yield str(backup_dir), {
+                'artifact_type': 'mobile_ios_device_backup',
+                'backup_path': str(backup_dir),
+                'size_bytes': total_size,
+                'size_mb': round(total_size / (1024 * 1024), 2),
+                'device_udid': self.udid,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'idevicebackup2',
+            }
+        else:
+            yield '', {
+                'artifact_type': 'mobile_ios_device_backup',
+                'status': 'error',
+                'error': output,
+            }
 
 
 class iOSCollector:

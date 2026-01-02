@@ -405,7 +405,7 @@ class ForensicDiskAccessor:
         return f"{part1:08X}-{part2:04X}-{part3:04X}-{part4}-{part5}"
 
     def _detect_filesystem(self, partition_offset: int) -> str:
-        """파일시스템 타입 감지"""
+        """파일시스템 타입 감지 (NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+ 지원)"""
         try:
             vbr = self._backend.read(partition_offset, 512)
 
@@ -433,10 +433,43 @@ class ForensicDiskAccessor:
             if vbr[54:62] == b'FAT12   ':
                 return 'FAT12'
 
-            # ext2/3/4 (superblock at offset 1024)
+            # APFS Container Superblock (offset 32: 'NXSB')
+            # APFS는 파티션 시작이 아닌 offset 32에 시그니처가 있음
+            if len(vbr) >= 36 and vbr[32:36] == b'NXSB':
+                return 'APFS'
+
+            # APFS 대체 위치 체크 (일부 구성에서)
+            apfs_check = self._backend.read(partition_offset, 64)
+            if len(apfs_check) >= 36 and apfs_check[32:36] == b'NXSB':
+                return 'APFS'
+
+            # HFS+ Volume Header (offset 1024: 'H+' or 'HX')
+            hfs_header = self._backend.read(partition_offset + 1024, 4)
+            if len(hfs_header) >= 2:
+                if hfs_header[0:2] == b'H+':
+                    return 'HFS+'
+                elif hfs_header[0:2] == b'HX':
+                    return 'HFSX'  # HFS+ with case-sensitive
+                elif hfs_header[0:2] == b'BD':
+                    return 'HFS'  # Original HFS (legacy)
+
+            # ext2/3/4 (superblock at offset 1024, magic at offset 56)
             sb = self._backend.read(partition_offset + 1024, 100)
-            if struct.unpack('<H', sb[56:58])[0] == 0xEF53:
-                return 'ext4'
+            if len(sb) >= 58 and struct.unpack('<H', sb[56:58])[0] == 0xEF53:
+                # ext 버전 구분 (feature flags)
+                if len(sb) >= 96:
+                    compat_features = struct.unpack('<I', sb[92:96])[0] if len(sb) >= 96 else 0
+                    incompat_features = struct.unpack('<I', sb[96:100])[0] if len(sb) >= 100 else 0
+
+                    # ext4 특징: extents (0x40), flex_bg (0x200)
+                    if incompat_features & 0x40:  # EXTENTS feature
+                        return 'ext4'
+                    # ext3 특징: journal (0x04)
+                    elif incompat_features & 0x04:  # JOURNAL feature
+                        return 'ext3'
+                    else:
+                        return 'ext2'
+                return 'ext4'  # 기본값
 
         except Exception as e:
             logger.debug(f"Filesystem detection failed: {e}")
@@ -479,7 +512,14 @@ class ForensicDiskAccessor:
             )
 
         # FileContentExtractor 생성
-        if partition.filesystem in ('NTFS', 'FAT32', 'FAT16', 'FAT12', 'exFAT'):
+        # 지원 파일시스템: NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+
+        supported_fs = (
+            'NTFS', 'FAT32', 'FAT16', 'FAT12', 'exFAT',  # Windows/범용
+            'ext2', 'ext3', 'ext4',  # Linux
+            'APFS', 'HFS+', 'HFSX', 'HFS'  # macOS
+        )
+
+        if partition.filesystem in supported_fs:
             self._extractor = FileContentExtractor(
                 disk=self._backend,
                 partition_offset=partition.offset,
