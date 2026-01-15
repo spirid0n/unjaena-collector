@@ -5,7 +5,13 @@ a = Analysis(
     ['src\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('resources', 'resources')],
+    # config.json 포함: 배포 시 운영 서버 URL 설정
+    # 개발 빌드: config.development.json → config.json으로 복사
+    # 운영 빌드: config.production.json → config.json으로 복사
+    datas=[
+        ('resources', 'resources'),
+        ('config.json', '.'),  # 루트에 config.json 포함
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

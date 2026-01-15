@@ -125,3 +125,8 @@ chain_of_custody/
 *.cer
 private/
 keys/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
