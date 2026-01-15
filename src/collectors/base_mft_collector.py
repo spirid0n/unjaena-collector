@@ -396,9 +396,186 @@ ARTIFACT_MFT_FILTERS = {
         'include_deleted': True,
         'description': 'User profile list (SOFTWARE registry)',
     },
-    # Zone.Identifier는 ADS로 MFT 수집 시 별도 처리 필요
-    # 현재 MFT 수집기는 ADS 추출 지원 안함 - 향후 구현
     # image, video 제외됨 - 포렌식 관점에서 중요도 낮음 + 해시 계산으로 인한 속도 저하
+
+    # =========================================================================
+    # [2026-01] P0 신규 아티팩트 - 높은 포렌식 가치
+    # =========================================================================
+    'activities_cache': {
+        'path_pattern': r'appdata/local/connecteddevicesplatform/',
+        'files': {'activitiescache.db', 'activitiescache.db-wal', 'activitiescache.db-shm'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'Windows Timeline (ActivitiesCache.db) - 앱 실행 지속시간 포함',
+    },
+    'pca_launch': {
+        'path_pattern': r'windows/appcompat/pca/',
+        'name_pattern': r'pca.*\.txt',
+        'include_deleted': True,
+        'description': 'Program Compatibility Assistant (Win11+) - 실행 기록',
+    },
+    'etl_log': {
+        'path_patterns': [
+            r'windows/system32/wdi/logfiles/',
+            r'windows/system32/logfiles/wmi/',
+            r'windows/panther/',
+        ],
+        'extensions': {'.etl'},
+        'include_deleted': True,
+        'description': 'ETW AutoLogger - 이벤트 로그 삭제 후에도 유지',
+    },
+    'wmi_subscription': {
+        'path_pattern': r'windows/system32/wbem/repository/',
+        'files': {'objects.data', 'index.btr'},
+        'name_pattern': r'mapping.*\.map',
+        'include_deleted': True,
+        'description': 'WMI 이벤트 구독 - 지속성 메커니즘 탐지 (MITRE T1546.003)',
+    },
+    'defender_detection': {
+        'path_patterns': [
+            r'programdata/microsoft/windows defender/scans/history/service/detectionhistory/',
+            r'programdata/microsoft/windows defender/support/',
+        ],
+        'name_pattern': r'(mpdetection.*\.bin|mplog.*\.log)',
+        'include_deleted': True,
+        'description': 'Windows Defender 탐지 기록',
+    },
+    'zone_identifier': {
+        # Zone.Identifier는 Alternate Data Stream (ADS)
+        # MFT 직접 수집 불가 - artifact_collector의 collect_zone_identifier 사용
+        'special': 'collect_zone_identifier',
+        'include_deleted': False,
+        'description': 'Zone.Identifier (ADS) - 다운로드 파일 출처 정보',
+    },
+    'bits_jobs': {
+        'path_pattern': r'programdata/microsoft/network/downloader/',
+        'files': {'qmgr0.dat', 'qmgr1.dat'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'BITS Transfer Jobs - 악성코드 다운로드 탐지 (MITRE T1197)',
+    },
+
+    # =========================================================================
+    # [2026-01] 네트워크/RDP/공유 아티팩트
+    # =========================================================================
+    'rdp_history': {
+        # RDP 연결 기록 (Terminal Server Client)
+        # 레지스트리: NTUSER.DAT\Software\Microsoft\Terminal Server Client
+        'files': {'ntuser.dat'},
+        'path_pattern': r'users/',
+        'include_deleted': True,
+        'description': 'RDP 연결 기록 (Terminal Server Client MRU)',
+    },
+    'wireless_profile': {
+        # WiFi 프로필 (NetworkList)
+        # 레지스트리: SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList
+        'files': {'software'},
+        'path_pattern': r'windows/system32/config/',
+        'include_deleted': True,
+        'description': 'WiFi 프로필 (NetworkList - SSID, MAC, 연결 시간)',
+    },
+    'shared_folder': {
+        # 공유 폴더 설정 (LanmanServer\Shares)
+        # 레지스트리: SYSTEM\CurrentControlSet\Services\LanmanServer\Shares
+        'files': {'system'},
+        'path_pattern': r'windows/system32/config/',
+        'include_deleted': True,
+        'description': '공유 폴더 설정 (LanmanServer\\Shares)',
+    },
+    'mapped_drive': {
+        # 네트워크 드라이브 매핑 (HKCU\Network)
+        # 레지스트리: NTUSER.DAT\Network, Map Network Drive MRU
+        'files': {'ntuser.dat'},
+        'path_pattern': r'users/',
+        'include_deleted': True,
+        'description': '네트워크 드라이브 매핑 (HKCU\\Network)',
+    },
+
+    # =========================================================================
+    # [2026-01] 클라우드 스토리지 아티팩트
+    # =========================================================================
+    'cloud_onedrive': {
+        'path_patterns': [
+            r'appdata/local/microsoft/onedrive/',
+            r'appdata/local/microsoft/windows/onedrive/',
+        ],
+        'files': {'settings.dat', 'syncengine.db', 'syncdiagnostics.txt'},
+        'extensions': {'.odl', '.etl'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'Microsoft OneDrive 동기화 로그 및 설정',
+    },
+    'cloud_google_drive': {
+        'path_patterns': [
+            r'appdata/local/google/drive/',
+            r'appdata/local/google/drivefilesync/',
+        ],
+        'files': {'sync_log.log', 'sync_config.db', 'cloud_graph.db', 'metadata_sqlite_db'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'Google Drive 동기화 로그 (파일 해시, 이메일 포함)',
+    },
+    'cloud_dropbox': {
+        'path_patterns': [
+            r'appdata/local/dropbox/',
+            r'appdata/roaming/dropbox/',
+        ],
+        'files': {'filecache.db', 'host.db', 'config.dbx', 'sync_history.db', 'aggregation.dbx'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'Dropbox 동기화 DB 및 캐시',
+    },
+    'cloud_naver_mybox': {
+        'path_patterns': [
+            r'appdata/local/naver/navercloud/',
+            r'appdata/local/naver/naverbox/',
+            r'appdata/local/naverbox/',
+        ],
+        'files': {'sync.db', 'naverbox.db', 'sync_log.db'},
+        'extensions': {'.db', '.log'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'Naver MyBox (네이버 클라우드) 동기화 DB',
+    },
+    'cloud_icloud': {
+        'path_patterns': [
+            r'appdata/local/apple inc/clouddocs/',
+            r'appdata/local/apple computer/clouddocs/',
+            r'appdata/roaming/apple computer/mobilesync/',
+        ],
+        'files': {'cloudkit.db', 'sqlite3'},
+        'path_optional': True,
+        'include_deleted': True,
+        'description': 'iCloud Drive 동기화 데이터',
+    },
+
+    # =========================================================================
+    # [2026-01] Office MRU 및 어플리케이션 MRU
+    # =========================================================================
+    'office_mru': {
+        # Office MRU는 NTUSER.DAT에서 파싱
+        # 경로: NTUSER.DAT\Software\Microsoft\Office\{버전}\{앱}\File MRU
+        'files': {'ntuser.dat'},
+        'path_pattern': r'users/',
+        'include_deleted': True,
+        'description': 'Office 문서 MRU (Word, Excel, PowerPoint 최근 파일)',
+    },
+    'comdlg_mru': {
+        # ComDlg32 MRU (공통 대화상자)
+        # 경로: NTUSER.DAT\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32
+        'files': {'ntuser.dat'},
+        'path_pattern': r'users/',
+        'include_deleted': True,
+        'description': '공통 대화상자 MRU (OpenSavePidlMRU, LastVisitedPidlMRU)',
+    },
+    'application_mru': {
+        # 어플리케이션별 MRU (Paint, ALZip, Acrobat 등)
+        # 경로: NTUSER.DAT\Software\{앱경로}\Recent File List
+        'files': {'ntuser.dat'},
+        'path_pattern': r'users/',
+        'include_deleted': True,
+        'description': '앱별 MRU (Paint, ALZip, Acrobat 등 최근 파일)',
+    },
 }
 
 
@@ -959,6 +1136,127 @@ class BaseMFTCollector(ABC):
                     yield str(output_file), metadata
                     if progress_callback:
                         progress_callback(str(output_file))
+
+            elif special_method == 'collect_zone_identifier':
+                # Zone.Identifier ADS - 다운로드 파일 출처 정보
+                logger.info(f"[{source}] Collecting Zone.Identifier ADS streams...")
+
+                # MFT 인덱스 구축 (최초 1회)
+                if not self._mft_indexed:
+                    self._build_mft_index()
+
+                # 대상 사용자 디렉토리 (대소문자 무시)
+                user_paths = ['downloads', 'desktop', 'documents']
+                ads_stream_name = 'Zone.Identifier'
+                collected_count = 0
+                checked_count = 0
+
+                all_files = self._mft_cache.get('active_files', [])
+                logger.info(f"[{source}] Scanning {len(all_files)} active files for Zone.Identifier...")
+
+                for entry in all_files:
+                    try:
+                        full_path = getattr(entry, 'full_path', '') or ''
+                        filename = getattr(entry, 'filename', '') or ''
+                        inode = getattr(entry, 'inode', None)
+                        # ads_streams가 이미 FileCatalogEntry에 포함됨
+                        entry_ads = getattr(entry, 'ads_streams', []) or []
+
+                        if not inode or not full_path:
+                            continue
+
+                        full_path_lower = full_path.lower()
+
+                        # 사용자 디렉토리 필터링 (Users 폴더 하위)
+                        is_user_path = False
+                        for user_path in user_paths:
+                            # '/users/' 또는 'users/' (루트 시작 유무 모두 처리)
+                            if ('users/' in full_path_lower or '/users/' in full_path_lower) and \
+                               f'/{user_path}/' in full_path_lower:
+                                is_user_path = True
+                                break
+
+                        if not is_user_path:
+                            continue
+
+                        checked_count += 1
+
+                        # Zone.Identifier ADS 존재 여부 확인 (캐시된 ads_streams 사용)
+                        if ads_stream_name not in entry_ads:
+                            continue
+
+                        # Zone.Identifier ADS 읽기
+                        ads_data = self._accessor.read_file_by_inode(
+                            inode, stream_name=ads_stream_name
+                        )
+
+                        if ads_data:
+                            # 출력 파일명: 원본파일명_Zone.Identifier.txt
+                            safe_filename = self._sanitize_filename(filename)
+                            output_filename = f"{safe_filename}_Zone.Identifier.txt"
+                            output_file = artifact_dir / output_filename
+
+                            # 중복 방지
+                            if output_file.exists():
+                                counter = 1
+                                while output_file.exists():
+                                    output_file = artifact_dir / f"{safe_filename}_{counter}_Zone.Identifier.txt"
+                                    counter += 1
+
+                            output_file.write_bytes(ads_data)
+                            collected_count += 1
+
+                            metadata = {
+                                'artifact_type': artifact_type,
+                                'name': f"{filename}:Zone.Identifier",
+                                'original_path': f"{full_path}:Zone.Identifier",
+                                'parent_file': filename,
+                                'parent_path': full_path,
+                                'size': len(ads_data),
+                                'hash_md5': hashlib.md5(ads_data).hexdigest(),
+                                'hash_sha256': hashlib.sha256(ads_data).hexdigest(),
+                                'collection_method': 'mft_based',
+                                'source': source,
+                                'ads_stream': ads_stream_name,
+                                'mft_inode': inode,
+                                'collected_at': datetime.now().isoformat(),
+                            }
+
+                            # Zone.Identifier 내용 파싱
+                            try:
+                                ads_text = ads_data.decode('utf-8', errors='ignore')
+                                for line in ads_text.split('\n'):
+                                    line = line.strip()
+                                    if '=' in line:
+                                        key, value = line.split('=', 1)
+                                        key = key.strip()
+                                        value = value.strip()
+                                        if key == 'ZoneId':
+                                            metadata['zone_id'] = int(value)
+                                            zone_names = {
+                                                0: 'Local Machine',
+                                                1: 'Local Intranet',
+                                                2: 'Trusted Sites',
+                                                3: 'Internet',
+                                                4: 'Restricted Sites'
+                                            }
+                                            metadata['zone_name'] = zone_names.get(int(value), 'Unknown')
+                                        elif key == 'ReferrerUrl':
+                                            metadata['referrer_url'] = value
+                                        elif key == 'HostUrl':
+                                            metadata['host_url'] = value
+                            except Exception:
+                                pass
+
+                            yield str(output_file), metadata
+                            if progress_callback:
+                                progress_callback(str(output_file))
+
+                    except Exception as entry_err:
+                        logger.debug(f"Zone.Identifier entry error: {entry_err}")
+                        continue
+
+                logger.info(f"[{source}] Zone.Identifier: checked {checked_count} user files, collected {collected_count} ADS streams")
 
         except Exception as e:
             logger.error(f"[{source}] Special artifact collection failed ({special_method}): {e}")

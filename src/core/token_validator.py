@@ -8,6 +8,7 @@ P2-2: 사용자 친화적 에러 메시지 지원
 import requests
 import hashlib
 import time
+import logging
 from typing import Optional, Set
 from dataclasses import dataclass
 
@@ -184,6 +185,10 @@ class TokenValidator:
                 )
 
         except requests.exceptions.ConnectionError as e:
+            # [보안 로깅] 연결 오류 상세 기록
+            logging.getLogger(__name__).error(
+                f"[TokenValidator] Connection error: server={self.server_url}, error={e}"
+            )
             # P2-2: 사용자 친화적 에러 메시지
             friendly = translate_error(f"Connection error: {str(e)}")
             return ValidationResult(
@@ -191,6 +196,10 @@ class TokenValidator:
                 error=f"{friendly.title}\n{friendly.message}\n\n💡 해결 방법:\n{friendly.solution}",
             )
         except requests.exceptions.Timeout:
+            # [보안 로깅] 타임아웃 기록
+            logging.getLogger(__name__).warning(
+                f"[TokenValidator] Connection timeout: server={self.server_url}"
+            )
             # P2-2: 사용자 친화적 에러 메시지
             friendly = translate_error("Connection timeout")
             return ValidationResult(

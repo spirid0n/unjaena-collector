@@ -1,0 +1,8 @@
+{
+    "server_url": "http://127.0.0.1:8000",
+    "ws_url": "ws://127.0.0.1:8000",
+    "dev_mode": true,
+    "allow_insecure": true,
+    "version": "2.0.0",
+    "app_name": "Digital Forensics Collector (Dev)"
+}
