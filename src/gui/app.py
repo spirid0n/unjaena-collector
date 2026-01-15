@@ -1196,9 +1196,23 @@ class CollectorWindow(QMainWindow):
 
         self._log(f"Starting collection from {len(selected_devices)} device(s)")
 
-        # 법적 동의 확인 (필수)
+        # 법적 동의 확인 (필수) - 서버 API 연동
         from gui.consent_dialog import show_consent_dialog
-        consent_record = show_consent_dialog(self)
+
+        # 시스템 언어 감지 (기본: 영어)
+        import locale
+        system_lang = locale.getdefaultlocale()[0] or "en"
+        lang_code = system_lang.split("_")[0] if "_" in system_lang else system_lang
+        if lang_code not in ("en", "ko", "ja", "zh"):
+            lang_code = "en"
+
+        consent_record = show_consent_dialog(
+            parent=self,
+            server_url=self.server_url,
+            session_id=self.session_id,
+            case_id=self.case_id,
+            language=lang_code
+        )
 
         if not consent_record:
             self._log("Collection cancelled: User did not consent", error=True)

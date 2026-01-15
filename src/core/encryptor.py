@@ -7,6 +7,10 @@ File Hash Calculator Module
 Note: 암호화 로직이 클라이언트에 있으면 리버싱으로 노출될 위험이 있으므로,
       수집 도구는 해시만 계산하고 원본 파일을 TLS로 전송합니다.
       서버에서 파일 수신 후 AES-256-GCM으로 암호화하여 저장합니다.
+
+Security:
+    - SHA-256만 사용 (MD5는 충돌 취약점으로 제거됨)
+    - NIST 권장 해시 알고리즘 준수
 """
 import hashlib
 from pathlib import Path
@@ -20,7 +24,7 @@ class FileHashResult:
     file_path: str
     file_size: int
     sha256_hash: str
-    md5_hash: str
+    md5_hash: str = ""  # [DEPRECATED] MD5는 보안 취약점으로 제거됨. 하위 호환성을 위해 필드 유지.
 
 
 class FileHashCalculator:
@@ -35,46 +39,50 @@ class FileHashCalculator:
 
     def calculate_file_hash(self, file_path: str) -> FileHashResult:
         """
-        파일의 SHA-256 및 MD5 해시를 계산합니다.
+        파일의 SHA-256 해시를 계산합니다.
 
         Args:
             file_path: 해시를 계산할 파일 경로
 
         Returns:
             FileHashResult with hash values
+
+        Security:
+            MD5는 충돌 취약점으로 인해 제거됨 (NIST 권장사항)
         """
         file_path = Path(file_path)
 
         sha256 = hashlib.sha256()
-        md5 = hashlib.md5()
         file_size = 0
 
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(self.CHUNK_SIZE), b''):
                 sha256.update(chunk)
-                md5.update(chunk)
                 file_size += len(chunk)
 
         return FileHashResult(
             file_path=str(file_path),
             file_size=file_size,
             sha256_hash=sha256.hexdigest(),
-            md5_hash=md5.hexdigest(),
+            # md5_hash는 기본값 "" 사용 (deprecated)
         )
 
     def calculate_bytes_hash(self, data: bytes) -> Tuple[str, str]:
         """
-        바이트 데이터의 해시를 계산합니다.
+        바이트 데이터의 SHA-256 해시를 계산합니다.
 
         Args:
             data: 해시를 계산할 데이터
 
         Returns:
-            Tuple of (sha256_hash, md5_hash)
+            Tuple of (sha256_hash, "")
+            - 두 번째 값은 하위 호환성을 위해 빈 문자열 반환 (MD5 deprecated)
+
+        Security:
+            MD5는 충돌 취약점으로 인해 제거됨
         """
         sha256_hash = hashlib.sha256(data).hexdigest()
-        md5_hash = hashlib.md5(data).hexdigest()
-        return sha256_hash, md5_hash
+        return sha256_hash, ""  # MD5 제거됨
 
     def verify_hash(self, file_path: str, expected_sha256: str) -> bool:
         """

@@ -677,6 +677,131 @@ ARTIFACT_TYPES = {
         'collector': 'collect_locked_files',
     },
     # image, video 제외됨 - 포렌식 관점에서 중요도 낮음 + 해시 계산으로 인한 속도 저하
+
+    # =========================================================================
+    # [2026-01] P0 신규 아티팩트 - 높은 포렌식 가치
+    # =========================================================================
+    'activities_cache': {
+        'name': 'Windows Timeline (ActivitiesCache.db)',
+        'description': 'Windows Timeline - 앱 실행 지속시간 포함 (Win10 1803+)',
+        'paths': [
+            r'%LOCALAPPDATA%\ConnectedDevicesPlatform\*\ActivitiesCache.db',
+            r'%LOCALAPPDATA%\ConnectedDevicesPlatform\*\ActivitiesCache.db-wal',
+            r'%LOCALAPPDATA%\ConnectedDevicesPlatform\*\ActivitiesCache.db-shm',
+        ],
+        'mft_config': {
+            'user_path': 'AppData/Local/ConnectedDevicesPlatform',
+            'pattern': 'ActivitiesCache.db*',
+            'recursive': True,
+        },
+        'requires_admin': False,
+        'collector': 'collect_user_glob',
+        'forensic_value': '앱 실행 시간/지속시간, 클립보드 기록, 파일 열람 기록',
+    },
+    'pca_launch': {
+        'name': 'Program Compatibility Assistant (Win11+)',
+        'description': 'Windows 11 22H2+ 프로그램 실행 기록 (PcaAppLaunchDic.txt)',
+        'paths': [
+            r'C:\Windows\appcompat\pca\PcaAppLaunchDic.txt',
+            r'C:\Windows\appcompat\pca\PcaGeneralDb0.txt',
+            r'C:\Windows\appcompat\pca\PcaGeneralDb1.txt',
+        ],
+        'mft_config': {
+            'base_path': 'Windows/appcompat/pca',
+            'pattern': 'Pca*.txt',
+        },
+        'requires_admin': True,
+        'collector': 'collect_files',
+        'forensic_value': '실행 파일 경로, 실행 시간 (AmCache 보완)',
+    },
+    'etl_log': {
+        'name': 'ETW AutoLogger (.etl)',
+        'description': 'ETW AutoLogger 트레이스 (이벤트 로그 삭제 후에도 유지)',
+        'paths': [
+            r'C:\Windows\System32\WDI\LogFiles\*.etl',
+            r'C:\Windows\System32\LogFiles\WMI\*.etl',
+            r'C:\Windows\Panther\*.etl',
+        ],
+        'mft_config': {
+            'path_patterns': [
+                'Windows/System32/WDI/LogFiles',
+                'Windows/System32/LogFiles/WMI',
+                'Windows/Panther',
+            ],
+            'extensions': ['.etl'],
+        },
+        'requires_admin': True,
+        'collector': 'collect_glob',
+        'forensic_value': '프로세스 추적, 부팅 기록 (로그 삭제 우회)',
+    },
+    'wmi_subscription': {
+        'name': 'WMI Repository (OBJECTS.DATA)',
+        'description': 'WMI 이벤트 구독 - 지속성 메커니즘 탐지 (MITRE T1546.003)',
+        'paths': [
+            r'C:\Windows\System32\wbem\Repository\OBJECTS.DATA',
+            r'C:\Windows\System32\wbem\Repository\INDEX.BTR',
+            r'C:\Windows\System32\wbem\Repository\MAPPING*.MAP',
+        ],
+        'mft_config': {
+            'base_path': 'Windows/System32/wbem/Repository',
+            'files': ['OBJECTS.DATA', 'INDEX.BTR'],
+            'pattern': 'MAPPING*.MAP',
+        },
+        'requires_admin': True,
+        'collector': 'collect_locked_files',
+        'forensic_value': 'WMI 지속성, 악성 이벤트 구독 탐지',
+    },
+    'defender_detection': {
+        'name': 'Windows Defender Detection History',
+        'description': 'Defender 탐지 기록 (MpDetection-*.bin)',
+        'paths': [
+            r'C:\ProgramData\Microsoft\Windows Defender\Scans\History\Service\DetectionHistory\*\*.bin',
+            r'C:\ProgramData\Microsoft\Windows Defender\Support\MPLog-*.log',
+        ],
+        'mft_config': {
+            'path_patterns': [
+                'ProgramData/Microsoft/Windows Defender/Scans/History/Service/DetectionHistory',
+                'ProgramData/Microsoft/Windows Defender/Support',
+            ],
+            'pattern': '*',
+            'recursive': True,
+        },
+        'requires_admin': True,
+        'collector': 'collect_glob',
+        'forensic_value': '악성코드 탐지 기록, 격리된 파일 정보',
+    },
+    'zone_identifier': {
+        'name': 'Zone.Identifier (ADS)',
+        'description': '다운로드 파일 출처 URL 및 보안 영역 정보 (Alternate Data Stream)',
+        'paths': [
+            r'%USERPROFILE%\Downloads\*:Zone.Identifier',
+            r'%USERPROFILE%\Desktop\*:Zone.Identifier',
+            r'%USERPROFILE%\Documents\*:Zone.Identifier',
+        ],
+        'mft_config': {
+            'user_paths': ['Downloads', 'Desktop', 'Documents'],
+            'ads_stream': 'Zone.Identifier',
+            'recursive': False,
+        },
+        'requires_admin': False,
+        'collector': 'collect_zone_identifier',
+        'forensic_value': '다운로드 출처 URL, 보안 영역 (Internet/Intranet), 원본 호스트',
+    },
+    'bits_jobs': {
+        'name': 'BITS Transfer Jobs',
+        'description': 'Background Intelligent Transfer Service 작업 기록 (악성코드 다운로드 탐지)',
+        'paths': [
+            r'C:\ProgramData\Microsoft\Network\Downloader\qmgr0.dat',
+            r'C:\ProgramData\Microsoft\Network\Downloader\qmgr1.dat',
+        ],
+        'mft_config': {
+            'base_path': 'ProgramData/Microsoft/Network/Downloader',
+            'pattern': 'qmgr*.dat',
+        },
+        'requires_admin': True,
+        'collector': 'collect_locked_files',
+        'forensic_value': 'BITS 다운로드 URL, 작업 생성 시간 (MITRE T1197)',
+    },
 }
 
 
@@ -2119,6 +2244,127 @@ class ArtifactCollector:
                     if progress_callback:
                         progress_callback(str(output_file))
 
+            elif method_name == 'collect_zone_identifier':
+                # Zone.Identifier ADS - 다운로드 파일 출처 정보
+                _debug_print("[ForensicDisk] Collecting Zone.Identifier ADS streams...")
+
+                # 대상 사용자 디렉토리 (대소문자 무시)
+                user_paths = ['downloads', 'desktop', 'documents']
+                ads_stream_name = 'Zone.Identifier'
+                collected_count = 0
+                checked_count = 0
+
+                # MFT 전체 스캔 (ads_streams 포함)
+                scan_result = self.forensic_disk_accessor.scan_all_files(include_deleted=False)
+                all_files = scan_result.get('active_files', [])
+                _debug_print(f"[ForensicDisk] Scanning {len(all_files)} active files for Zone.Identifier...")
+
+                for entry in all_files:
+                    try:
+                        full_path = getattr(entry, 'full_path', '') or ''
+                        filename = getattr(entry, 'filename', '') or ''
+                        inode = getattr(entry, 'inode', None)
+                        # ads_streams가 이미 FileCatalogEntry에 포함됨
+                        entry_ads = getattr(entry, 'ads_streams', []) or []
+
+                        if not inode or not full_path:
+                            continue
+
+                        full_path_lower = full_path.lower()
+
+                        # 사용자 디렉토리 필터링 (Users 폴더 하위)
+                        is_user_path = False
+                        for user_path in user_paths:
+                            # '/users/' 또는 'users/' (루트 시작 유무 모두 처리)
+                            if ('users/' in full_path_lower or '/users/' in full_path_lower) and \
+                               f'/{user_path}/' in full_path_lower:
+                                is_user_path = True
+                                break
+
+                        if not is_user_path:
+                            continue
+
+                        checked_count += 1
+
+                        # Zone.Identifier ADS 존재 여부 확인 (캐시된 ads_streams 사용)
+                        if ads_stream_name not in entry_ads:
+                            continue
+
+                        # Zone.Identifier ADS 읽기
+                        ads_data = self.forensic_disk_accessor.read_file_by_inode(
+                            inode, stream_name=ads_stream_name
+                        )
+
+                        if ads_data:
+                            # 출력 파일명: 원본파일명_Zone.Identifier.txt
+                            safe_filename = self._sanitize_filename(filename)
+                            output_filename = f"{safe_filename}_Zone.Identifier.txt"
+                            output_file = artifact_dir / output_filename
+
+                            # 중복 방지
+                            if output_file.exists():
+                                counter = 1
+                                while output_file.exists():
+                                    output_file = artifact_dir / f"{safe_filename}_{counter}_Zone.Identifier.txt"
+                                    counter += 1
+
+                            output_file.write_bytes(ads_data)
+                            collected_count += 1
+
+                            metadata = {
+                                'artifact_type': artifact_type,
+                                'name': f"{filename}:Zone.Identifier",
+                                'original_path': f"{full_path}:Zone.Identifier",
+                                'parent_file': filename,
+                                'parent_path': full_path,
+                                'size': len(ads_data),
+                                'hash_md5': hashlib.md5(ads_data).hexdigest(),
+                                'hash_sha256': hashlib.sha256(ads_data).hexdigest(),
+                                'collection_method': 'forensic_disk_accessor',
+                                'ads_stream': ads_stream_name,
+                                'mft_inode': inode,
+                                'collected_at': datetime.now().isoformat(),
+                            }
+
+                            # Zone.Identifier 내용 파싱 (ZoneId, ReferrerUrl, HostUrl)
+                            try:
+                                ads_text = ads_data.decode('utf-8', errors='ignore')
+                                for line in ads_text.split('\n'):
+                                    line = line.strip()
+                                    if '=' in line:
+                                        key, value = line.split('=', 1)
+                                        key = key.strip()
+                                        value = value.strip()
+                                        if key == 'ZoneId':
+                                            metadata['zone_id'] = int(value)
+                                            # Zone ID 의미:
+                                            # 0 = Local Machine, 1 = Local Intranet
+                                            # 2 = Trusted Sites, 3 = Internet, 4 = Restricted Sites
+                                            zone_names = {
+                                                0: 'Local Machine',
+                                                1: 'Local Intranet',
+                                                2: 'Trusted Sites',
+                                                3: 'Internet',
+                                                4: 'Restricted Sites'
+                                            }
+                                            metadata['zone_name'] = zone_names.get(int(value), 'Unknown')
+                                        elif key == 'ReferrerUrl':
+                                            metadata['referrer_url'] = value
+                                        elif key == 'HostUrl':
+                                            metadata['host_url'] = value
+                            except Exception:
+                                pass
+
+                            yield str(output_file), metadata
+                            if progress_callback:
+                                progress_callback(str(output_file))
+
+                    except Exception as entry_err:
+                        _debug_print(f"[DEBUG] Zone.Identifier entry error: {entry_err}")
+                        continue
+
+                _debug_print(f"[ForensicDisk] Zone.Identifier: checked {checked_count} user files, collected {collected_count} ADS streams")
+
         except Exception as e:
             _debug_print(f"[ERROR] ForensicDisk special collection failed ({method_name}): {e}")
 
@@ -2839,6 +3085,16 @@ class ArtifactCollector:
                         yield str(dst_path), metadata
                     except (PermissionError, OSError) as e:
                         _debug_print(f"[FIREFOX] Cannot access {src_path}: {e}")
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """파일명에서 유효하지 않은 문자 제거"""
+        import re
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+        sanitized = re.sub(r'_+', '_', sanitized)
+        sanitized = sanitized.strip(' _.')
+        if not sanitized:
+            sanitized = 'unnamed_file'
+        return sanitized
 
     def _get_metadata(
         self,

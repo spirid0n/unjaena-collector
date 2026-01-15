@@ -85,13 +85,35 @@ class RealTimeUploader:
 
     async def connect_websocket(self):
         """Establish WebSocket connection for progress reporting."""
+        import ssl
+        import logging
+
         try:
             ws_endpoint = f"{self.ws_url}/ws/collection/{self.session_id}"
             extra_headers = {
                 'X-Collection-Token': self.collection_token,
             }
-            self.ws = await websockets.connect(ws_endpoint, extra_headers=extra_headers)
+
+            # [보안] WSS 연결 시 SSL 인증서 검증
+            ssl_context = None
+            if ws_endpoint.startswith('wss://'):
+                ssl_context = ssl.create_default_context()
+                # 운영 환경에서는 인증서 검증 필수
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+            self.ws = await websockets.connect(
+                ws_endpoint,
+                extra_headers=extra_headers,
+                ssl=ssl_context
+            )
+            logging.getLogger(__name__).info(f"[WebSocket] Connected to {ws_endpoint[:50]}...")
+        except ssl.SSLError as ssl_err:
+            logging.getLogger(__name__).error(f"[WebSocket] SSL error: {ssl_err}")
+            print(f"WebSocket SSL 인증 실패 - 서버 인증서를 확인하세요")
+            self.ws = None
         except Exception as e:
+            logging.getLogger(__name__).warning(f"[WebSocket] Connection failed: {e}")
             print(f"WebSocket connection failed: {e}")
             self.ws = None
 
@@ -368,15 +390,24 @@ class SyncUploader:
                     )
                 else:
                     error_text = response.text
+                    # [DEBUG] 원본 에러 로깅 (번역 전)
+                    import logging
+                    logging.error(f"[UPLOAD DEBUG] HTTP {response.status_code}: {error_text[:500]}")
                     return UploadResult.from_error(
                         f"Upload failed ({response.status_code}): {error_text}"
                     )
 
         except requests.exceptions.Timeout:
+            import logging
+            logging.error(f"[UPLOAD DEBUG] Timeout after {upload_timeout}s")
             return UploadResult.from_error(f"Upload timeout after {upload_timeout}s")
         except requests.exceptions.ConnectionError as e:
+            import logging
+            logging.error(f"[UPLOAD DEBUG] Connection error: {str(e)}")
             return UploadResult.from_error(f"Connection error: {str(e)}")
         except Exception as e:
+            import logging
+            logging.error(f"[UPLOAD DEBUG] Exception: {type(e).__name__}: {str(e)}")
             return UploadResult.from_error(f"Upload error: {str(e)}")
 
     def upload_batch(
