@@ -160,9 +160,19 @@ def get_hardware_id(require_minimum: int = 3) -> str:
     except HardwareIdError:
         raise
     except Exception as e:
-        # Fallback: 보안 경고와 함께 기존 방식 사용
+        # [보안 경고] Fallback 사용 - 약한 하드웨어 바인딩
         import logging
-        logging.warning(f"[HardwareID] WMI 접근 실패, fallback 사용: {e}")
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"[HardwareID] WMI 접근 실패 - 약한 fallback 사용됨!\n"
+            f"  원인: {e}\n"
+            f"  위험: 하드웨어 바인딩이 약해져 보안이 저하될 수 있습니다.\n"
+            f"  해결: WMI 서비스 활성화 또는 관리자 권한 실행 필요"
+        )
+        print("=" * 50)
+        print("[보안 경고] 하드웨어 ID 생성에 fallback 사용됨")
+        print("  WMI 접근이 필요합니다. 관리자 권한으로 실행하세요.")
+        print("=" * 50)
         fallback = f"{platform.node()}-{platform.machine()}-{platform.processor()}"
         return hashlib.sha256(fallback.encode()).hexdigest()[:32]
 
