@@ -130,3 +130,17 @@ keys/
 .env
 .env.*
 !.env.example
+
+# =============================================================================
+# External Tools (downloaded at build time)
+# =============================================================================
+
+# libimobiledevice binaries (LGPL-2.1, downloaded via download_libimobiledevice.py)
+tools/libimobiledevice/*.exe
+tools/libimobiledevice/*.dll
+tools/libimobiledevice/LICENSE
+!tools/libimobiledevice/.gitkeep
+
+# Downloaded archives
+tools/*.zip
+tools/*.tar.gz
