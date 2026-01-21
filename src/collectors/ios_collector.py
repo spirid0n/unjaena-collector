@@ -58,9 +58,70 @@ except ImportError:
     BIPLIST_AVAILABLE = False
 
 
+# =============================================================================
+# libimobiledevice Tools Path Resolution
+# =============================================================================
+
+def get_bundled_tools_dir() -> Optional[Path]:
+    """
+    Get path to bundled libimobiledevice tools directory.
+
+    Returns:
+        Path to bundled tools directory, or None if not found
+    """
+    # Check relative to this file: collectors/ios_collector.py -> tools/libimobiledevice/
+    collector_dir = Path(__file__).parent  # collectors/
+    src_dir = collector_dir.parent          # src/
+    collector_root = src_dir.parent         # collector/
+    bundled_dir = collector_root / "tools" / "libimobiledevice"
+
+    if bundled_dir.exists():
+        return bundled_dir
+
+    # Alternative: check relative to working directory
+    alt_bundled = Path("tools") / "libimobiledevice"
+    if alt_bundled.exists():
+        return alt_bundled
+
+    return None
+
+
+def get_tool_path(tool_name: str) -> Optional[str]:
+    """
+    Get full path to a libimobiledevice tool.
+
+    Priority:
+    1. Bundled tools (collector/tools/libimobiledevice/)
+    2. System PATH
+
+    Args:
+        tool_name: Name of tool (e.g., 'ideviceinfo')
+
+    Returns:
+        Full path to tool executable, or tool name if using system PATH
+    """
+    # Check bundled directory first
+    bundled_dir = get_bundled_tools_dir()
+    if bundled_dir:
+        if os.name == 'nt':
+            tool_path = bundled_dir / f"{tool_name}.exe"
+        else:
+            tool_path = bundled_dir / tool_name
+
+        if tool_path.exists():
+            return str(tool_path)
+
+    # Fall back to system PATH
+    return tool_name
+
+
 # Check for libimobiledevice tools
 def check_libimobiledevice_available() -> Dict[str, bool]:
-    """Check availability of libimobiledevice tools"""
+    """
+    Check availability of libimobiledevice tools.
+
+    Checks bundled directory first, then system PATH.
+    """
     tools = {
         'idevice_id': False,
         'ideviceinfo': False,
@@ -70,19 +131,33 @@ def check_libimobiledevice_available() -> Dict[str, bool]:
         'idevicebackup2': False,
     }
 
+    bundled_dir = get_bundled_tools_dir()
+    if bundled_dir:
+        _debug_print(f"[iOS] Bundled libimobiledevice found: {bundled_dir}")
+
     for tool in tools:
+        tool_path = get_tool_path(tool)
         try:
+            cmd = [tool_path, '--version'] if tool != 'idevice_id' else [tool_path, '-l']
             result = subprocess.run(
-                [tool, '--version'] if tool != 'idevice_id' else [tool, '-l'],
+                cmd,
                 capture_output=True,
                 timeout=5,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             tools[tool] = result.returncode == 0 or b'usage' in result.stderr.lower()
+            if tools[tool]:
+                _debug_print(f"[iOS] {tool}: OK ({tool_path})")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
     return tools
+
+
+def _debug_print(msg: str) -> None:
+    """Debug print (only in verbose mode)"""
+    if os.environ.get('IOS_COLLECTOR_DEBUG'):
+        print(msg)
 
 
 LIBIMOBILEDEVICE_TOOLS = check_libimobiledevice_available()
@@ -582,6 +657,11 @@ class iOSDeviceConnector:
         timeout: int = 30
     ) -> Tuple[str, int]:
         """Run idevice command and return output"""
+        # Resolve tool path (bundled or system)
+        tool_name = cmd[0]
+        tool_path = get_tool_path(tool_name)
+        cmd = [tool_path] + cmd[1:]
+
         if self.udid:
             cmd = cmd[:1] + ['-u', self.udid] + cmd[1:]
 
@@ -597,7 +677,7 @@ class iOSDeviceConnector:
         except subprocess.TimeoutExpired:
             return 'Command timeout', -1
         except FileNotFoundError:
-            return f'Command not found: {cmd[0]}', -1
+            return f'Command not found: {tool_path}', -1
         except Exception as e:
             return str(e), -1
 
@@ -721,7 +801,8 @@ class iOSDeviceConnector:
         if progress_callback:
             progress_callback(f"Collecting system log ({duration_seconds}s)")
 
-        cmd = ['idevicesyslog']
+        tool_path = get_tool_path('idevicesyslog')
+        cmd = [tool_path]
         if self.udid:
             cmd.extend(['-u', self.udid])
 
@@ -785,9 +866,10 @@ class iOSDeviceConnector:
         crash_dir = output_dir / 'crash_reports'
         crash_dir.mkdir(exist_ok=True)
 
-        cmd = ['idevicecrashreport', '-e', str(crash_dir)]
+        tool_path = get_tool_path('idevicecrashreport')
+        cmd = [tool_path, '-e', str(crash_dir)]
         if self.udid:
-            cmd = ['idevicecrashreport', '-u', self.udid, '-e', str(crash_dir)]
+            cmd = [tool_path, '-u', self.udid, '-e', str(crash_dir)]
 
         output, returncode = self._run_idevice_cmd(cmd, timeout=120)
 
@@ -834,9 +916,10 @@ class iOSDeviceConnector:
         if progress_callback:
             progress_callback("Collecting installed apps list")
 
-        cmd = ['ideviceinstaller', '-l']
+        tool_path = get_tool_path('ideviceinstaller')
+        cmd = [tool_path, '-l']
         if self.udid:
-            cmd = ['ideviceinstaller', '-u', self.udid, '-l']
+            cmd = [tool_path, '-u', self.udid, '-l']
 
         output, returncode = self._run_idevice_cmd(cmd)
 
@@ -884,9 +967,10 @@ class iOSDeviceConnector:
         backup_dir = output_dir / 'backup'
         backup_dir.mkdir(exist_ok=True)
 
-        cmd = ['idevicebackup2', 'backup', str(backup_dir)]
+        tool_path = get_tool_path('idevicebackup2')
+        cmd = [tool_path, 'backup', str(backup_dir)]
         if self.udid:
-            cmd = ['idevicebackup2', '-u', self.udid, 'backup', str(backup_dir)]
+            cmd = [tool_path, '-u', self.udid, 'backup', str(backup_dir)]
 
         output, returncode = self._run_idevice_cmd(cmd, timeout=3600)  # 1 hour
 
