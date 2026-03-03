@@ -198,7 +198,7 @@ class TestiOSBackupGuide(unittest.TestCase):
         elif isinstance(guide, str):
             # Should contain step indicators
             self.assertTrue(
-                any(indicator in guide for indicator in ['1', 'Step', 'First', '단계'])
+                any(indicator in guide for indicator in ['1', 'Step', 'First', 'step'])
             )
 
 
