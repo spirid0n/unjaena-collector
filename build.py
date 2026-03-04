@@ -293,15 +293,20 @@ def main():
         # Format as Python bytes literal
         enc_repr = repr(encrypted_key)
 
-        # Read and patch the source file
+        # Read and patch the source file (use string find+replace, not regex,
+        # because repr() output contains \x escapes that break re.sub)
         signer_source = signer_path.read_text(encoding='utf-8')
-        patched = _re.sub(
-            r"_EMBEDDED_KEY_ENC = .+?  # BUILD_REPLACE_MARKER",
-            f"_EMBEDDED_KEY_ENC = {enc_repr}  # BUILD_REPLACE_MARKER",
-            signer_source,
-        )
+        marker = "# BUILD_REPLACE_MARKER"
+        marker_idx = signer_source.find(marker)
 
-        if patched != signer_source:
+        if marker_idx >= 0:
+            # Find the start of the line containing the marker
+            line_start = signer_source.rfind('\n', 0, marker_idx) + 1
+            line_end = signer_source.find('\n', marker_idx)
+            if line_end == -1:
+                line_end = len(signer_source)
+            new_line = f"_EMBEDDED_KEY_ENC = {enc_repr}  {marker}"
+            patched = signer_source[:line_start] + new_line + signer_source[line_end:]
             signer_path.write_text(patched, encoding='utf-8')
             print(f"[SIGN] Embedded key patched into request_signer.py")
         else:
