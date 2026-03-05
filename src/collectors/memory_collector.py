@@ -330,7 +330,8 @@ class WinPmemDumper:
                 [str(self.winpmem_path), '-h'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
             # Parse version from output
             for line in result.stdout.split('\n'):
