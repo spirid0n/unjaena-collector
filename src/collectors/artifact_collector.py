@@ -6361,7 +6361,8 @@ class ArtifactCollector:
             result = subprocess.run(
                 ['vssadmin', 'list', 'shadows'],
                 capture_output=True,
-                text=True
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
 
             # Parse VSS output to find latest shadow copy
