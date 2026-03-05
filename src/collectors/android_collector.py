@@ -127,7 +127,8 @@ def check_adb_available() -> bool:
     # Fallback: system adb binary
     try:
         result = subprocess.run(
-            ['adb', 'version'], capture_output=True, timeout=5
+            ['adb', 'version'], capture_output=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -1336,6 +1337,7 @@ class ADBDeviceMonitor:
                 result = subprocess.run(
                     [adb_cmd, 'devices', '-l'],
                     capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
                 )
                 if result.returncode != 0:
                     continue
@@ -1386,6 +1388,7 @@ class ADBDeviceMonitor:
                     result = subprocess.run(
                         [adb_cmd, '-s', serial, 'shell', cmd],
                         capture_output=True, text=True, timeout=10,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
                     )
                     return result.stdout.strip() if result.returncode == 0 else ''
                 except (subprocess.TimeoutExpired, Exception):
@@ -1668,7 +1671,8 @@ class AndroidCollector:
         try:
             result = subprocess.run(
                 [adb_path, 'devices'],
-                capture_output=True, timeout=10
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
             devices_output = result.stdout.decode('utf-8', errors='replace')
             # Parse "serial\tstatus" lines
@@ -1696,7 +1700,8 @@ class AndroidCollector:
         try:
             result = subprocess.run(
                 [adb_path, '-s', self.device_serial, 'shell', 'echo', 'ok'],
-                capture_output=True, timeout=10
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
             if result.returncode == 0 and b'ok' in result.stdout:
                 self._device = None  # No libusb device, use system adb fallback
@@ -3317,6 +3322,7 @@ class AndroidCollector:
                 capture_output=True,
                 timeout=timeout,
                 input=input_data,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
             )
             stdout = result.stdout.decode('utf-8', errors='replace')
             stderr = result.stderr.decode('utf-8', errors='replace')
