@@ -593,7 +593,7 @@ class ConsentDialog(QDialog):
             <li><b>Right to Withdraw Consent:</b> Withdraw consent at any time.</li>
             <li><b>Right to Data Portability:</b> Request transfer of your data in a machine-readable format.</li>
         </ul>
-        <p>Contact: admin@unjaena.ai.com | Company: unJaena AI | Representative: Representative</p>
+        <p>Contact: admin@unjaena.com | Company: unJaena AI | Representative: Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. Legal Warning and Disclaimer</h3>
@@ -652,7 +652,7 @@ class ConsentDialog(QDialog):
             <li><b>동의철회권:</b> 언제든지 동의를 철회할 수 있습니다</li>
             <li><b>전송요구권:</b> 수집된 개인정보를 기계 판독 가능한 형태로 전송받을 수 있습니다</li>
         </ul>
-        <p>권리 행사: admin@unjaena.ai.com | 회사: unJaena AI | 대표자: Representative</p>
+        <p>권리 행사: admin@unjaena.com | 회사: unJaena AI | 대표자: Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 법적 경고 및 면책</h3>
@@ -708,7 +708,7 @@ class ConsentDialog(QDialog):
             <li><b>同意撤回権：</b>いつでも同意を撤回できます</li>
             <li><b>データポータビリティ権：</b>収集された個人情報を機械可読形式で受け取ることができます</li>
         </ul>
-        <p>お問い合わせ：admin@unjaena.ai.com | 会社：unJaena AI | 代表者：Representative</p>
+        <p>お問い合わせ：admin@unjaena.com | 会社：unJaena AI | 代表者：Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 法的警告および免責事項</h3>
@@ -762,7 +762,7 @@ class ConsentDialog(QDialog):
             <li><b>撤回同意权：</b>可随时撤回同意</li>
             <li><b>数据可携权：</b>可请求以机器可读格式获取收集的个人信息</li>
         </ul>
-        <p>联系方式：admin@unjaena.ai.com | 公司：unJaena AI | 代表人：Representative</p>
+        <p>联系方式：admin@unjaena.com | 公司：unJaena AI | 代表人：Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 法律警告及免责声明</h3>
