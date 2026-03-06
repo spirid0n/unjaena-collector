@@ -1,27 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
+import platform
 from pathlib import Path
 
+current_os = platform.system().lower()  # 'windows', 'linux', 'darwin'
+
 # =============================================================================
-# USB Library Detection for Android Collector
+# USB Library Detection (Windows only)
 # =============================================================================
 
 def find_libusb_dll():
-    """Find libusb-1.0.dll for bundling with the application"""
-    dll_locations = []
+    """Find libusb-1.0.dll for bundling with the application (Windows only)"""
+    if current_os != 'windows':
+        return []
 
-    # Check common installation locations
+    dll_locations = []
     possible_paths = [
-        # Project resources folder
         Path('resources/libusb-1.0.dll'),
-        # System paths
         Path(os.environ.get('PROGRAMFILES', 'C:/Program Files')) / 'libusb-1.0' / 'MS64' / 'libusb-1.0.dll',
         Path(os.environ.get('PROGRAMFILES(X86)', 'C:/Program Files (x86)')) / 'libusb-1.0' / 'MS32' / 'libusb-1.0.dll',
-        # Python site-packages (if installed via pip)
     ]
 
-    # Check if libusb1 package has bundled DLL
     try:
         import usb1
         usb1_path = Path(usb1.__file__).parent
@@ -31,7 +31,6 @@ def find_libusb_dll():
     except ImportError:
         pass
 
-    # Also check PATH
     for path_dir in os.environ.get('PATH', '').split(os.pathsep):
         dll_path = Path(path_dir) / 'libusb-1.0.dll'
         if dll_path.exists():
@@ -45,23 +44,18 @@ def find_libusb_dll():
 
     if not dll_locations:
         print("[USB] WARNING: libusb-1.0.dll not found. Android USB collection may not work.")
-        print("[USB] Download from: https://github.com/libusb/libusb/releases")
-        print("[USB] Place libusb-1.0.dll in collector/resources/ folder")
 
     return dll_locations
 
 
-# Find USB binaries
 usb_binaries = find_libusb_dll()
 
 # =============================================================================
-# Hidden Imports for USB Libraries
+# Platform-Specific Hidden Imports
 # =============================================================================
 
-usb_hidden_imports = [
-    # ===========================================
-    # Android USB (adb-shell)
-    # ===========================================
+# Common hidden imports (all platforms)
+common_hidden_imports = [
     'adb_shell',
     'adb_shell.adb_device',
     'adb_shell.adb_device_usb',
@@ -71,17 +65,9 @@ usb_hidden_imports = [
     'adb_shell.exceptions',
     'adb_shell.handle',
     'adb_shell.transport',
-
-    # libusb1 library
     'usb1',
     'libusb1',
-
-    # RSA for ADB key generation
     'rsa',
-
-    # ===========================================
-    # iOS USB (pymobiledevice3)
-    # ===========================================
     'pymobiledevice3',
     'pymobiledevice3.usbmux',
     'pymobiledevice3.lockdown',
@@ -93,17 +79,9 @@ usb_hidden_imports = [
     'pymobiledevice3.services.syslog',
     'pymobiledevice3.exceptions',
     'pymobiledevice3.common',
-
-    # iOS backup parsing
     'biplist',
-
-    # iOS encrypted backup decryption
     'iphone_backup_decrypt',
     'collectors.ios_backup_decryptor',
-
-    # ===========================================
-    # Cryptography (shared)
-    # ===========================================
     'Crypto',
     'Crypto.Cipher',
     'Crypto.Cipher.AES',
@@ -115,22 +93,49 @@ usb_hidden_imports = [
     'cryptography.hazmat.backends',
 ]
 
+# Windows-specific
+windows_hidden_imports = [
+    'win32api',
+    'win32con',
+    'win32security',
+    'wmi',
+    'pytsk3',
+]
+
+# Combine based on platform
+if current_os == 'windows':
+    all_hidden_imports = common_hidden_imports + windows_hidden_imports
+else:
+    all_hidden_imports = common_hidden_imports
+
+# =============================================================================
+# Platform-Specific Settings
+# =============================================================================
+
+if current_os == 'windows':
+    exe_name = 'IntelligenceCollector'
+    use_console = False
+elif current_os == 'darwin':
+    exe_name = 'IntelligenceCollector'
+    use_console = False
+else:
+    # Linux
+    exe_name = 'IntelligenceCollector'
+    use_console = True  # Linux headless environments need console
+
 # =============================================================================
 # Analysis Configuration
 # =============================================================================
 
 a = Analysis(
-    ['src\\main.py'],
+    ['src/main.py'],
     pathex=[],
     binaries=usb_binaries,
-    # config.json: Server URL configuration for deployment
-    # Development build: config.development.json -> config.json
-    # Production build: config.production.json -> config.json
     datas=[
         ('resources', 'resources'),
-        ('config.json', '.'),  # Include config.json at root
+        ('config.json', '.'),
     ],
-    hiddenimports=usb_hidden_imports,
+    hiddenimports=all_hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -140,23 +145,57 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name='IntelligenceCollector',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
+if current_os == 'darwin':
+    # macOS: build .app bundle
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name=exe_name,
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=use_console,
+        disable_windowed_traceback=False,
+        argv_emulation=True,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=False,
+        name=exe_name,
+    )
+    app = BUNDLE(
+        coll,
+        name=f'{exe_name}.app',
+        bundle_identifier='com.forensics.collector',
+    )
+else:
+    # Windows & Linux: single-file binary
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name=exe_name,
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=use_console,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )

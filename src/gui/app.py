@@ -28,7 +28,14 @@ from collectors.artifact_collector import (
     ArtifactCollector, ARTIFACT_TYPES,
     LocalMFTCollector, BASE_MFT_AVAILABLE
 )
-from collectors.e01_artifact_collector import E01ArtifactCollector
+
+# E01 collector requires pytsk3 — may be unavailable on Linux/macOS
+try:
+    from collectors.e01_artifact_collector import E01ArtifactCollector
+    E01_AVAILABLE = True
+except ImportError:
+    E01ArtifactCollector = None
+    E01_AVAILABLE = False
 
 # Platform unified theme and new components
 from gui.styles import get_platform_stylesheet, COLORS
@@ -1467,7 +1474,7 @@ class CollectorWindow(QMainWindow):
             from utils.hardware_id import get_hardware_id
             try:
                 hw_id = get_hardware_id()
-                self.request_signer = RequestSigner(hw_id, result.challenge_salt or "")
+                self.request_signer = RequestSigner(hw_id, result.challenge_salt or "", result.signing_key or "")
             except Exception as e:
                 logging.getLogger(__name__).warning(f"[RequestSigner] Init failed: {e}")
                 self.request_signer = None
@@ -2610,6 +2617,9 @@ class CollectionWorker(QThread):
 
             # E01/RAW image
             if device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+                if E01ArtifactCollector is None:
+                    self.log_message.emit("E01 image analysis is not available on this platform.", True)
+                    return None
                 file_path = device.metadata.get('file_path')
                 if not file_path:
                     self.log_message.emit(f"Image file path missing: {device.display_name}", True)
