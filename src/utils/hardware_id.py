@@ -3,10 +3,13 @@ Hardware ID Generation Module
 
 Creates a unique hardware identifier for device binding.
 P0 Security Enhancement: Multi-component hardware collection to prevent tampering
+Cross-platform: Windows (WMI), Linux (/etc/machine-id), macOS (ioreg)
 """
 import hashlib
 import subprocess
 import platform
+import sys
+import os
 from typing import Dict, Optional, Tuple
 
 
@@ -15,8 +18,17 @@ class HardwareIdError(Exception):
     pass
 
 
+_IS_WINDOWS = sys.platform == 'win32'
+_IS_MACOS = sys.platform == 'darwin'
+_IS_LINUX = sys.platform.startswith('linux')
+
+
+# =============================================================================
+# Windows-specific collectors (WMI)
+# =============================================================================
+
 def _get_wmi():
-    """Return WMI object"""
+    """Return WMI object (Windows only)"""
     try:
         import wmi
         return wmi.WMI()
@@ -26,8 +38,7 @@ def _get_wmi():
         raise HardwareIdError(f"WMI initialization failed: {e}")
 
 
-def get_cpu_id() -> Optional[str]:
-    """Retrieve CPU ID"""
+def _win_get_cpu_id() -> Optional[str]:
     try:
         c = _get_wmi()
         cpu = c.Win32_Processor()[0]
@@ -37,8 +48,7 @@ def get_cpu_id() -> Optional[str]:
         return None
 
 
-def get_disk_serial() -> Optional[str]:
-    """Retrieve disk serial number"""
+def _win_get_disk_serial() -> Optional[str]:
     try:
         c = _get_wmi()
         disk = c.Win32_DiskDrive()[0]
@@ -48,8 +58,7 @@ def get_disk_serial() -> Optional[str]:
         return None
 
 
-def get_mac_address() -> Optional[str]:
-    """Retrieve MAC address"""
+def _win_get_mac_address() -> Optional[str]:
     try:
         c = _get_wmi()
         for nic in c.Win32_NetworkAdapterConfiguration(IPEnabled=True):
@@ -61,13 +70,11 @@ def get_mac_address() -> Optional[str]:
         return None
 
 
-def get_bios_serial() -> Optional[str]:
-    """Retrieve BIOS serial number (P0 addition)"""
+def _win_get_bios_serial() -> Optional[str]:
     try:
         c = _get_wmi()
         bios = c.Win32_BIOS()[0]
         serial = bios.SerialNumber.strip() if bios.SerialNumber else None
-        # Exclude placeholder values common in virtualized environments
         if serial and serial.lower() not in ['none', 'to be filled by o.e.m.', 'default string']:
             return serial
         return None
@@ -75,8 +82,7 @@ def get_bios_serial() -> Optional[str]:
         return None
 
 
-def get_baseboard_serial() -> Optional[str]:
-    """Retrieve motherboard serial number (P0 addition)"""
+def _win_get_baseboard_serial() -> Optional[str]:
     try:
         c = _get_wmi()
         board = c.Win32_BaseBoard()[0]
@@ -88,8 +94,7 @@ def get_baseboard_serial() -> Optional[str]:
         return None
 
 
-def get_volume_serial() -> Optional[str]:
-    """Retrieve C: drive volume serial number (P0 addition)"""
+def _win_get_volume_serial() -> Optional[str]:
     try:
         c = _get_wmi()
         for vol in c.Win32_LogicalDisk():
@@ -101,38 +106,133 @@ def get_volume_serial() -> Optional[str]:
         return None
 
 
+# =============================================================================
+# Linux-specific collectors
+# =============================================================================
+
+def _linux_get_machine_id() -> Optional[str]:
+    """Read /etc/machine-id (systemd) or /var/lib/dbus/machine-id"""
+    for path in ('/etc/machine-id', '/var/lib/dbus/machine-id'):
+        try:
+            with open(path, 'r') as f:
+                mid = f.read().strip()
+                if mid:
+                    return mid
+        except (IOError, OSError):
+            continue
+    return None
+
+
+def _linux_get_cpu_id() -> Optional[str]:
+    """Extract CPU serial/model from /proc/cpuinfo"""
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:
+                if line.startswith('Serial') or line.startswith('model name'):
+                    return line.split(':', 1)[1].strip()
+    except (IOError, OSError):
+        pass
+    return None
+
+
+# =============================================================================
+# macOS-specific collectors
+# =============================================================================
+
+def _macos_get_serial() -> Optional[str]:
+    """Get macOS hardware serial via ioreg"""
+    try:
+        result = subprocess.run(
+            ['ioreg', '-rd1', '-c', 'IOPlatformExpertDevice'],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            if 'IOPlatformSerialNumber' in line:
+                return line.split('"')[-2]
+    except Exception:
+        pass
+    return None
+
+
+def _macos_get_hardware_uuid() -> Optional[str]:
+    """Get macOS hardware UUID via ioreg"""
+    try:
+        result = subprocess.run(
+            ['ioreg', '-rd1', '-c', 'IOPlatformExpertDevice'],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            if 'IOPlatformUUID' in line:
+                return line.split('"')[-2]
+    except Exception:
+        pass
+    return None
+
+
+# =============================================================================
+# Cross-platform public API (backward compatible)
+# =============================================================================
+
+# Keep old function names as aliases for Windows callers
+get_cpu_id = _win_get_cpu_id
+get_disk_serial = _win_get_disk_serial
+get_mac_address = _win_get_mac_address
+get_bios_serial = _win_get_bios_serial
+get_baseboard_serial = _win_get_baseboard_serial
+get_volume_serial = _win_get_volume_serial
+
+
 def get_hardware_components() -> Dict[str, Optional[str]]:
     """
-    Collect all hardware identifiers (P0 security enhancement)
+    Collect all hardware identifiers (P0 security enhancement).
+    Cross-platform: dispatches to OS-specific collectors.
 
     Returns:
         dict: Identifiers for each hardware component
     """
-    return {
-        'cpu_id': get_cpu_id(),
-        'disk_serial': get_disk_serial(),
-        'mac_address': get_mac_address(),
-        'bios_serial': get_bios_serial(),
-        'baseboard_serial': get_baseboard_serial(),
-        'volume_serial': get_volume_serial(),
-    }
+    if _IS_WINDOWS:
+        return {
+            'cpu_id': _win_get_cpu_id(),
+            'disk_serial': _win_get_disk_serial(),
+            'mac_address': _win_get_mac_address(),
+            'bios_serial': _win_get_bios_serial(),
+            'baseboard_serial': _win_get_baseboard_serial(),
+            'volume_serial': _win_get_volume_serial(),
+        }
+    elif _IS_LINUX:
+        return {
+            'machine_id': _linux_get_machine_id(),
+            'cpu_id': _linux_get_cpu_id(),
+            'hostname': platform.node() or None,
+        }
+    elif _IS_MACOS:
+        return {
+            'serial': _macos_get_serial(),
+            'hardware_uuid': _macos_get_hardware_uuid(),
+            'hostname': platform.node() or None,
+        }
+    else:
+        return {
+            'hostname': platform.node() or None,
+        }
 
 
-def get_hardware_id(require_minimum: int = 3) -> str:
+def _default_require_minimum() -> int:
+    """Return the default minimum component count for the current OS."""
+    if _IS_WINDOWS:
+        return 3
+    # Linux/macOS: fewer WMI-like sources available
+    return 1
+
+
+def get_hardware_id(require_minimum: int = None) -> str:
     """
     Generate a unique hardware identifier.
     P0 security enhancement: Multi-component collection and minimum requirements validation
 
-    Uses:
-    - CPU ID
-    - Disk Serial Number
-    - MAC Address
-    - BIOS Serial Number (added)
-    - Baseboard Serial Number (added)
-    - Volume Serial Number (added)
-
     Args:
-        require_minimum: Minimum number of valid components required (default 3)
+        require_minimum: Minimum number of valid components required.
+                         Defaults to 3 (Windows) or 1 (Linux/macOS).
 
     Returns:
         str: SHA256 hash of combined hardware identifiers (first 32 chars)
@@ -140,6 +240,9 @@ def get_hardware_id(require_minimum: int = 3) -> str:
     Raises:
         HardwareIdError: When minimum requirements are not met
     """
+    if require_minimum is None:
+        require_minimum = _default_require_minimum()
+
     try:
         components = get_hardware_components()
 
@@ -164,26 +267,27 @@ def get_hardware_id(require_minimum: int = 3) -> str:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(
-            f"[HardwareID] WMI access failed - weak fallback used!\n"
+            f"[HardwareID] Hardware collection failed - weak fallback used!\n"
             f"  Cause: {e}\n"
-            f"  Risk: Hardware binding is weakened, security may be compromised.\n"
-            f"  Solution: Enable WMI service or run with administrator privileges"
+            f"  Risk: Hardware binding is weakened, security may be compromised."
         )
         print("=" * 50)
         print("[Security Warning] Fallback used for hardware ID generation")
-        print("  WMI access required. Please run as administrator.")
         print("=" * 50)
         fallback = f"{platform.node()}-{platform.machine()}-{platform.processor()}"
         return hashlib.sha256(fallback.encode()).hexdigest()[:32]
 
 
-def get_hardware_id_with_components(require_minimum: int = 3) -> Tuple[str, Dict[str, Optional[str]]]:
+def get_hardware_id_with_components(require_minimum: int = None) -> Tuple[str, Dict[str, Optional[str]]]:
     """
     Return hardware ID and individual components (for server binding)
 
     Returns:
         tuple: (hardware_id, components_dict)
     """
+    if require_minimum is None:
+        require_minimum = _default_require_minimum()
+
     components = get_hardware_components()
     valid_components = {k: v for k, v in components.items() if v}
 
@@ -206,26 +310,37 @@ def get_system_info() -> dict:
     Returns:
         dict: System information
     """
-    try:
-        c = _get_wmi()
+    if _IS_WINDOWS:
+        try:
+            c = _get_wmi()
 
-        os_info = c.Win32_OperatingSystem()[0]
-        cpu_info = c.Win32_Processor()[0]
+            os_info = c.Win32_OperatingSystem()[0]
+            cpu_info = c.Win32_Processor()[0]
 
+            return {
+                'os_name': os_info.Caption,
+                'os_version': os_info.Version,
+                'cpu_name': cpu_info.Name,
+                'cpu_cores': cpu_info.NumberOfCores,
+                'hostname': platform.node(),
+                'platform': platform.platform(),
+                'hardware_id': get_hardware_id(),
+                'hardware_components': get_hardware_components(),
+            }
+        except Exception as e:
+            return {
+                'hostname': platform.node(),
+                'platform': platform.platform(),
+                'hardware_id': get_hardware_id(),
+                'error': str(e),
+            }
+    else:
+        # Linux / macOS
         return {
-            'os_name': os_info.Caption,
-            'os_version': os_info.Version,
-            'cpu_name': cpu_info.Name,
-            'cpu_cores': cpu_info.NumberOfCores,
+            'os_name': platform.system(),
+            'os_version': platform.release(),
             'hostname': platform.node(),
             'platform': platform.platform(),
             'hardware_id': get_hardware_id(),
-            'hardware_components': get_hardware_components(),  # P0 addition
-        }
-    except Exception as e:
-        return {
-            'hostname': platform.node(),
-            'platform': platform.platform(),
-            'hardware_id': get_hardware_id(),
-            'error': str(e),
+            'hardware_components': get_hardware_components(),
         }
