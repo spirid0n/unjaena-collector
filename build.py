@@ -200,9 +200,11 @@ def main():
         help='Skip USB dependency check'
     )
     parser.add_argument(
-        '--reuse-key',
-        action='store_true',
-        help='Reuse existing signing key from .signing_key (skip key generation)'
+        '--platform',
+        type=str,
+        choices=['windows', 'linux', 'macos'],
+        default=None,
+        help='Target platform for cross-platform builds'
     )
     args = parser.parse_args()
 
@@ -272,69 +274,10 @@ def main():
     resources_dir = collector_dir / "resources"
     resources_dir.mkdir(exist_ok=True)
 
-    # =========================================================================
-    # Signing key generation & embedding
-    # Generates a random base_key, XOR-encrypts it with the fixed diversifier,
-    # and patches request_signer.py so the binary contains the key.
-    # =========================================================================
-    import secrets as _secrets
-    import re as _re
-
-    signer_path = collector_dir / 'src' / 'core' / 'request_signer.py'
-    if signer_path.exists():
-        # Fixed diversifier (must match request_signer.py)
-        diversifier = (
-            b'\xa3\x7f\x1b\xe4\x92\x56\xd8\x0c'
-            b'\x4e\xb1\x63\xf7\x28\x9d\x05\xca'
-            b'\x71\xde\x3a\x8f\x44\xbb\x10\x65'
-            b'\xf2\x07\x59\xc6\x83\x2d\xae\x17'
-        )
-
-        # --reuse-key: reuse existing .signing_key instead of generating new one
-        key_file = collector_dir / '.signing_key'
-        if args.reuse_key and key_file.exists():
-            key_hex = key_file.read_text(encoding='utf-8').strip()
-            base_key = bytes.fromhex(key_hex)
-            print(f"\n[SIGN] Reusing existing signing key from {key_file}")
-        else:
-            base_key = _secrets.token_bytes(32)
-            print("\n[SIGN] Generating new request signing key...")
-
-        encrypted_key = bytes(a ^ b for a, b in zip(base_key, diversifier))
-
-        # Format as Python bytes literal
-        enc_repr = repr(encrypted_key)
-
-        # Read and patch the source file (use string find+replace, not regex,
-        # because repr() output contains \x escapes that break re.sub)
-        signer_source = signer_path.read_text(encoding='utf-8')
-        marker = "# BUILD_REPLACE_MARKER"
-        marker_idx = signer_source.find(marker)
-
-        if marker_idx >= 0:
-            # Find the start of the line containing the marker
-            line_start = signer_source.rfind('\n', 0, marker_idx) + 1
-            line_end = signer_source.find('\n', marker_idx)
-            if line_end == -1:
-                line_end = len(signer_source)
-            new_line = f"_EMBEDDED_KEY_ENC = {enc_repr}  {marker}"
-            patched = signer_source[:line_start] + new_line + signer_source[line_end:]
-            signer_path.write_text(patched, encoding='utf-8')
-            print(f"[SIGN] Embedded key patched into request_signer.py")
-        else:
-            print(f"[SIGN] WARNING: Could not find BUILD_REPLACE_MARKER in request_signer.py")
-
-        # Save base_key for server configuration
-        key_hex = base_key.hex()
-        key_file = collector_dir / '.signing_key'
-        key_file.write_text(key_hex, encoding='utf-8')
-        print(f"[SIGN] Base key saved to: {key_file}")
-        print(f"[SIGN] ┌──────────────────────────────────────────────────────────────────┐")
-        print(f"[SIGN] │ CLIENT_SIGNING_BASE_KEY={key_hex} │")
-        print(f"[SIGN] └──────────────────────────────────────────────────────────────────┘")
-        print(f"[SIGN] Set the above value in your server .env file")
-    else:
-        print(f"\n[SIGN] WARNING: request_signer.py not found at {signer_path}")
+    # NOTE: Signing keys are now server-issued ephemeral keys (per-session).
+    # No build-time key generation or embedding is needed.
+    print("\n[SIGN] Ephemeral signing: keys are issued by server at /authenticate")
+    print("[SIGN] No build-time key embedding required.")
 
     # Run PyInstaller
     print("\n[BUILD] Starting PyInstaller build...")
@@ -347,15 +290,23 @@ def main():
 
     if result.returncode == 0:
         dist_dir = collector_dir / 'dist'
-        exe_path = dist_dir / 'IntelligenceCollector.exe'
+        import platform as _platform
+        target_os = args.platform or _platform.system().lower()
+        if target_os == 'windows':
+            exe_path = dist_dir / 'IntelligenceCollector.exe'
+        elif target_os == 'darwin' or target_os == 'macos':
+            exe_path = dist_dir / 'IntelligenceCollector.app'
+        else:
+            exe_path = dist_dir / 'IntelligenceCollector'
 
         print(f"\n[SUCCESS] Build completed!")
         print(f"[SUCCESS] Output: {dist_dir}")
         print(f"[SUCCESS] Executable: {exe_path}")
 
         if exe_path.exists():
-            size_mb = exe_path.stat().st_size / (1024 * 1024)
-            print(f"[SUCCESS] Size: {size_mb:.1f} MB")
+            if exe_path.is_file():
+                size_mb = exe_path.stat().st_size / (1024 * 1024)
+                print(f"[SUCCESS] Size: {size_mb:.1f} MB")
     else:
         print(f"\n[ERROR] Build failed (exit code: {result.returncode})")
         sys.exit(result.returncode)

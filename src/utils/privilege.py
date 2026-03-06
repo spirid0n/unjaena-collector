@@ -1,24 +1,31 @@
 """
 Privilege Management Module
 
-Handles Windows administrator privilege checks and elevation.
+Handles administrator/root privilege checks and elevation.
+Cross-platform: Windows (UAC), Linux/macOS (euid check).
 """
 import sys
-import ctypes
 import os
+import platform
 
 
 def is_admin() -> bool:
-    """Check if the current process has administrator privileges."""
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
-    except Exception:
-        return False
+    """Check if the current process has administrator/root privileges."""
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            return False
+    else:
+        # Linux / macOS: check effective user ID
+        return os.geteuid() == 0
 
 
 def run_as_admin() -> bool:
     """
     Restart the application with administrator privileges.
+    Only supported on Windows (UAC elevation).
 
     Returns:
         bool: True if elevation was requested, False otherwise
@@ -27,6 +34,8 @@ def run_as_admin() -> bool:
         return False
 
     try:
+        import ctypes
+
         # Handle PyInstaller frozen executable
         if getattr(sys, 'frozen', False):
             # Running as compiled EXE
@@ -62,10 +71,12 @@ def run_as_admin() -> bool:
 
 
 def get_current_user() -> str:
-    """Get the current Windows username."""
+    """Get the current username."""
     return os.getlogin()
 
 
 def get_computer_name() -> str:
-    """Get the computer name."""
-    return os.environ.get('COMPUTERNAME', 'UNKNOWN')
+    """Get the computer/host name."""
+    if sys.platform == 'win32':
+        return os.environ.get('COMPUTERNAME', platform.node())
+    return platform.node()
