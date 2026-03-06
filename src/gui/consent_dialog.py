@@ -499,25 +499,54 @@ class ConsentDialog(QDialog):
             "zh": ("受托方", "委托业务", "传输国家", "传输项目"),
         }
         h = headers.get(lang, headers["en"])
+        # (name, contact, service, country, items, retention)
         providers = [
-            ("RunPod", {"ko":"AI 분석, DB/캐시", "en":"AI analysis, DB/cache", "ja":"AI分析、DB/キャッシュ", "zh":"AI分析、DB/缓存"},
-             {"ko":"일본/북미/유럽", "en":"Japan/NA/EU", "ja":"日本/北米/欧州", "zh":"日本/北美/欧洲"},
-             {"ko":"암호화 데이터", "en":"Encrypted data", "ja":"暗号化データ", "zh":"加密数据"}),
-            ("Cloudflare R2", {"ko":"아티팩트 스토리지", "en":"Artifact storage", "ja":"保管ストレージ", "zh":"工件存储"},
-             {"ko":"글로벌 CDN", "en":"Global CDN", "ja":"グローバルCDN", "zh":"全球CDN"},
-             {"ko":"암호화 아티팩트", "en":"Encrypted artifacts", "ja":"暗号化アーティファクト", "zh":"加密工件"}),
-            ("Clerk, Inc.", {"ko":"회원 인증", "en":"Authentication", "ja":"会員認証", "zh":"会员认证"},
-             {"ko":"미국", "en":"USA", "ja":"米国", "zh":"美国"},
-             {"ko":"이메일, OAuth", "en":"Email, OAuth", "ja":"メール、OAuth", "zh":"邮箱、OAuth"}),
-            ("Stripe, Inc.", {"ko":"결제 처리", "en":"Payment", "ja":"決済処理", "zh":"支付处理"},
-             {"ko":"미국", "en":"USA", "ja":"米国", "zh":"美国"},
-             {"ko":"결제 정보", "en":"Payment info", "ja":"決済情報", "zh":"支付信息"}),
+            ('RunPod', 'support@runpod.io',
+             {'ko':'AI 분석, DB/캐시', 'en':'AI analysis, DB/cache', 'ja':'AI分析、DB/キャッシュ', 'zh':'AI分析、DB/缓存'},
+             {'ko':'일본/북미/유럽', 'en':'Japan/NA/EU', 'ja':'日本/北米/欧州', 'zh':'日本/北美/欧洲'},
+             {'ko':'암호화 분석 데이터', 'en':'Encrypted analysis data', 'ja':'暗号化分析データ', 'zh':'加密分析数据'},
+             {'ko':'분석 완료 즉시 삭제', 'en':'Deleted upon completion', 'ja':'分析完了後即時削除', 'zh':'分析完成后立即删除'}),
+            ('Cloudflare R2', 'https://cloudflare.com/trust-hub/contact',
+             {'ko':'아티팩트 보관', 'en':'Artifact storage', 'ja':'アーティファクト保管', 'zh':'工件存储'},
+             {'ko':'글로벌 CDN', 'en':'Global CDN', 'ja':'グローバルCDN', 'zh':'全球CDN'},
+             {'ko':'암호화 아티팩트', 'en':'Encrypted artifacts', 'ja':'暗号化アーティファクト', 'zh':'加密工件'},
+             {'ko':'사용자 설정 기간 (기본 30일)', 'en':'User-set period (default 30 days)', 'ja':'ユーザー設定期間（デフォルト30日）', 'zh':'用户设定期限（默认30天）'}),
+            ('Clerk, Inc.', 'support@clerk.dev',
+             {'ko':'회원 인증', 'en':'Authentication', 'ja':'会員認証', 'zh':'会员认证'},
+             {'ko':'미국', 'en':'USA', 'ja':'米国', 'zh':'美国'},
+             {'ko':'이메일, OAuth 정보', 'en':'Email, OAuth info', 'ja':'メール、OAuth情報', 'zh':'邮箱、OAuth信息'},
+             {'ko':'회원 탈퇴 시 삭제', 'en':'Deleted on account closure', 'ja':'退会時削除', 'zh':'注销账户时删除'}),
+            ('Stripe, Inc.', 'https://stripe.com/contact',
+             {'ko':'결제 처리', 'en':'Payment processing', 'ja':'決済処理', 'zh':'支付处理'},
+             {'ko':'미국', 'en':'USA', 'ja':'米国', 'zh':'美国'},
+             {'ko':'결제 정보', 'en':'Payment info', 'ja':'決済情報', 'zh':'支付信息'},
+             {'ko':'법정 보존 기간 (5년)', 'en':'Legal retention (5 years)', 'ja':'法定保存期間（5年）', 'zh':'法定保存期限（5年）'}),
         ]
+        # Add retention period column header
+        headers_ext = {
+            'ko': ('수탁 업체 (연락처)', '위탁 업무', '이전 국가', '이전 항목', '보유 기간'),
+            'en': ('Provider (Contact)', 'Service', 'Country', 'Data Items', 'Retention'),
+            'ja': ('受託業者（連絡先）', '委託業務', '移転先国', '移転項目', '保有期間'),
+            'zh': ('受托方（联系方式）', '委托业务', '传输国家', '传输项目', '保留期限'),
+        }
+        h = headers_ext.get(lang, headers_ext['en'])
         th_cells = ''.join(f"<th style='{th}'>{c}</th>" for c in h)
         tbl = f'<table style="{self._consent_table_style()}"><tr>{th_cells}</tr>'
-        for name, svc, ctry, items in providers:
-            tbl += f'<tr><td style="{td}"><b>{name}</b></td><td style="{td}">{svc.get(lang, svc["en"])}</td><td style="{td}">{ctry.get(lang, ctry["en"])}</td><td style="{td}">{items.get(lang, items["en"])}</td></tr>'
+        for name, contact, svc, ctry, itm, ret in providers:
+            s = svc.get(lang, svc['en'])
+            c = ctry.get(lang, ctry['en'])
+            i = itm.get(lang, itm['en'])
+            r = ret.get(lang, ret['en'])
+            tbl += f'<tr><td style="{td}"><b>{name}</b><br><small>{contact}</small></td><td style="{td}">{s}</td><td style="{td}">{c}</td><td style="{td}">{i}</td><td style="{td}">{r}</td></tr>'
         tbl += '</table>'
+        # Transfer method and refusal notice
+        notices = {
+            'ko': '<p><b>이전 시기:</b> 서비스 이용 시 실시간 | <b>이전 방법:</b> TLS 1.3 암호화 전송, AES-256-GCM 암호화 저장</p><p><b>이전 거부:</b> 동의 체크박스를 선택하지 않으면 이전이 거부됩니다. 거부 시 데이터 수집·분석 서비스를 이용할 수 없습니다.</p>',
+            'en': '<p><b>Transfer timing:</b> Real-time during service use | <b>Transfer method:</b> TLS 1.3 encrypted transmission, AES-256-GCM encrypted storage</p><p><b>Refusal:</b> Uncheck the consent checkbox to refuse. If refused, data collection and analysis services cannot be used.</p>',
+            'ja': '<p><b>移転時期：</b>サービス利用時にリアルタイム | <b>移転方法：</b>TLS 1.3暗号化通信、AES-256-GCM暗号化保存</p><p><b>移転拒否：</b>同意チェックボックスを選択しなければ移転が拒否されます。拒否した場合、データ収集・分析サービスをご利用いただけません。</p>',
+            'zh': '<p><b>传输时间：</b>使用服务时实时传输 | <b>传输方法：</b>TLS 1.3加密传输、AES-256-GCM加密存储</p><p><b>拒绝传输：</b>不选择同意复选框即可拒绝。拒绝后将无法使用数据收集和分析服务。</p>',
+        }
+        tbl += notices.get(lang, notices['en'])
         return tbl
 
     def _get_consent_html_en(self) -> str:
@@ -533,6 +562,7 @@ class ConsentDialog(QDialog):
             <tr><td style="{td}"><b>Collection Items</b></td><td style="{td}"><b>[System]</b> Prefetch, Amcache, UserAssist, Event logs, Registry, MFT, USN Journal<br><b>[User Activity]</b> Browser history, USB history, Recycle Bin, Shortcuts, Jump lists<br><b>[Documents/Email]</b> Office documents, PDF, HWP, Email (pst/ost/eml/msg)</td></tr>
             <tr><td style="{td}"><b>Retention Period</b></td><td style="{td}"><b>30 days</b> after case closure (automatically deleted)</td></tr>
             <tr><td style="{td}"><b>Processing Method</b></td><td style="{td}">SHA-256 hash verification, TLS 1.3 encryption, AES-256-GCM storage, Chain of Custody</td></tr>
+            <tr><td style="{td}"><b>Right to Refuse</b></td><td style="{td}">You have the right to refuse consent. If you refuse, data collection and analysis services cannot be provided.</td></tr>
         </table>
 
         <h3 style="color: {COLORS['warning']}; border-bottom: 2px solid {COLORS['warning']}; padding-bottom: 8px;">
@@ -591,6 +621,7 @@ class ConsentDialog(QDialog):
             <tr><td style="{td}"><b>수집 항목</b></td><td style="{td}"><b>[시스템]</b> Prefetch, Amcache, UserAssist, 이벤트 로그, 레지스트리, MFT, USN Journal<br><b>[사용자 활동]</b> 브라우저 기록, USB 연결 기록, 휴지통, 바로가기, 점프 목록<br><b>[문서/이메일]</b> Office 문서, PDF, HWP, 이메일 (pst/ost/eml/msg)</td></tr>
             <tr><td style="{td}"><b>보관 기간</b></td><td style="{td}"><b>30일</b> (케이스 종료 후 자동 삭제)</td></tr>
             <tr><td style="{td}"><b>처리 방법</b></td><td style="{td}">SHA-256 해시 검증, TLS 1.3 암호화 통신, AES-256-GCM 암호화 저장, Chain of Custody</td></tr>
+            <tr><td style="{td}"><b>동의 거부권</b></td><td style="{td}">귀하는 동의를 거부할 권리가 있습니다. 동의를 거부하실 경우 데이터 수집 및 분석 서비스 이용이 불가합니다.</td></tr>
         </table>
 
         <h3 style="color: {COLORS['warning']}; border-bottom: 2px solid {COLORS['warning']}; padding-bottom: 8px;">
@@ -649,6 +680,7 @@ class ConsentDialog(QDialog):
             <tr><td style="{td}"><b>収集項目</b></td><td style="{td}"><b>[システム]</b> Prefetch、Amcache、UserAssist、イベントログ、レジストリ、MFT、USN Journal<br><b>[ユーザー活動]</b> ブラウザ履歴、USB接続履歴、ごみ箱、ショートカット、ジャンプリスト<br><b>[文書/メール]</b> Office文書、PDF、HWP、メール</td></tr>
             <tr><td style="{td}"><b>保存期間</b></td><td style="{td}"><b>30日間</b>（ケース終了後自動削除）</td></tr>
             <tr><td style="{td}"><b>処理方法</b></td><td style="{td}">SHA-256ハッシュ検証、TLS 1.3暗号化通信、AES-256-GCM暗号化保存</td></tr>
+            <tr><td style="{td}"><b>同意拒否権</b></td><td style="{td}">同意を拒否する権利があります。拒否された場合、データ収集・分析サービスをご利用いただけません。</td></tr>
         </table>
 
         <h3 style="color: {COLORS['warning']}; border-bottom: 2px solid {COLORS['warning']}; padding-bottom: 8px;">
@@ -702,6 +734,7 @@ class ConsentDialog(QDialog):
             <tr><td style="{td}"><b>收集项目</b></td><td style="{td}"><b>[系统]</b> Prefetch、Amcache、UserAssist、事件日志、注册表、MFT、USN Journal<br><b>[用户活动]</b> 浏览器历史、USB连接记录、回收站、快捷方式、跳转列表<br><b>[文档/邮件]</b> Office文档、PDF、HWP、邮件</td></tr>
             <tr><td style="{td}"><b>保留期限</b></td><td style="{td}"><b>30天</b>（案件结束后自动删除）</td></tr>
             <tr><td style="{td}"><b>处理方法</b></td><td style="{td}">SHA-256哈希验证、TLS 1.3加密通信、AES-256-GCM加密存储</td></tr>
+            <tr><td style="{td}"><b>拒绝同意权</b></td><td style="{td}">您有权拒绝同意。拒绝后将无法使用数据收集和分析服务。</td></tr>
         </table>
 
         <h3 style="color: {COLORS['warning']}; border-bottom: 2px solid {COLORS['warning']}; padding-bottom: 8px;">
