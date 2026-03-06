@@ -547,7 +547,6 @@ class R2DirectUploader:
 
     - 100MB 미만: 단일 PUT 업로드
     - 100MB 이상: Multipart 업로드 (파트별 PUT)
-    - R2 실패 시 SyncUploader로 자동 폴백
     """
 
     DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
@@ -562,7 +561,6 @@ class R2DirectUploader:
         max_file_size: int = None,
         config: dict = None,
         request_signer=None,
-        fallback_uploader: 'SyncUploader' = None,
     ):
         """
         Args:
@@ -574,7 +572,6 @@ class R2DirectUploader:
             max_file_size: 최대 파일 크기 (bytes)
             config: 앱 설정 (dev_mode 등)
             request_signer: RequestSigner 인스턴스 (HMAC 서명)
-            fallback_uploader: R2 실패 시 사용할 SyncUploader
         """
         self.server_url = server_url.rstrip('/')
         self.session_id = session_id
@@ -584,7 +581,6 @@ class R2DirectUploader:
         self.max_file_size = max_file_size or self.DEFAULT_MAX_FILE_SIZE
         self._dev_mode = config.get('dev_mode', False) if config else False
         self.request_signer = request_signer
-        self.fallback_uploader = fallback_uploader
 
     def _get_auth_headers(self, method: str = "POST", path: str = "", body=None) -> dict:
         """인증 헤더 생성 (세션 + 토큰 + HMAC 서명)"""
@@ -751,13 +747,12 @@ class R2DirectUploader:
         progress_callback: Callable[[float], None] = None,
     ) -> UploadResult:
         """
-        R2 직접 업로드 (실패 시 SyncUploader 폴백).
+        R2 직접 업로드 (presigned URL).
 
         1. SHA-256 해시 계산
         2. 서버에서 presigned URL 발급
         3. R2에 직접 PUT 업로드 (단일/멀티파트)
         4. 서버에 업로드 완료 확인 → Celery 파싱 트리거
-        5. 실패 시 SyncUploader로 폴백
         """
         # 파일 크기 검증
         try:
@@ -827,7 +822,7 @@ class R2DirectUploader:
 
         except Exception as e:
             sanitized_error = _sanitize_error_for_logging(str(e))
-            logger.warning(f"[R2] Direct upload failed, falling back to SyncUploader: {sanitized_error}")
+            logger.error(f"[R2] Direct upload failed: {sanitized_error}")
 
             # Multipart 중단 정리
             if presigned_info and presigned_info.get('upload_id'):
@@ -837,14 +832,7 @@ class R2DirectUploader:
                     presigned_info['upload_id'],
                 )
 
-            # 폴백: SyncUploader
-            if self.fallback_uploader:
-                logger.info(f"[R2] Falling back to SyncUploader for {file_name}")
-                return self.fallback_uploader.upload_file(
-                    file_path, artifact_type, metadata, progress_callback
-                )
-            else:
-                return UploadResult.from_error(f"R2 upload failed: {e}")
+            return UploadResult.from_error(f"R2 upload failed: {e}")
 
     def upload_batch(
         self,
