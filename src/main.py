@@ -2,21 +2,20 @@
 """
 Digital Forensics Collector - Main Entry Point
 
-This tool collects forensic artifacts from Windows systems
+This tool collects forensic artifacts from target systems
 and uploads them to the forensics server for analysis.
+
+Supports:
+- GUI mode (default): PyQt6 graphical interface
+- CLI/Headless mode: --headless --token TOKEN --server URL
 """
 import sys
 import os
 import json
+import argparse
 
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import Qt
-
-from gui.app import CollectorWindow
-from utils.privilege import is_admin, run_as_admin
 
 
 # =============================================================================
@@ -72,52 +71,53 @@ def _load_config_file() -> dict | None:
     return None
 
 
-def get_secure_config() -> dict:
+def _needs_server_setup(server_url: str) -> bool:
+    """Check if the server URL is a placeholder or missing."""
+    if not server_url:
+        return True
+    placeholders = ('YOUR_SERVER', 'your-server', 'example.com', '127.0.0.1:8000')
+    return any(p in server_url for p in placeholders)
+
+
+def get_secure_config(cli_server_url: str = None) -> dict:
     """
     Return configuration with security settings applied
 
     Priority:
-        1. Environment variables (highest priority)
-        2. config.json file (included during build)
-        3. Default values (development fallback)
-
-    Environment variables:
-        COLLECTOR_SERVER_URL: Server URL
-        COLLECTOR_WS_URL: WebSocket URL
-        COLLECTOR_DEV_MODE: Development mode (true/false)
-        COLLECTOR_ALLOW_INSECURE: Allow insecure connections (true/false)
-
-    For deployment builds:
-        Include production server URL in config.json during build
-        -> Users can run without additional configuration for auto-connection
-
-    For development environment:
-        Set COLLECTOR_DEV_MODE=true via environment variable
+        1. CLI argument (--server)
+        2. Environment variables
+        3. User home config (~/.forensic-collector/config.json)
+        4. config.json file (included during build)
+        5. Server setup wizard (GUI only)
     """
-    # Step 1: Load default values from config file
+    # Step 1: Load defaults from config file
     file_config = _load_config_file() or {}
 
-    # Step 2: Override with environment variables (environment variables have higher priority)
-    # Falls back to file settings -> default values if environment variable is not set
-    dev_mode_default = str(file_config.get('dev_mode', 'false')).lower()
-    allow_insecure_default = str(file_config.get('allow_insecure', 'false')).lower()
+    # Step 2: Load user-level config (higher priority than file config)
+    from gui.server_setup_dialog import load_user_config
+    user_config = load_user_config() or {}
+
+    # Merge: user config overrides file config
+    merged_config = {**file_config, **user_config}
+
+    # Step 3: Override with environment variables (highest priority after CLI)
+    dev_mode_default = str(merged_config.get('dev_mode', 'false')).lower()
+    allow_insecure_default = str(merged_config.get('allow_insecure', 'false')).lower()
 
     dev_mode = os.environ.get('COLLECTOR_DEV_MODE', dev_mode_default).lower() == 'true'
     allow_insecure = os.environ.get('COLLECTOR_ALLOW_INSECURE', allow_insecure_default).lower() == 'true'
 
-    # URL settings: environment variable -> file -> default
-    # NOTE: On Windows, 'localhost' may resolve to IPv6 (::1) causing Docker connection failures
-    server_url = os.environ.get(
+    # URL settings: CLI > env > user config > file config > default
+    server_url = cli_server_url or os.environ.get(
         'COLLECTOR_SERVER_URL',
-        file_config.get('server_url', 'https://127.0.0.1:8000')
+        merged_config.get('server_url', 'https://127.0.0.1:8000')
     )
     ws_url = os.environ.get(
         'COLLECTOR_WS_URL',
-        file_config.get('ws_url', 'wss://127.0.0.1:8000')
+        merged_config.get('ws_url', 'wss://127.0.0.1:8000')
     )
 
     # [Security] Enforce HTTPS/WSS and warnings
-    # Local address patterns (allowed for development environment)
     local_patterns = ('127.0.0.1', 'localhost', '::1', '0.0.0.0')
     is_local_server = any(p in server_url for p in local_patterns)
 
@@ -128,7 +128,6 @@ def get_secure_config() -> dict:
         print("[SECURITY WARNING] Never use this in production environment!")
         print("=" * 60)
     elif not dev_mode:
-        # Enforce HTTPS/WSS in production mode (except local addresses)
         if server_url.startswith('http://'):
             if is_local_server:
                 print("[Security] Local development server (HTTP) detected - allowed")
@@ -148,28 +147,82 @@ def get_secure_config() -> dict:
     config = {
         'server_url': server_url,
         'ws_url': ws_url,
-        'version': file_config.get('version', '2.0.0'),
-        'app_name': file_config.get('app_name', 'Digital Forensics Collector'),
+        'version': merged_config.get('version', '2.0.0'),
+        'app_name': merged_config.get('app_name', 'Digital Forensics Collector'),
         'dev_mode': dev_mode,
         'allow_insecure': allow_insecure,
         'is_release': getattr(sys, 'frozen', False),
     }
 
-    # Print configuration summary
     mode_str = "Development" if dev_mode else "Production"
     print(f"[Config] Mode: {mode_str}, Server: {server_url}")
 
     return config
 
 
-# Configuration (P1: Apply security settings)
-CONFIG = get_secure_config()
+def _parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Digital Forensics Collector",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # GUI mode (default)
+  %(prog)s
+
+  # Headless/CLI mode
+  %(prog)s --headless --token SESSION_TOKEN --server https://server.example.com
+  %(prog)s --headless --token TOKEN --server URL --artifacts prefetch,eventlog
+        """
+    )
+    parser.add_argument(
+        '--headless', '--cli',
+        action='store_true',
+        dest='headless',
+        help='Run in headless/CLI mode (no GUI)'
+    )
+    parser.add_argument(
+        '--token',
+        type=str,
+        help='Session token for authentication (required in headless mode)'
+    )
+    parser.add_argument(
+        '--server',
+        type=str,
+        help='Server URL (e.g., https://server.example.com)'
+    )
+    parser.add_argument(
+        '--artifacts',
+        type=str,
+        help='Comma-separated list of artifact types to collect'
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        help='Output directory for collected artifacts'
+    )
+    parser.add_argument(
+        '--device',
+        type=str,
+        help='Device path or ID for mobile collection'
+    )
+    return parser.parse_args()
 
 
 def check_admin_privilege():
-    """Check if running as administrator"""
-    if not is_admin():
-        # Show warning message
+    """Check if running as administrator/root.
+
+    Windows: prompts UAC elevation dialog, exits if declined.
+    Linux/macOS: shows a warning but continues (some features may be limited).
+    """
+    from utils.privilege import is_admin, run_as_admin
+
+    if is_admin():
+        return
+
+    from PyQt6.QtWidgets import QMessageBox
+
+    if sys.platform == 'win32':
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Icon.Warning)
         msg_box.setWindowTitle("Administrator Privileges Required")
@@ -190,10 +243,8 @@ def check_admin_privilege():
 
         if reply == QMessageBox.StandardButton.Yes:
             if run_as_admin():
-                # Elevation requested successfully, exit current process
                 sys.exit(0)
             else:
-                # Failed to request elevation
                 QMessageBox.critical(
                     None,
                     "Error",
@@ -202,27 +253,72 @@ def check_admin_privilege():
                     "'Run as administrator'."
                 )
         sys.exit(0)
+    else:
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle("Running without root privileges")
+        msg_box.setText(
+            "Running without root privileges.\n\n"
+            "Some collection features (e.g., raw disk access) "
+            "may be unavailable.\n\n"
+            "For full functionality, run with: sudo ./run.sh"
+        )
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
 
 
-def main():
-    """Main entry point"""
-    # High DPI support
+def main_gui(config: dict):
+    """Launch GUI mode."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    from gui.app import CollectorWindow
+    from gui.server_setup_dialog import ServerSetupDialog, load_user_config
+
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName(CONFIG['app_name'])
-    app.setApplicationVersion(CONFIG['version'])
+    app.setApplicationName(config['app_name'])
+    app.setApplicationVersion(config['version'])
 
-    # Check admin privilege
+    # Check if server setup is needed
+    if _needs_server_setup(config['server_url']):
+        dialog = ServerSetupDialog()
+        if dialog.exec() != ServerSetupDialog.DialogCode.Accepted:
+            sys.exit(0)
+        result = dialog.get_config()
+        if result:
+            config['server_url'] = result['server_url']
+            config['ws_url'] = result['ws_url']
+
     check_admin_privilege()
 
-    # Create and show main window
-    window = CollectorWindow(CONFIG)
+    window = CollectorWindow(config)
     window.show()
 
     sys.exit(app.exec())
+
+
+def main_headless(args, config: dict):
+    """Launch headless/CLI mode."""
+    from cli import run_headless
+    sys.exit(run_headless(args, config))
+
+
+def main():
+    """Main entry point — dispatches to GUI or headless mode."""
+    args = _parse_args()
+
+    if args.headless:
+        if not args.token:
+            print("[ERROR] --token is required in headless mode")
+            sys.exit(1)
+        config = get_secure_config(cli_server_url=args.server)
+        main_headless(args, config)
+    else:
+        config = get_secure_config()
+        main_gui(config)
 
 
 if __name__ == '__main__':
