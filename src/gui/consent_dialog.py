@@ -74,7 +74,7 @@ class ConsentDialog(QDialog):
 
     def setup_ui(self):
         """Initialize UI (with server API integration)"""
-        self.setWindowTitle("Digital Data Collection Consent")
+        self.setWindowTitle("AI Forensic Lab - Data Collection Consent")
         self.setMinimumSize(700, 620)
         self.setMaximumSize(800, 720)
         self.setModal(True)
@@ -87,7 +87,7 @@ class ConsentDialog(QDialog):
         # Header + language selection
         header_layout = QHBoxLayout()
 
-        self.header_label = QLabel("Digital Data Collection Consent")
+        self.header_label = QLabel("AI Forensic Lab - Data Collection Consent")
         self.header_label.setObjectName("header")
         header_layout.addWidget(self.header_label)
 
@@ -221,7 +221,7 @@ class ConsentDialog(QDialog):
         self.required_checkboxes = template.get("required_checkboxes", [])
 
         # Update header
-        self.header_label.setText(template.get("title", "Digital Data Collection Consent"))
+        self.header_label.setText(template.get("title", "AI Forensic Lab - Data Collection Consent"))
         self.setWindowTitle(template.get("title", "Consent"))
 
         # Display consent content (Markdown to HTML)
@@ -270,7 +270,7 @@ class ConsentDialog(QDialog):
             "ko": "디지털 데이터 수집 동의서",
             "ja": "デジタルデータ収集同意書",
             "zh": "数字数据收集同意书",
-            "en": "Digital Data Collection Consent"
+            "en": "AI Forensic Lab - Data Collection Consent"
         }
         self.header_label.setText(header_texts.get(self.language, header_texts["en"]))
         self.setWindowTitle(header_texts.get(self.language, header_texts["en"]))
@@ -489,15 +489,36 @@ class ConsentDialog(QDialog):
         return f'border: 1px solid {COLORS["border_subtle"]}; padding: 10px;'
 
     def _consent_transfer_table(self, lang: str) -> str:
-        """Data transfer table placeholder — actual content provided by server consent API"""
-        notice = {
-            "en": "Data transfer details are provided in the full consent document from the server.",
-            "ko": "데이터 이전 세부 사항은 서버에서 제공하는 동의서 전문에 포함되어 있습니다.",
-            "ja": "データ移転の詳細は、サーバーから提供される同意書全文に記載されています。",
-            "zh": "数据传输详情包含在服务器提供的完整同意书中。",
+        """Data transfer table with provider details (offline fallback included)"""
+        th = self._consent_th_style()
+        td = self._consent_td_style()
+        headers = {
+            "ko": ("수탁 업체", "위탁 업무", "이전 국가", "이전 항목"),
+            "en": ("Provider", "Service", "Country", "Data Items"),
+            "ja": ("受託業者", "委託業務", "移転先国", "移転項目"),
+            "zh": ("受托方", "委托业务", "传输国家", "传输项目"),
         }
-        msg = notice.get(lang, notice["en"])
-        return f'<p style="background: rgba(210,153,34,0.1); padding: 12px; border-radius: 8px; font-style: italic;">{msg}</p>'
+        h = headers.get(lang, headers["en"])
+        providers = [
+            ("RunPod", {"ko":"AI 분석, DB/캐시", "en":"AI analysis, DB/cache", "ja":"AI分析、DB/キャッシュ", "zh":"AI分析、DB/缓存"},
+             {"ko":"일본/북미/유럽", "en":"Japan/NA/EU", "ja":"日本/北米/欧州", "zh":"日本/北美/欧洲"},
+             {"ko":"암호화 데이터", "en":"Encrypted data", "ja":"暗号化データ", "zh":"加密数据"}),
+            ("Cloudflare R2", {"ko":"아티팩트 스토리지", "en":"Artifact storage", "ja":"保管ストレージ", "zh":"工件存储"},
+             {"ko":"글로벌 CDN", "en":"Global CDN", "ja":"グローバルCDN", "zh":"全球CDN"},
+             {"ko":"암호화 아티팩트", "en":"Encrypted artifacts", "ja":"暗号化アーティファクト", "zh":"加密工件"}),
+            ("Clerk, Inc.", {"ko":"회원 인증", "en":"Authentication", "ja":"会員認証", "zh":"会员认证"},
+             {"ko":"미국", "en":"USA", "ja":"米国", "zh":"美国"},
+             {"ko":"이메일, OAuth", "en":"Email, OAuth", "ja":"メール、OAuth", "zh":"邮箱、OAuth"}),
+            ("Stripe, Inc.", {"ko":"결제 처리", "en":"Payment", "ja":"決済処理", "zh":"支付处理"},
+             {"ko":"미국", "en":"USA", "ja":"米国", "zh":"美国"},
+             {"ko":"결제 정보", "en":"Payment info", "ja":"決済情報", "zh":"支付信息"}),
+        ]
+        th_cells = ''.join(f"<th style='{th}'>{c}</th>" for c in h)
+        tbl = f'<table style="{self._consent_table_style()}"><tr>{th_cells}</tr>'
+        for name, svc, ctry, items in providers:
+            tbl += f'<tr><td style="{td}"><b>{name}</b></td><td style="{td}">{svc.get(lang, svc["en"])}</td><td style="{td}">{ctry.get(lang, ctry["en"])}</td><td style="{td}">{items.get(lang, items["en"])}</td></tr>'
+        tbl += '</table>'
+        return tbl
 
     def _get_consent_html_en(self) -> str:
         """English consent HTML"""
@@ -542,7 +563,7 @@ class ConsentDialog(QDialog):
             <li><b>Right to Withdraw Consent:</b> Withdraw consent at any time.</li>
             <li><b>Right to Data Portability:</b> Request transfer of your data in a machine-readable format.</li>
         </ul>
-        <p>Contact: support@forensics-ai.com | Privacy: privacy@forensics-ai.com</p>
+        <p>Contact: admin@unjaena.ai.com | Company: unJaena AI | Representative: Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. Legal Warning and Disclaimer</h3>
@@ -554,7 +575,7 @@ class ConsentDialog(QDialog):
             <li><b>Corporate investigation:</b> Legal team review and labor law compliance required.</li>
         </ul>
         <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
-            <b>Disclaimer:</b> The company is not liable for damages from AI analysis errors. All liability for unauthorized collection rests with the user.</p>
+            <b>Disclaimer:</b> unJaena AI is not liable for damages from AI analysis errors. However, this does not apply to damages caused by willful misconduct or gross negligence. All liability for unauthorized collection rests with the user.</p>
         """)
 
     def _get_consent_html_ko(self) -> str:
@@ -600,7 +621,7 @@ class ConsentDialog(QDialog):
             <li><b>동의철회권:</b> 언제든지 동의를 철회할 수 있습니다</li>
             <li><b>전송요구권:</b> 수집된 개인정보를 기계 판독 가능한 형태로 전송받을 수 있습니다</li>
         </ul>
-        <p>권리 행사: support@forensics-ai.com | 개인정보 보호책임자: privacy@forensics-ai.com</p>
+        <p>권리 행사: admin@unjaena.ai.com | 회사: unJaena AI | 대표자: Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 법적 경고 및 면책</h3>
@@ -612,7 +633,7 @@ class ConsentDialog(QDialog):
             <li><b>기업 내부 조사:</b> 법무팀 검토 및 노동법 준수가 필요합니다</li>
         </ul>
         <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
-            <b>면책:</b> AI 분석 결과의 오류로 인한 손해에 대해 회사는 책임지지 않습니다. 무단 수집에 대한 법적 책임은 사용자에게 있습니다.</p>
+            <b>면책:</b> AI 분석 결과의 오류로 인한 손해에 대해 unJaena AI는 책임지지 않습니다. 단, 고의 또는 중대한 과실로 인한 손해는 제외합니다. 무단 수집에 대한 법적 책임은 사용자에게 있습니다.</p>
         """)
 
     def _get_consent_html_ja(self) -> str:
@@ -655,7 +676,7 @@ class ConsentDialog(QDialog):
             <li><b>同意撤回権：</b>いつでも同意を撤回できます</li>
             <li><b>データポータビリティ権：</b>収集された個人情報を機械可読形式で受け取ることができます</li>
         </ul>
-        <p>お問い合わせ：support@forensics-ai.com | 個人情報保護責任者：privacy@forensics-ai.com</p>
+        <p>お問い合わせ：admin@unjaena.ai.com | 会社：unJaena AI | 代表者：Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 法的警告および免責事項</h3>
@@ -708,7 +729,7 @@ class ConsentDialog(QDialog):
             <li><b>撤回同意权：</b>可随时撤回同意</li>
             <li><b>数据可携权：</b>可请求以机器可读格式获取收集的个人信息</li>
         </ul>
-        <p>联系方式：support@forensics-ai.com | 个人信息保护负责人：privacy@forensics-ai.com</p>
+        <p>联系方式：admin@unjaena.ai.com | 公司：unJaena AI | 代表人：Representative</p>
 
         <h3 style="color: {COLORS['error']}; border-bottom: 2px solid {COLORS['error']}; padding-bottom: 8px;">
             5. 法律警告及免责声明</h3>
