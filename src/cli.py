@@ -156,10 +156,18 @@ class HeadlessCollector:
         return encrypted
 
     def _upload(self, files: List[str]) -> bool:
-        """Stage 3: Upload encrypted files to server."""
-        import requests
+        """Stage 3: Upload encrypted files to R2 via presigned URLs."""
+        from core.uploader import R2DirectUploader
 
-        upload_url = f"{self.server_url}/api/v1/collector/raw-files/upload"
+        uploader = R2DirectUploader(
+            server_url=self.server_url,
+            session_id=self.session_id,
+            collection_token=self.collection_token,
+            case_id=self.case_id,
+            config=self.config,
+            request_signer=self.request_signer,
+        )
+
         success_count = 0
         fail_count = 0
 
@@ -170,44 +178,17 @@ class HeadlessCollector:
             if i % 10 == 0 or i == len(files):
                 logger.info(f"  Uploading [{i}/{len(files)}]")
 
-            try:
-                headers = {
-                    "X-Collection-Token": self.collection_token,
-                    "X-Session-ID": self.session_id,
-                }
+            result = uploader.upload_file(
+                file_path=filepath,
+                artifact_type="encrypted",
+                metadata={"source": "headless_collector"},
+            )
 
-                # Add HMAC signature if signer available
-                if self.request_signer:
-                    sig_headers = self.request_signer.sign_request(
-                        "POST",
-                        "/api/v1/collector/raw-files/upload",
-                        body=None,
-                        collection_token=self.collection_token,
-                    )
-                    headers.update(sig_headers)
-
-                with open(filepath, 'rb') as f:
-                    resp = requests.post(
-                        upload_url,
-                        headers=headers,
-                        files={"file": (os.path.basename(filepath), f)},
-                        data={
-                            "session_id": self.session_id,
-                            "case_id": self.case_id,
-                        },
-                        timeout=120,
-                        verify=True,
-                    )
-
-                if resp.status_code in (200, 201):
-                    success_count += 1
-                else:
-                    fail_count += 1
-                    logger.warning(f"  Upload failed ({resp.status_code}): {os.path.basename(filepath)}")
-
-            except Exception as e:
+            if result.success:
+                success_count += 1
+            else:
                 fail_count += 1
-                logger.warning(f"  Upload error: {os.path.basename(filepath)}: {e}")
+                logger.warning(f"  Upload failed: {os.path.basename(filepath)}: {result.error}")
 
         logger.info(f"  Upload summary: {success_count} succeeded, {fail_count} failed")
         return fail_count == 0

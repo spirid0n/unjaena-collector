@@ -23,7 +23,7 @@ from PyQt6.QtGui import QFont, QColor, QIcon
 
 from core.token_validator import TokenValidator, ValidationResult
 from core.encryptor import FileEncryptor
-from core.uploader import SyncUploader, R2DirectUploader
+from core.uploader import R2DirectUploader
 from core.request_signer import RequestSigner
 from collectors.artifact_collector import (
     ArtifactCollector, ARTIFACT_TYPES,
@@ -3128,18 +3128,7 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit(f"☁️ Uploading {len(encrypted_files)} files...", False)
 
-            sync_uploader = SyncUploader(
-                server_url=self.server_url,
-                ws_url=self.ws_url,
-                session_id=self.session_id,
-                collection_token=self.collection_token,
-                case_id=self.case_id,
-                consent_record=self.consent_record,  # P0 legal requirement
-                config=self.config,
-                request_signer=self.request_signer,
-            )
-
-            # R2 직접 업로드 (프로덕션) — 실패 시 SyncUploader 폴백
+            # R2 직접 업로드 (서버 우회 — Cloudflare R2에 직접 전송)
             uploader = R2DirectUploader(
                 server_url=self.server_url,
                 session_id=self.session_id,
@@ -3148,7 +3137,6 @@ class CollectionWorker(QThread):
                 consent_record=self.consent_record,
                 config=self.config,
                 request_signer=self.request_signer,
-                fallback_uploader=sync_uploader,
             )
 
             success_count = 0
