@@ -2325,6 +2325,7 @@ class CollectorWindow(QMainWindow):
             abort_url = f"{server_url}{abort_path}"
             abort_headers = {
                 'X-Collection-Token': self.collection_token,
+                'X-Session-ID': self.session_id,
             }
             if self.request_signer:
                 abort_headers.update(self.request_signer.sign_request(
@@ -2583,6 +2584,7 @@ class CollectionWorker(QThread):
             abort_url = f"{self.server_url}{abort_path}"
             abort_headers = {
                 'X-Collection-Token': self.collection_token,
+                'X-Session-ID': self.session_id,
                 'Content-Type': 'application/json',
             }
             if self.request_signer:
@@ -3244,6 +3246,7 @@ class CollectionWorker(QThread):
                     complete_url = f"{self.server_url}{complete_path}"
                     complete_headers = {
                         'X-Collection-Token': self.collection_token,
+                        'X-Session-ID': self.session_id,
                         'Content-Type': 'application/json',
                     }
                     if self.request_signer:
