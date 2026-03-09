@@ -128,36 +128,16 @@ def _get_hmac_key() -> bytes:
     """
     Load HMAC key for forensic backup password derivation.
 
-    Priority:
-        1. COLLECTOR_HMAC_KEY environment variable
-        2. config.json 'hmac_key' field (injected at build time)
-        3. Raise error if neither exists (key must not be hardcoded in source)
+    Security: Environment variable ONLY (no config file fallback).
+    Set COLLECTOR_HMAC_KEY before running the collector.
     """
-    # Environment variable (highest priority)
     env_key = os.environ.get('COLLECTOR_HMAC_KEY')
-    if env_key:
-        return env_key.encode()
-
-    # Config file (set during build)
-    for config_dir in [
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),  # src/
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),  # collector/
-    ]:
-        config_path = os.path.join(config_dir, 'config.json')
-        if os.path.exists(config_path):
-            try:
-                import json
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                if cfg.get('hmac_key'):
-                    return cfg['hmac_key'].encode()
-            except Exception:
-                pass
-
-    raise RuntimeError(
-        "HMAC key not configured. "
-        "Set COLLECTOR_HMAC_KEY environment variable or add 'hmac_key' to config.json."
-    )
+    if not env_key:
+        raise RuntimeError(
+            "COLLECTOR_HMAC_KEY environment variable is required for iOS backup collection. "
+            "See documentation for setup instructions."
+        )
+    return env_key.encode()
 
 
 def _derive_forensic_password(udid: str) -> str:
