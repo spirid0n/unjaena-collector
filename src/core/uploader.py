@@ -603,7 +603,8 @@ class R2DirectUploader:
         return h.hexdigest()
 
     def _request_presigned_url(self, file_path: str, artifact_type: str, file_hash: str) -> dict:
-        """서버에서 presigned URL 발급 요청"""
+        """서버에서 presigned URL 발급 요청 (최대 3회 재시도)"""
+        import time as _time
         file_size = os.path.getsize(file_path)
         file_name = Path(file_path).name
         endpoint = "/api/v1/collector/r2/presigned-url"
@@ -616,20 +617,45 @@ class R2DirectUploader:
             "artifact_type": artifact_type,
         }
 
-        headers = self._get_auth_headers("POST", endpoint)
-        headers['Content-Type'] = 'application/json'
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                headers = self._get_auth_headers("POST", endpoint)
+                headers['Content-Type'] = 'application/json'
 
-        response = requests.post(
-            f"{self.server_url}{endpoint}",
-            json=payload,
-            headers=headers,
-            timeout=30,
-        )
+                response = requests.post(
+                    f"{self.server_url}{endpoint}",
+                    json=payload,
+                    headers=headers,
+                    timeout=30,
+                )
 
-        if response.status_code != 200:
-            raise RuntimeError(f"Presigned URL request failed ({response.status_code}): {response.text[:200]}")
+                if response.status_code == 429:
+                    wait = attempt * 10
+                    logger.warning(f"[R2] Presigned URL rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
+                    _time.sleep(wait)
+                    continue
 
-        return response.json()
+                if response.status_code != 200:
+                    raise RuntimeError(f"Presigned URL request failed ({response.status_code}): {response.text[:200]}")
+
+                return response.json()
+            except RuntimeError:
+                if attempt < max_retries:
+                    wait = attempt * 5
+                    logger.warning(f"[R2] Presigned URL attempt {attempt}/{max_retries} failed, retrying in {wait}s")
+                    _time.sleep(wait)
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries:
+                    wait = attempt * 5
+                    logger.warning(f"[R2] Presigned URL attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
+                    _time.sleep(wait)
+                else:
+                    raise
+
+        raise RuntimeError("Presigned URL request failed after all retries")
 
     def _upload_single(self, file_path: str, presigned_url: str) -> None:
         """단일 PUT으로 R2에 직접 업로드 (< 100MB), 최대 3회 재시도"""
@@ -735,7 +761,8 @@ class R2DirectUploader:
         file_name: str, artifact_type: str, parts: list = None,
         is_encrypted: bool = False,
     ) -> dict:
-        """서버에 업로드 완료 확인 요청"""
+        """서버에 업로드 완료 확인 요청 (최대 3회 재시도)"""
+        import time as _time
         endpoint = "/api/v1/collector/r2/upload-complete"
 
         payload = {
@@ -749,20 +776,45 @@ class R2DirectUploader:
             "is_encrypted": is_encrypted,
         }
 
-        headers = self._get_auth_headers("POST", endpoint)
-        headers['Content-Type'] = 'application/json'
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                headers = self._get_auth_headers("POST", endpoint)
+                headers['Content-Type'] = 'application/json'
 
-        response = requests.post(
-            f"{self.server_url}{endpoint}",
-            json=payload,
-            headers=headers,
-            timeout=30,
-        )
+                response = requests.post(
+                    f"{self.server_url}{endpoint}",
+                    json=payload,
+                    headers=headers,
+                    timeout=30,
+                )
 
-        if response.status_code != 200:
-            raise RuntimeError(f"Upload confirmation failed ({response.status_code}): {response.text[:200]}")
+                if response.status_code == 429:
+                    wait = attempt * 10
+                    logger.warning(f"[R2] Upload confirm rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
+                    _time.sleep(wait)
+                    continue
 
-        return response.json()
+                if response.status_code != 200:
+                    raise RuntimeError(f"Upload confirmation failed ({response.status_code}): {response.text[:200]}")
+
+                return response.json()
+            except RuntimeError:
+                if attempt < max_retries:
+                    wait = attempt * 5
+                    logger.warning(f"[R2] Upload confirm attempt {attempt}/{max_retries} failed, retrying in {wait}s")
+                    _time.sleep(wait)
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries:
+                    wait = attempt * 5
+                    logger.warning(f"[R2] Upload confirm attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
+                    _time.sleep(wait)
+                else:
+                    raise
+
+        raise RuntimeError("Upload confirmation failed after all retries")
 
     def _abort_upload(self, case_id: str, key: str, upload_id: str) -> None:
         """Multipart 업로드 중단 (실패 시 정리)"""
