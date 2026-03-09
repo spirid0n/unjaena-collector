@@ -8,7 +8,7 @@ If you discover a security vulnerability in this project, please report it respo
 
 ### How to Report
 
-Email **admin@unjaena.com** with:
+Email **plashcar@gmail.com** with:
 
    - Description of the vulnerability
    - Steps to reproduce
