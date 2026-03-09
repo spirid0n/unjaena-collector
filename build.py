@@ -206,6 +206,11 @@ def main():
         default=None,
         help='Target platform for cross-platform builds'
     )
+    parser.add_argument(
+        '--ci',
+        action='store_true',
+        help='CI mode: non-interactive, no prompts'
+    )
     args = parser.parse_args()
 
     collector_dir = Path(__file__).parent
@@ -228,10 +233,13 @@ def main():
 
         if not usb_ok:
             print("\n[WARNING] USB dependencies missing. Android USB collection will not work.")
-            response = input("Continue build anyway? [y/N]: ").strip().lower()
-            if response != 'y':
-                print("[BUILD] Aborted.")
-                sys.exit(1)
+            if args.ci:
+                print("[CI] Continuing without USB dependencies.")
+            else:
+                response = input("Continue build anyway? [y/N]: ").strip().lower()
+                if response != 'y':
+                    print("[BUILD] Aborted.")
+                    sys.exit(1)
 
     # Determine build type
     if args.development:
