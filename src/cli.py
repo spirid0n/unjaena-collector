@@ -171,24 +171,46 @@ class HeadlessCollector:
         success_count = 0
         fail_count = 0
 
-        for i, filepath in enumerate(files, 1):
-            if self._cancelled:
-                break
+        # [2026-03-09] 병렬 업로드 (최대 5개 동시)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
 
-            if i % 10 == 0 or i == len(files):
-                logger.info(f"  Uploading [{i}/{len(files)}]")
+        lock = threading.Lock()
+        completed = [0]
 
+        def _upload_one(filepath):
             result = uploader.upload_file(
                 file_path=filepath,
                 artifact_type="encrypted",
                 metadata={"source": "headless_collector"},
             )
+            with lock:
+                completed[0] += 1
+                if completed[0] % 10 == 0 or completed[0] == len(files):
+                    logger.info(f"  Uploading [{completed[0]}/{len(files)}]")
+            return filepath, result
 
-            if result.success:
-                success_count += 1
-            else:
-                fail_count += 1
-                logger.warning(f"  Upload failed: {os.path.basename(filepath)}: {result.error}")
+        max_workers = min(5, len(files))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for filepath in files:
+                if self._cancelled:
+                    break
+                futures.append(executor.submit(_upload_one, filepath))
+
+            for future in as_completed(futures):
+                if self._cancelled:
+                    break
+                try:
+                    filepath, result = future.result()
+                    if result.success:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        logger.warning(f"  Upload failed: {os.path.basename(filepath)}: {result.error}")
+                except Exception as e:
+                    fail_count += 1
+                    logger.warning(f"  Upload exception: {e}")
 
         logger.info(f"  Upload summary: {success_count} succeeded, {fail_count} failed")
         return fail_count == 0
