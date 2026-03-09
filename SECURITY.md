@@ -8,12 +8,11 @@ If you discover a security vulnerability in this project, please report it respo
 
 ### How to Report
 
-Email **plashcar@gmail.com** with:
-
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
+Email **security@unjaena.com** with:
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if any)
 
 ### Response Timeline
 
@@ -25,25 +24,20 @@ Email **plashcar@gmail.com** with:
 
 ### Cryptography
 - AES-256-GCM for authenticated encryption (NIST approved)
-- HKDF-SHA256 for key derivation
 - SHA-256 for all integrity verification
-- MD5 is deprecated and not used for security purposes
 
 ### Network Security
 - HTTPS/WSS enforced in production builds
 - TLS certificate verification enabled by default
-- HTTP/WS connections rejected in production mode
 
 ### Authentication
-- One-time session tokens (replay prevention)
-- Hardware-bound device identification
-- Token values never logged in plaintext (SHA-256 hash used for debug)
+- One-time session tokens with replay prevention
+- All sensitive configuration via environment variables
 
 ### Data Handling
 - Collected artifacts encrypted before upload
 - Chain of custody with tamper-evident hash chains
 - No credentials stored in application code or config templates
-- All sensitive configuration via environment variables
 
 ## Supported Versions
 
