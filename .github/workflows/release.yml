@@ -33,7 +33,6 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE
-        working-directory: collector
         run: python build.py --production --ci --skip-usb-check
 
       - name: Rename with version
@@ -69,11 +68,11 @@ jobs:
 
       - name: Install Python dependencies
         run: |
+          pip install -r requirements/base.txt
           pip install -r requirements/linux.txt
           pip install pyinstaller
 
       - name: Build Linux binary
-        working-directory: collector
         run: python build.py --production --ci --skip-usb-check
 
       - name: Package tar.gz
@@ -105,11 +104,11 @@ jobs:
       - name: Install dependencies
         run: |
           brew install libusb create-dmg || true
+          pip install -r requirements/base.txt
           pip install -r requirements/macos.txt
           pip install pyinstaller
 
       - name: Build macOS binary
-        working-directory: collector
         run: python build.py --production --ci --skip-usb-check
 
       - name: Create DMG
@@ -162,11 +161,11 @@ jobs:
       - name: Install dependencies
         run: |
           brew install libusb create-dmg || true
+          pip install -r requirements/base.txt
           pip install -r requirements/macos.txt
           pip install pyinstaller
 
       - name: Build macOS binary
-        working-directory: collector
         run: python build.py --production --ci --skip-usb-check
 
       - name: Create DMG
