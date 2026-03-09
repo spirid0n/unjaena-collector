@@ -135,6 +135,9 @@ keys/
 .env.*
 !.env.example
 
+# Deployment scripts (contain infrastructure references)
+upload_to_r2.py
+
 # =============================================================================
 # External Tools (downloaded at build time)
 # =============================================================================
