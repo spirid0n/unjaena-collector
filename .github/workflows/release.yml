@@ -32,6 +32,10 @@ jobs:
           pip install -r requirements/windows.txt
           pip install pyinstaller
 
+      - name: Prepare config
+        shell: bash
+        run: cp config.example.json config.production.json
+
       - name: Build EXE
         run: python build.py --production --ci --skip-usb-check
 
@@ -72,6 +76,9 @@ jobs:
           pip install -r requirements/linux.txt
           pip install pyinstaller
 
+      - name: Prepare config
+        run: cp config.example.json config.production.json
+
       - name: Build Linux binary
         run: python build.py --production --ci --skip-usb-check
 
@@ -107,6 +114,9 @@ jobs:
           pip install -r requirements/base.txt
           pip install -r requirements/macos.txt
           pip install pyinstaller
+
+      - name: Prepare config
+        run: cp config.example.json config.production.json
 
       - name: Build macOS binary
         run: python build.py --production --ci --skip-usb-check
@@ -149,7 +159,7 @@ jobs:
   # macOS x64 (Intel) — .dmg
   # =========================================================================
   build-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -164,6 +174,9 @@ jobs:
           pip install -r requirements/base.txt
           pip install -r requirements/macos.txt
           pip install pyinstaller
+
+      - name: Prepare config
+        run: cp config.example.json config.production.json
 
       - name: Build macOS binary
         run: python build.py --production --ci --skip-usb-check
