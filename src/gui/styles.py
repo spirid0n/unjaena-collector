@@ -3,7 +3,7 @@
 Platform Unified Theme Stylesheet
 
 Implements a dark theme for PyQt6, matching the web platform.
-Platform dark theme stylesheet.
+Uses brand colors inspired by Claude AI.
 
 Usage:
     from gui.styles import get_platform_stylesheet, COLORS
@@ -32,7 +32,7 @@ COLORS = {
     'text_tertiary': '#6e7681',
     'text_link': '#58a6ff',
 
-    # Brand colors
+    # Brand colors (Claude inspired)
     'brand_primary': '#d4a574',
     'brand_secondary': '#b8956e',
     'brand_tertiary': '#9c7d5c',
