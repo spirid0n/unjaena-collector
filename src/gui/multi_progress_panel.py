@@ -471,6 +471,18 @@ class MultiProgressPanel(QWidget):
 
     def _on_cancel_clicked(self):
         """Cancel button clicked"""
+        from PyQt6.QtWidgets import QMessageBox
+        confirm = QMessageBox.question(
+            self,
+            "Cancel Collection",
+            "Are you sure you want to cancel the collection?\n"
+            "All progress will be lost.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
         self.cancel_btn.setEnabled(False)
         self.title_label.setText("Cancelling...")
         self.cancel_requested.emit()
