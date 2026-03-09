@@ -348,6 +348,9 @@ class CollectorWindow(QMainWindow):
         # Start device monitoring
         self.device_manager.start_monitoring(poll_interval_ms=3000)
 
+        # Check for updates 5 seconds after startup (non-blocking)
+        QTimer.singleShot(5000, self._check_for_updates)
+
     def setup_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle(f"{self.config['app_name']} v{self.config['version']}")
@@ -1951,6 +1954,16 @@ class CollectorWindow(QMainWindow):
                 "Preparing iOS backup...\n"
                 "Connecting to device and checking encryption status."
             )
+
+    def _check_for_updates(self):
+        """Check for updates via GitHub Releases API (background)"""
+        try:
+            from core.updater import check_for_update, show_update_dialog
+            update_info = check_for_update()
+            if update_info:
+                show_update_dialog(self, update_info)
+        except Exception:
+            pass  # Never block the app for update check failures
 
     def _cancel_collection(self):
         """Cancel ongoing collection"""

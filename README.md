@@ -1,6 +1,28 @@
-# Forensic Artifact Collector
+# unJaena AI — Digital Intelligence Collector
 
-Cross-platform digital forensic artifact collection tool with GUI. Collects evidence from Windows, macOS, Linux, Android, and iOS devices with cryptographic integrity verification and secure upload capabilities.
+> The official evidence collection tool for the **[unJaena AI](https://unjaena.com)** forensic analysis platform.
+> Collected artifacts are automatically uploaded to unJaena AI's RAG-based analysis engine, which performs MITRE ATT&CK mapping, timeline reconstruction, and generates multilingual investigation reports.
+
+Cross-platform digital forensic artifact collection tool with GUI. Collects evidence from Windows, macOS, Linux, Android, and iOS devices with cryptographic integrity verification and secure upload to the unJaena AI platform.
+
+## How It Works
+
+```
+┌─────────────────────┐        ┌──────────────────────────────┐
+│  Intelligence        │        │  unJaena AI Platform          │
+│  Collector (this)    │───────▶│                                │
+│                      │ AES-256│  ✦ AI-Powered RAG Analysis    │
+│  • Windows/macOS/    │ Upload │  ✦ MITRE ATT&CK Mapping       │
+│    Linux/Android/iOS │        │  ✦ Timeline Reconstruction    │
+│  • Memory Forensics  │        │  ✦ Multilingual Reports       │
+│  • Disk Images       │        │  ✦ Evidence Chain of Custody  │
+└─────────────────────┘        └──────────────────────────────┘
+```
+
+1. **Collect Evidence** — Automatically extract forensic artifacts from target devices
+2. **Encrypted Transfer** — Upload to unJaena AI server with AES-256-GCM encryption
+3. **AI Analysis** — Automatic parsing, vector indexing, and LLM-powered analysis on the platform
+4. **Generate Reports** — Query forensic findings in natural language (Korean / English / Japanese / Chinese)
 
 ## Features
 
@@ -14,6 +36,17 @@ Cross-platform digital forensic artifact collection tool with GUI. Collects evid
 - **Secure Upload**: AES-256-GCM encrypted transfer with HKDF key derivation
 - **Chain of Custody**: SHA-256 integrity verification with tamper-evident logging
 - **Multi-language GUI**: PyQt6 interface with i18n support
+
+## Download
+
+Pre-built binaries are available on the [Releases](https://github.com/spirid0n/unjaena-collector/releases) page:
+
+| Platform | File |
+|----------|------|
+| Windows (x64) | `IntelligenceCollector-*-windows-x64.exe` |
+| macOS (Apple Silicon) | `IntelligenceCollector-*-macos-arm64.dmg` |
+| macOS (Intel) | `IntelligenceCollector-*-macos-x64.dmg` |
+| Linux (x64) | `IntelligenceCollector-*-linux-x64.tar.gz` |
 
 ## Requirements
 
@@ -33,8 +66,8 @@ Cross-platform digital forensic artifact collection tool with GUI. Collects evid
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR-ORG/forensic-collector.git
-cd forensic-collector
+git clone https://github.com/spirid0n/unjaena-collector.git
+cd unjaena-collector
 
 # Create virtual environment
 python -m venv venv
@@ -44,10 +77,9 @@ venv\Scripts\activate  # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy and configure environment
-cp .env.example .env
+# Copy and configure
 cp config.example.json config.json
-# Edit .env and config.json with your server settings
+# Edit config.json with your unJaena AI server URL
 ```
 
 ### iOS Collection Setup
@@ -95,7 +127,7 @@ python build.py --check-deps
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `COLLECTOR_SERVER_URL` | Server API endpoint | — |
+| `COLLECTOR_SERVER_URL` | unJaena AI server endpoint | — |
 | `COLLECTOR_WS_URL` | WebSocket endpoint | — |
 | `COLLECTOR_DEV_MODE` | Enable development mode | `false` |
 | `COLLECTOR_ALLOW_INSECURE` | Allow HTTP (dev only) | `false` |
@@ -133,7 +165,7 @@ See `config.example.json` for all available options including:
 ## Project Structure
 
 ```
-collector/
+unjaena-collector/
 ├── src/
 │   ├── main.py                  # Entry point
 │   ├── collectors/              # Platform-specific collectors
@@ -163,7 +195,6 @@ collector/
 ├── tools/                       # External tool management
 ├── resources/                   # Runtime resources
 ├── config.example.json          # Configuration template
-├── .env.example                 # Environment template
 ├── requirements.txt             # Python dependencies
 ├── build.py                     # PyInstaller build script
 └── LICENSE                      # GPL-3.0
@@ -171,7 +202,7 @@ collector/
 
 ## Server API Contract
 
-The collector communicates with a backend server via these endpoints:
+The collector communicates with the unJaena AI backend via these endpoints:
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
