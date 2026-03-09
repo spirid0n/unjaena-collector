@@ -1955,6 +1955,17 @@ class CollectorWindow(QMainWindow):
     def _cancel_collection(self):
         """Cancel ongoing collection"""
         if hasattr(self, 'worker') and self.worker.isRunning():
+            confirm = QMessageBox.question(
+                self,
+                "Cancel Collection",
+                "Are you sure you want to cancel the collection?\n"
+                "All progress will be lost.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+
             self._close_ios_status()
             self.worker.cancel()
             self._log("Collection cancelled by user")
