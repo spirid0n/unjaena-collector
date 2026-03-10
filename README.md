@@ -1,9 +1,9 @@
 # unJaena AI — Digital Intelligence Collector
 
-> The official evidence collection tool for the **[unJaena AI](https://unjaena.com)** forensic analysis platform.
-> Collected artifacts are automatically uploaded to unJaena AI's RAG-based analysis engine, which performs MITRE ATT&CK mapping, timeline reconstruction, and generates multilingual investigation reports.
+> The official evidence collection tool for the **unJaena AI** forensic analysis platform.
+> Collected artifacts are automatically uploaded for AI-powered analysis including MITRE ATT&CK mapping, timeline reconstruction, and multilingual investigation reports.
 
-Cross-platform digital forensic artifact collection tool with GUI. Collects evidence from Windows, macOS, Linux, Android, and iOS devices with cryptographic integrity verification and secure upload to the unJaena AI platform.
+Cross-platform digital forensic artifact collection tool with GUI. Collects evidence from Windows, macOS, Linux, Android, and iOS devices with cryptographic integrity verification and secure upload.
 
 ## How It Works
 
@@ -20,8 +20,8 @@ Cross-platform digital forensic artifact collection tool with GUI. Collects evid
 ```
 
 1. **Collect Evidence** — Automatically extract forensic artifacts from target devices
-2. **Encrypted Transfer** — Upload to unJaena AI server with AES-256-GCM encryption
-3. **AI Analysis** — Automatic parsing, vector indexing, and LLM-powered analysis on the platform
+2. **Encrypted Transfer** — Upload with AES-256-GCM encryption
+3. **AI Analysis** — Automatic parsing, vector indexing, and LLM-powered analysis
 4. **Generate Reports** — Query forensic findings in natural language (Korean / English / Japanese / Chinese)
 
 ## Features
@@ -33,7 +33,7 @@ Cross-platform digital forensic artifact collection tool with GUI. Collects evid
 - **macOS / Linux Forensics**: System logs, user artifacts, browser data, shell history
 - **Disk Image Support**: E01 (Expert Witness Format), RAW image analysis
 - **BitLocker Support**: Encrypted volume access with recovery key/password/BEK
-- **Secure Upload**: AES-256-GCM encrypted transfer with HKDF key derivation
+- **Secure Upload**: AES-256-GCM encrypted transfer
 - **Chain of Custody**: SHA-256 integrity verification with tamper-evident logging
 - **Multi-language GUI**: PyQt6 interface with i18n support
 
@@ -79,7 +79,7 @@ pip install -r requirements.txt
 
 # Copy and configure
 cp config.example.json config.json
-# Edit config.json with your unJaena AI server URL
+# Edit config.json with your server URL
 ```
 
 ### iOS Collection Setup
@@ -127,10 +127,9 @@ python build.py --check-deps
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `COLLECTOR_SERVER_URL` | unJaena AI server endpoint | — |
+| `COLLECTOR_SERVER_URL` | Server endpoint | — |
 | `COLLECTOR_WS_URL` | WebSocket endpoint | — |
 | `COLLECTOR_DEV_MODE` | Enable development mode | `false` |
-| `COLLECTOR_ALLOW_INSECURE` | Allow HTTP (dev only) | `false` |
 
 ### Config File (`config.json`)
 
@@ -142,25 +141,13 @@ See `config.example.json` for all available options including:
 
 ## Security
 
-### Cryptography
-- **AES-256-GCM**: Authenticated encryption for file uploads
-- **HKDF-SHA256**: Key derivation from server-issued master secrets
-- **SHA-256**: File integrity verification (MD5 deprecated)
+- **AES-256-GCM** authenticated encryption for all file transfers
+- **SHA-256** file integrity verification
+- **HTTPS/WSS enforced** in production mode with TLS certificate verification
+- **One-time session tokens** with replay prevention
+- **Chain of custody** logging with tamper-evident audit trail
 
-### Network
-- **HTTPS/WSS enforced** in production mode
-- **TLS certificate verification** enabled by default
-- HTTP/WS connections rejected unless explicitly allowed in development
-
-### Authentication
-- One-time session tokens with hardware binding
-- Token replay prevention with expiry tracking
-- Hardware ID based on multiple system identifiers
-
-### Evidence Integrity
-- Chain of custody logging with SHA-256 hash chains
-- Tamper-evident audit trail
-- Server-side verification of uploaded file hashes
+For details, see [SECURITY.md](SECURITY.md).
 
 ## Project Structure
 
@@ -178,53 +165,14 @@ unjaena-collector/
 │   │   ├── mft_collector.py         # MFT parsing
 │   │   └── forensic_disk/           # Disk image access layer
 │   ├── core/                    # Core infrastructure
-│   │   ├── encryptor.py             # Hash utilities
-│   │   ├── secure_upload.py         # Encrypted file upload
-│   │   ├── uploader.py              # Upload management
-│   │   ├── token_validator.py       # Session authentication
-│   │   └── device_manager.py        # Device enumeration
 │   ├── gui/                     # PyQt6 UI
-│   │   ├── app.py                   # Main application window
-│   │   ├── consent_dialog.py        # Data collection consent
-│   │   └── ...
 │   └── utils/                   # Utilities
-│       ├── bitlocker/               # BitLocker decryption (via pybde)
-│       ├── hardware_id.py           # Hardware identification
-│       └── error_messages.py        # User-friendly error handling
-├── tests/                       # Unit & integration tests
 ├── tools/                       # External tool management
 ├── resources/                   # Runtime resources
 ├── config.example.json          # Configuration template
 ├── requirements.txt             # Python dependencies
 ├── build.py                     # PyInstaller build script
 └── LICENSE                      # GPL-3.0
-```
-
-## Server API Contract
-
-The collector communicates with the unJaena AI backend via these endpoints:
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/v1/collector/authenticate` | Device authentication |
-| POST | `/api/v1/collector/validate-session` | Session validation |
-| GET | `/api/v1/collector/consent` | Consent template retrieval |
-| POST | `/api/v1/collector/consent/accept` | Consent acceptance |
-| POST | `/api/v1/collector/raw-files/upload` | Raw file upload |
-| POST | `/api/v1/upload/session` | Encrypted upload session |
-| POST | `/api/v1/upload/file` | Encrypted file upload |
-| POST | `/api/v1/upload/verify/{file_id}` | File integrity verification |
-| WSS | `/ws/collection/{session_id}` | Real-time progress |
-
-## Testing
-
-```bash
-# Run all tests
-pytest tests/
-
-# Run specific test suite
-pytest tests/test_android_collector.py -v
-pytest tests/test_ios_collector.py -v
 ```
 
 ## License
