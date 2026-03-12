@@ -263,19 +263,18 @@ def get_hardware_id(require_minimum: int = None) -> str:
     except HardwareIdError:
         raise
     except Exception as e:
-        # [Security Warning] Using fallback - weak hardware binding
+        # [Security] Do NOT fall back to weak hardware ID — fail explicitly
         import logging
         logger = logging.getLogger(__name__)
         logger.error(
-            f"[HardwareID] Hardware collection failed - weak fallback used!\n"
+            f"[HardwareID] Hardware collection failed — aborting.\n"
             f"  Cause: {e}\n"
-            f"  Risk: Hardware binding is weakened, security may be compromised."
+            f"  Action: Ensure WMI/registry access is available."
         )
-        print("=" * 50)
-        print("[Security Warning] Fallback used for hardware ID generation")
-        print("=" * 50)
-        fallback = f"{platform.node()}-{platform.machine()}-{platform.processor()}"
-        return hashlib.sha256(fallback.encode()).hexdigest()[:32]
+        raise HardwareIdError(
+            f"Hardware ID generation failed: {e}. "
+            f"Cannot proceed with weak fallback for security reasons."
+        )
 
 
 def get_hardware_id_with_components(require_minimum: int = None) -> Tuple[str, Dict[str, Optional[str]]]:
