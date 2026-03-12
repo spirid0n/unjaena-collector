@@ -1481,20 +1481,18 @@ class CollectorWindow(QMainWindow):
             except Exception as e:
                 logging.getLogger(__name__).warning(f"[RequestSigner] Init failed: {e}")
                 self.request_signer = None
-            # [2026-03-06] 서버가 localhost URL을 반환하면 config URL 우선 사용
-            # RunPod 등 원격 서버에서 API_BASE_URL 미설정 시 localhost를 반환하는 문제 방지
-            raw_server_url = result.server_url or ""
-            raw_ws_url = result.ws_url or ""
-            if "localhost" in raw_server_url or "127.0.0.1" in raw_server_url:
-                raw_server_url = self.config['server_url']
-                raw_ws_url = self.config['ws_url']
-            if not raw_server_url:
-                raw_server_url = self.config['server_url']
-            if not raw_ws_url:
-                raw_ws_url = self.config['ws_url']
+            # [Security] Always use config URL — never trust server_url from auth response
+            # Prevents MITM attack via malicious server_url injection in auth response
+            config_server_url = self.config['server_url']
+            config_ws_url = self.config['ws_url']
+            if result.server_url and result.server_url != config_server_url:
+                logging.getLogger(__name__).warning(
+                    f"[SECURITY] Server returned different URL in auth response — ignored. "
+                    f"Config: {config_server_url}, Response: {result.server_url}"
+                )
             # On Windows, localhost resolves to IPv6 (::1) causing Docker connection failure
-            self.server_url = raw_server_url.replace('://localhost', '://127.0.0.1')
-            self.ws_url = raw_ws_url.replace('://localhost', '://127.0.0.1')
+            self.server_url = config_server_url.replace('://localhost', '://127.0.0.1')
+            self.ws_url = config_ws_url.replace('://localhost', '://127.0.0.1')
             self.allowed_artifacts = result.allowed_artifacts or list(ARTIFACT_TYPES.keys())
 
             self.token_status.setText(f"Valid - Case: {self.case_id[:8]}...")

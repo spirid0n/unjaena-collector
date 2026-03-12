@@ -657,8 +657,30 @@ class R2DirectUploader:
 
         raise RuntimeError("Presigned URL request failed after all retries")
 
+    def _validate_presigned_url(self, presigned_url: str) -> None:
+        """[Security] Presigned URL 도메인 검증 — R2/S3 이외 도메인 거부"""
+        from urllib.parse import urlparse
+        parsed = urlparse(presigned_url)
+        # Allow: Cloudflare R2 (*.r2.cloudflarestorage.com), AWS S3, localhost (dev)
+        allowed_suffixes = (
+            '.r2.cloudflarestorage.com',
+            '.s3.amazonaws.com',
+            '.amazonaws.com',
+        )
+        allowed_hosts = ('127.0.0.1', 'localhost')
+        if not parsed.hostname:
+            raise RuntimeError("[SECURITY] Presigned URL has no hostname")
+        if parsed.hostname in allowed_hosts:
+            return  # dev mode
+        if not any(parsed.hostname.endswith(s) for s in allowed_suffixes):
+            raise RuntimeError(
+                f"[SECURITY] Presigned URL points to unauthorized domain: {parsed.hostname}. "
+                f"Expected Cloudflare R2 or AWS S3 domain."
+            )
+
     def _upload_single(self, file_path: str, presigned_url: str) -> None:
         """단일 PUT으로 R2에 직접 업로드 (< 100MB), 최대 3회 재시도"""
+        self._validate_presigned_url(presigned_url)
         file_size = os.path.getsize(file_path)
         timeout = max(120, file_size / (1 * 1024 * 1024) + 60)  # 1MB/s + 60s buffer
         max_retries = 3
@@ -689,6 +711,9 @@ class R2DirectUploader:
         import time as _time
 
         urls = presigned_info['upload_url']
+        # [Security] Validate all part URLs before uploading
+        for part_info in urls:
+            self._validate_presigned_url(part_info['url'])
         part_size = presigned_info.get('part_size', 50 * 1024 * 1024)
         actual_file_size = os.path.getsize(file_path)
         total_parts = len(urls)
