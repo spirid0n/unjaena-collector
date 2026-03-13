@@ -32,9 +32,17 @@ jobs:
           pip install -r requirements/windows.txt
           pip install pyinstaller
 
-      - name: Prepare config
+      - name: Prepare config with version
         shell: bash
-        run: cp config.example.json config.production.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#collector-}"
+          python -c "
+          import json
+          with open('config.example.json') as f: c = json.load(f)
+          c['version'] = '${VERSION}'
+          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          print(f'[CONFIG] version set to ${VERSION}')
+          "
 
       - name: Build EXE
         run: python build.py --production --ci --skip-usb-check
@@ -76,8 +84,16 @@ jobs:
           pip install -r requirements/linux.txt
           pip install pyinstaller
 
-      - name: Prepare config
-        run: cp config.example.json config.production.json
+      - name: Prepare config with version
+        run: |
+          VERSION="${GITHUB_REF_NAME#collector-}"
+          python -c "
+          import json
+          with open('config.example.json') as f: c = json.load(f)
+          c['version'] = '${VERSION}'
+          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          print(f'[CONFIG] version set to ${VERSION}')
+          "
 
       - name: Build Linux binary
         run: python build.py --production --ci --skip-usb-check
@@ -115,8 +131,16 @@ jobs:
           pip install -r requirements/macos.txt
           pip install pyinstaller
 
-      - name: Prepare config
-        run: cp config.example.json config.production.json
+      - name: Prepare config with version
+        run: |
+          VERSION="${GITHUB_REF_NAME#collector-}"
+          python3 -c "
+          import json
+          with open('config.example.json') as f: c = json.load(f)
+          c['version'] = '${VERSION}'
+          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          print(f'[CONFIG] version set to ${VERSION}')
+          "
 
       - name: Build macOS binary
         run: python build.py --production --ci --skip-usb-check
