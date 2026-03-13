@@ -155,70 +155,14 @@ jobs:
             dist/IntelligenceCollector-*-macos-arm64.dmg
             dist/IntelligenceCollector-*-macos-arm64.tar.gz
 
-  # =========================================================================
-  # macOS x64 (Intel) — .dmg
-  # =========================================================================
-  build-macos-x64:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          brew install libusb create-dmg || true
-          pip install -r requirements/base.txt
-          pip install -r requirements/macos.txt
-          pip install pyinstaller
-
-      - name: Prepare config
-        run: cp config.example.json config.production.json
-
-      - name: Build macOS binary
-        run: python build.py --production --ci --skip-usb-check
-
-      - name: Create DMG
-        working-directory: dist
-        run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
-          DMG_NAME="IntelligenceCollector-${VERSION}-macos-x64.dmg"
-
-          if [ -d "IntelligenceCollector.app" ]; then
-            create-dmg \
-              --volname "Intelligence Collector" \
-              --window-size 600 400 \
-              --icon-size 100 \
-              --icon "IntelligenceCollector.app" 175 190 \
-              --app-drop-link 425 190 \
-              --no-internet-enable \
-              "${DMG_NAME}" \
-              "IntelligenceCollector.app" 2>/dev/null || \
-            hdiutil create -volname "IntelligenceCollector" \
-              -srcfolder IntelligenceCollector.app \
-              -ov -format UDZO \
-              "${DMG_NAME}"
-          else
-            chmod +x IntelligenceCollector
-            tar czf "IntelligenceCollector-${VERSION}-macos-x64.tar.gz" IntelligenceCollector
-          fi
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-x64
-          path: |
-            dist/IntelligenceCollector-*-macos-x64.dmg
-            dist/IntelligenceCollector-*-macos-x64.tar.gz
+  # NOTE: macOS x64 (Intel) build removed — GitHub Actions deprecated macos-13 runners.
+  # Apple Silicon (ARM64) build covers macOS via Rosetta 2 compatibility.
 
   # =========================================================================
   # Release — SHA256 + GitHub Release 생성
   # =========================================================================
   release:
-    needs: [build-windows, build-linux, build-macos-arm64, build-macos-x64]
+    needs: [build-windows, build-linux, build-macos-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
