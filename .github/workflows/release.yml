@@ -38,9 +38,9 @@ jobs:
           VERSION="${GITHUB_REF_NAME#collector-}"
           python -c "
           import json
-          with open('config.example.json') as f: c = json.load(f)
+          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
           c['version'] = '${VERSION}'
-          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
           print(f'[CONFIG] version set to ${VERSION}')
           "
 
@@ -89,9 +89,9 @@ jobs:
           VERSION="${GITHUB_REF_NAME#collector-}"
           python -c "
           import json
-          with open('config.example.json') as f: c = json.load(f)
+          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
           c['version'] = '${VERSION}'
-          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
           print(f'[CONFIG] version set to ${VERSION}')
           "
 
@@ -136,9 +136,9 @@ jobs:
           VERSION="${GITHUB_REF_NAME#collector-}"
           python3 -c "
           import json
-          with open('config.example.json') as f: c = json.load(f)
+          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
           c['version'] = '${VERSION}'
-          with open('config.production.json', 'w') as f: json.dump(c, f, indent=4)
+          with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
           print(f'[CONFIG] version set to ${VERSION}')
           "
 
