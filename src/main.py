@@ -147,7 +147,7 @@ def get_secure_config(cli_server_url: str = None) -> dict:
     config = {
         'server_url': server_url,
         'ws_url': ws_url,
-        'version': merged_config.get('version', '2.0.0'),
+        'version': merged_config.get('version', '2.1.1'),
         'app_name': merged_config.get('app_name', 'Digital Forensics Collector'),
         'dev_mode': dev_mode,
         'allow_insecure': allow_insecure,
