@@ -45,7 +45,6 @@ Pre-built binaries are available on the [Releases](https://github.com/spirid0n/u
 |----------|------|
 | Windows (x64) | `IntelligenceCollector-*-windows-x64.exe` |
 | macOS (Apple Silicon) | `IntelligenceCollector-*-macos-arm64.dmg` |
-| macOS (Intel) | `IntelligenceCollector-*-macos-x64.dmg` |
 | Linux (x64) | `IntelligenceCollector-*-linux-x64.tar.gz` |
 
 ## Requirements
