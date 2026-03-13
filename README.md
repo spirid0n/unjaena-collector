@@ -192,13 +192,9 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit changes (`git commit -m 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
+This project is **source-open for transparency**, not for community-driven development.
+As a forensic evidence collection tool, code integrity directly impacts legal admissibility — all changes are reviewed and authored by the internal team.
 
-Please ensure:
-- All tests pass before submitting
-- No credentials or personal data in commits
-- Follow existing code style and patterns
+- **Bug reports & security issues**: Please open a [GitHub Issue](https://github.com/spirid0n/unjaena-collector/issues) or email `admin@unjaena.com`
+- **Feature requests**: Welcome via Issues — we review and prioritize internally
+- **Pull requests**: Not accepted at this time
