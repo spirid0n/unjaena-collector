@@ -159,7 +159,7 @@ jobs:
   # macOS x64 (Intel) — .dmg
   # =========================================================================
   build-macos-x64:
-    runs-on: macos-15
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
