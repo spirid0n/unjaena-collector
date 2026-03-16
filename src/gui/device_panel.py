@@ -103,13 +103,12 @@ class DeviceListPanel(QWidget):
 
     def _update_mobile_guide(self):
         """Build beginner-friendly mobile connection guide."""
+        _diag_debug = ""
         try:
             diag = diagnose_device_prerequisites()
+            _diag_debug = f"OK: {diag}"
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Device prerequisites check failed: {e}"
-            )
+            _diag_debug = f"EXCEPTION: {type(e).__name__}: {e}"
             diag = {
                 'ios': {'driver_installed': False, 'library_available': False},
                 'android': {'adb_available': False},
@@ -189,6 +188,14 @@ class DeviceListPanel(QWidget):
         sections.append(
             f"<span style='color:{dim};'>"
             "● <b>E01/RAW</b>: Use <b>+ Add E01/RAW</b> button above"
+            "</span>"
+        )
+
+        # --- Debug diagnostic (temporary — remove after iOS fix confirmed) ---
+        _steps = diag.get('_debug', [])
+        sections.append(
+            f"<span style='color:{dim}; font-size: 8px;'>"
+            f"[diag] {_diag_debug} | steps: {', '.join(str(s) for s in _steps)}"
             "</span>"
         )
 
