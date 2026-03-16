@@ -162,6 +162,41 @@ else:
     all_hidden_imports = common_hidden_imports
 
 # =============================================================================
+# collect_all: Full package bundling for packages with deep import chains
+# PyInstaller's automatic analysis misses dynamically imported submodules,
+# data files, and native binaries in these packages.
+# =============================================================================
+from PyInstaller.utils.hooks import collect_all
+
+extra_datas = []
+extra_binaries = []
+extra_hiddenimports = []
+
+# Packages that require full collection (all submodules + data + binaries)
+# License compatibility verified: all GPL-3.0 / MIT / BSD / Apache-2.0
+collect_packages = [
+    'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
+    'construct',           # MIT — binary data parsing (dynamic struct definitions)
+    'srptools',            # MIT — SRP authentication protocol
+    'opack2',              # MIT — Apple opack serialization format
+    'bpylist2',            # MIT — Apple binary plist parsing
+    'pycrashreport',       # GPL-3.0 — iOS crash report parsing
+    'pygnuutils',          # GPL-3.0 — GNU utility wrappers
+    'adb_shell',           # Apache-2.0 — Android ADB communication
+]
+
+for pkg in collect_packages:
+    try:
+        datas, binaries, hiddenimports = collect_all(pkg)
+        extra_datas.extend(datas)
+        extra_binaries.extend(binaries)
+        extra_hiddenimports.extend(hiddenimports)
+    except Exception as e:
+        print(f"[WARN] collect_all('{pkg}') failed: {e}")
+
+all_hidden_imports = list(set(all_hidden_imports + extra_hiddenimports))
+
+# =============================================================================
 # Platform-Specific Settings
 # =============================================================================
 
@@ -183,11 +218,11 @@ else:
 a = Analysis(
     ['src/main.py'],
     pathex=[],
-    binaries=usb_binaries,
+    binaries=usb_binaries + extra_binaries,
     datas=[
         ('resources', 'resources'),
         ('config.json', '.'),
-    ],
+    ] + extra_datas,
     hiddenimports=all_hidden_imports,
     hookspath=[],
     hooksconfig={},
