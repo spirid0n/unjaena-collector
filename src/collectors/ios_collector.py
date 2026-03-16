@@ -1855,10 +1855,11 @@ class iOSDeviceConnector:
             return False
 
         if result_box['success']:
-            # Reconnect lockdown — change_password() invalidates the session
+            # Reconnect lockdown — change_password() invalidates the session.
+            # iOS backup daemon needs time to restart after encryption state change.
             try:
                 import time
-                time.sleep(1)  # Let iOS backup daemon restart
+                time.sleep(5)
                 self._lockdown = create_using_usbmux(serial=self.udid)
                 logger.info("[iOS] Lockdown reconnected after change_password()")
             except Exception as e:
@@ -2189,21 +2190,51 @@ class iOSDeviceConnector:
                     }
                     return
 
-            # Create fresh service for backup (change_password closes the session)
-            logger.info("[iOS] Creating fresh Mobilebackup2Service for backup...")
-            backup_service = Mobilebackup2Service(lockdown=self._lockdown)
-            logger.info(f"[iOS] Starting backup: full=True, dir={backup_dir}, encrypted={bool(self._forensic_backup_password)}")
+            # Create fresh service and start backup with retry logic.
+            # After encryption state change, iOS backup daemon may need time to restart.
+            import time
+            max_attempts = 2
+            last_err = None
 
-            def backup_progress(percentage: float):
-                if progress_callback:
-                    progress_callback(f"iOS backup progress: {percentage:.1f}%")
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        logger.info(f"[iOS] Backup retry {attempt}/{max_attempts} — reconnecting lockdown...")
+                        if progress_callback:
+                            progress_callback(f"Retrying backup (attempt {attempt})...")
+                        time.sleep(3)
+                        self._lockdown = create_using_usbmux(serial=self.udid)
 
-            backup_service.backup(
-                full=True,
-                backup_directory=str(backup_dir),
-                progress_callback=backup_progress
-            )
-            logger.info("[iOS] Backup completed successfully")
+                    logger.info(f"[iOS] Creating Mobilebackup2Service (attempt {attempt})...")
+                    backup_service = Mobilebackup2Service(lockdown=self._lockdown)
+                    logger.info(f"[iOS] Starting backup: full=True, dir={backup_dir}, encrypted={bool(self._forensic_backup_password)}")
+
+                    def backup_progress(percentage: float):
+                        if progress_callback:
+                            progress_callback(f"iOS backup progress: {percentage:.1f}%")
+
+                    backup_service.backup(
+                        full=True,
+                        backup_directory=str(backup_dir),
+                        progress_callback=backup_progress
+                    )
+                    logger.info("[iOS] Backup completed successfully")
+                    last_err = None
+                    break
+
+                except ConnectionAbortedError as e:
+                    last_err = e
+                    logger.warning(f"[iOS] Backup attempt {attempt} failed: ConnectionAbortedError")
+                    if attempt < max_attempts:
+                        continue
+                except ConnectionError as e:
+                    last_err = e
+                    logger.warning(f"[iOS] Backup attempt {attempt} failed: {type(e).__name__}: {e}")
+                    if attempt < max_attempts:
+                        continue
+
+            if last_err is not None:
+                raise last_err
 
             # pymobiledevice3 creates backup at <backup_dir>/<UDID>/
             actual_backup_path = backup_dir
