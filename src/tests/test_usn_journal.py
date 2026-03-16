@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 USN Journal Collection Test
 
 Test USN Journal collection from E01 images (skipping sparse regions)

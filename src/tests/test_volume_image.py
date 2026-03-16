@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 Volume Image Detection Test
 
 Test for detecting E01 volume images (single partition images, not full disk images)
