@@ -739,34 +739,28 @@ def diagnose_device_prerequisites() -> dict:
     result = {
         'ios': {'driver_installed': False, 'library_available': False},
         'android': {'adb_available': False},
-        '_debug': [],  # Temporary: trace each step for PyInstaller diagnosis
     }
 
     # iOS: check pymobiledevice3 availability
     try:
         from collectors.ios_collector import PYMOBILEDEVICE3_AVAILABLE
         result['ios']['library_available'] = PYMOBILEDEVICE3_AVAILABLE
-        result['_debug'].append(f"lib={PYMOBILEDEVICE3_AVAILABLE}")
-    except Exception as e:
-        result['_debug'].append(f"lib_err1={type(e).__name__}")
+    except Exception:
         try:
             import pymobiledevice3
             result['ios']['library_available'] = True
-            result['_debug'].append("lib_fallback=ok")
-        except Exception as e2:
-            result['_debug'].append(f"lib_err2={type(e2).__name__}")
+        except Exception:
+            pass
 
-    # iOS: check Apple driver — try actual usbmux connection first (most reliable),
-    # then fall back to registry check. PyInstaller exe may have restricted registry
-    # access even when the driver is fully functional.
+    # iOS: check Apple driver — try actual usbmux connection first (most reliable).
+    # PyInstaller exe has restricted registry access, so registry check is unreliable.
     if result['ios']['library_available']:
         try:
             from pymobiledevice3.usbmux import list_devices
             list_devices()  # Returns [] if no device, throws if driver missing
             result['ios']['driver_installed'] = True
-            result['_debug'].append("drv=usbmux_ok")
-        except Exception as e:
-            result['_debug'].append(f"drv_usbmux={type(e).__name__}")
+        except Exception:
+            pass
 
     # Fallback: registry check (Windows) or usbmuxd binary check (Unix)
     if not result['ios']['driver_installed']:
@@ -784,7 +778,6 @@ def diagnose_device_prerequisites() -> dict:
                     try:
                         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path):
                             result['ios']['driver_installed'] = True
-                            result['_debug'].append(f"drv=reg:{key_path.split(chr(92))[-1]}")
                             break
                     except OSError:
                         continue
@@ -794,11 +787,10 @@ def diagnose_device_prerequisites() -> dict:
                         svc_key = r"SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service"
                         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, svc_key):
                             result['ios']['driver_installed'] = True
-                            result['_debug'].append("drv=reg:AMDS_svc")
                     except OSError:
-                        result['_debug'].append("drv=none")
-            except Exception as e:
-                result['_debug'].append(f"drv_err={type(e).__name__}")
+                        pass
+            except Exception:
+                pass
         else:
             try:
                 import shutil
