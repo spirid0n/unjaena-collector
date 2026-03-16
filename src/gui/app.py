@@ -2904,7 +2904,7 @@ class CollectionWorker(QThread):
                                             f"[{device_name}] {artifact_type}: {pct:.1f}%",
                                             ""
                                         )
-                                    except:
+                                    except (ValueError, IndexError):
                                         pass
                                 else:
                                     # Non-progress messages (e.g. "Creating iOS backup") → log + status dialog

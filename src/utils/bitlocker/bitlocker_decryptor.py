@@ -478,7 +478,7 @@ class BitLockerDecryptor:
         if self._disk_backend:
             try:
                 self._disk_backend.close()
-            except:
+            except Exception:
                 pass
             self._disk_backend = None
 

@@ -329,7 +329,7 @@ class E01DiskBackend(UnifiedDiskReader):
             try:
                 # Get additional metadata if available
                 pass  # Depends on pyewf version
-            except:
+            except Exception:
                 pass
 
         return info
@@ -453,7 +453,7 @@ class RAWImageBackend(UnifiedDiskReader):
         if self._mmap:
             try:
                 self._mmap.close()
-            except:
+            except Exception:
                 pass
             self._mmap = None
 
@@ -461,7 +461,7 @@ class RAWImageBackend(UnifiedDiskReader):
             try:
                 self._file.close()
                 logger.debug(f"Closed RAW image: {self.image_path}")
-            except:
+            except Exception:
                 pass
             self._file = None
 
