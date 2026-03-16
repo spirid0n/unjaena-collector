@@ -148,13 +148,13 @@ class HiberfilAnalyzer:
         try:
             num_pages = struct.unpack('<Q', header[16:24])[0]
             self.num_pages = num_pages
-        except:
+        except struct.error:
             num_pages = 0
 
         # Highest page number
         try:
             highest_page = struct.unpack('<Q', header[24:32])[0]
-        except:
+        except struct.error:
             highest_page = 0
 
         # System time (FILETIME)
@@ -168,7 +168,7 @@ class HiberfilAnalyzer:
                 system_datetime = datetime.fromtimestamp(timestamp)
             else:
                 system_datetime = None
-        except:
+        except (struct.error, OSError, OverflowError, ValueError):
             system_datetime = None
 
         return {
@@ -261,7 +261,7 @@ class HiberfilAnalyzer:
 
             if result == 0:  # STATUS_SUCCESS
                 return decompressed.raw[:final_size.value]
-        except:
+        except Exception:
             pass
 
         logger.warning("XPRESS decompression failed - all methods attempted")
