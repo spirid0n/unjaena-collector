@@ -432,7 +432,7 @@ class CollectorWindow(QMainWindow):
         # Step 0: Device Selection
         device_group = QGroupBox("0. Select Devices")
         device_layout = QVBoxLayout(device_group)
-        device_layout.setContentsMargins(6, 18, 6, 6)
+        device_layout.setContentsMargins(6, 14, 6, 6)
         device_layout.setSpacing(4)
 
         self.device_panel = DeviceListPanel(self.device_manager)
@@ -472,7 +472,7 @@ class CollectorWindow(QMainWindow):
         # Step 2: Artifacts (tab-based)
         artifacts_group = QGroupBox("2. Select Artifacts")
         artifacts_outer_layout = QVBoxLayout(artifacts_group)
-        artifacts_outer_layout.setContentsMargins(6, 16, 6, 6)
+        artifacts_outer_layout.setContentsMargins(6, 14, 6, 6)
         artifacts_outer_layout.setSpacing(4)
 
         # Create tab widget
