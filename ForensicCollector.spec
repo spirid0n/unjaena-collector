@@ -55,7 +55,9 @@ usb_binaries = find_libusb_dll()
 # =============================================================================
 
 # Common hidden imports (all platforms)
+# License: All listed packages are GPL-3.0 / MIT / BSD / Apache-2.0 compatible
 common_hidden_imports = [
+    # --- Android: adb-shell (Apache-2.0) ---
     'adb_shell',
     'adb_shell.adb_device',
     'adb_shell.adb_device_usb',
@@ -65,20 +67,75 @@ common_hidden_imports = [
     'adb_shell.exceptions',
     'adb_shell.handle',
     'adb_shell.transport',
+
+    # --- USB: libusb (LGPL-2.1) ---
     'usb1',
     'libusb1',
+
+    # --- Crypto: rsa (Apache-2.0), cryptography (Apache-2.0/BSD) ---
     'rsa',
+    'cryptography',
+    'cryptography.hazmat',
+    'cryptography.hazmat.primitives',
+    'cryptography.hazmat.backends',
+
+    # --- iOS: pymobiledevice3 (GPL-3.0) ---
+    # Core modules (traced via runtime import analysis)
     'pymobiledevice3',
-    'pymobiledevice3.usbmux',
+    'pymobiledevice3._version',
+    'pymobiledevice3.bonjour',
+    'pymobiledevice3.ca',
+    'pymobiledevice3.common',
+    'pymobiledevice3.exceptions',
+    'pymobiledevice3.irecv_devices',
     'pymobiledevice3.lockdown',
+    'pymobiledevice3.lockdown_service_provider',
+    'pymobiledevice3.osu',
+    'pymobiledevice3.osu.os_utils',
+    'pymobiledevice3.osu.win_util',
+    'pymobiledevice3.pair_records',
+    'pymobiledevice3.remote',
+    'pymobiledevice3.remote.remote_service_discovery',
+    'pymobiledevice3.remote.remotexpc',
+    'pymobiledevice3.remote.xpc_message',
+    'pymobiledevice3.service_connection',
+    'pymobiledevice3.usbmux',
+    'pymobiledevice3.utils',
+    # Services used by collector
     'pymobiledevice3.services',
     'pymobiledevice3.services.afc',
-    'pymobiledevice3.services.installation_proxy',
-    'pymobiledevice3.services.house_arrest',
+    'pymobiledevice3.services.crash_reports',
+    'pymobiledevice3.services.device_link',
     'pymobiledevice3.services.diagnostics',
+    'pymobiledevice3.services.house_arrest',
+    'pymobiledevice3.services.installation_proxy',
+    'pymobiledevice3.services.lockdown_service',
+    'pymobiledevice3.services.mobilebackup2',
+    'pymobiledevice3.services.notification_proxy',
+    'pymobiledevice3.services.os_trace',
+    'pymobiledevice3.services.springboard',
     'pymobiledevice3.services.syslog',
-    'pymobiledevice3.exceptions',
-    'pymobiledevice3.common',
+
+    # --- pymobiledevice3 dependencies ---
+    'construct',           # MIT
+    'construct_typed',     # MIT
+    'bpylist2',            # MIT
+    'opack2',              # MIT
+    'srptools',            # MIT
+    'hexdump',             # Public Domain
+    'hyperframe',          # MIT
+    'ifaddr',              # MIT
+    'nest_asyncio',        # BSD-2
+    'parameter_decorators',# MIT
+    'pycrashreport',       # GPL-3.0
+    'pygnuutils',          # GPL-3.0
+    'la_panic',            # MIT
+    'packaging',           # Apache-2.0/BSD
+    'tqdm',                # MPL-2.0/MIT
+    'ujson',               # BSD
+    'wsproto',             # MIT
+
+    # --- iOS backup: biplist (BSD), iphone_backup_decrypt (MIT) ---
     'biplist',
     'iphone_backup_decrypt',
     'collectors.ios_backup_decryptor',
@@ -87,10 +144,6 @@ common_hidden_imports = [
     'Crypto.Cipher.AES',
     'Crypto.Util',
     'Crypto.Util.Padding',
-    'cryptography',
-    'cryptography.hazmat',
-    'cryptography.hazmat.primitives',
-    'cryptography.hazmat.backends',
 ]
 
 # Windows-specific
