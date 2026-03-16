@@ -1051,7 +1051,7 @@ class LinuxCollector:
             if hostname_file.exists():
                 try:
                     info['hostname'] = hostname_file.read_text().strip()
-                except:
+                except OSError:
                     pass
 
             # Read /etc/os-release for distribution info
@@ -1063,7 +1063,7 @@ class LinuxCollector:
                         if line.startswith('PRETTY_NAME='):
                             info['distribution'] = line.split('=', 1)[1].strip('"')
                             break
-                except:
+                except OSError:
                     pass
 
             # Read /proc/version for kernel (local only)
@@ -1072,7 +1072,7 @@ class LinuxCollector:
                 if version_file.exists():
                     try:
                         info['kernel_version'] = version_file.read_text().strip()
-                    except:
+                    except OSError:
                         pass
 
         return info
@@ -1087,7 +1087,7 @@ class LinuxCollector:
                 hostname_file = self._fs_info.open('/etc/hostname')
                 content = hostname_file.read_random(0, hostname_file.info.meta.size)
                 info['hostname'] = content.decode('utf-8', errors='replace').strip()
-            except:
+            except Exception:
                 pass
 
             # Read /etc/os-release
@@ -1098,7 +1098,7 @@ class LinuxCollector:
                     if line.startswith('PRETTY_NAME='):
                         info['distribution'] = line.split('=', 1)[1].strip('"')
                         break
-            except:
+            except Exception:
                 pass
 
         except Exception as e:

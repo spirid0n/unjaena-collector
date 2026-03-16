@@ -311,7 +311,7 @@ class RAWImageBackend(UnifiedDiskReader):
         if self._mmap:
             try:
                 self._mmap.close()
-            except:
+            except Exception:
                 pass
             self._mmap = None
 
@@ -319,7 +319,7 @@ class RAWImageBackend(UnifiedDiskReader):
             try:
                 self._file.close()
                 logger.debug(f"Closed RAW image: {self.image_path}")
-            except:
+            except Exception:
                 pass
             self._file = None
 
