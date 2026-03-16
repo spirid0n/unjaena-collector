@@ -2149,7 +2149,10 @@ class iOSDeviceConnector:
             # No auto-generated keys: user always knows the password,
             # so they can recover if the collector crashes mid-collection.
             # =============================================================
-            if not will_encrypt:
+            # Reuse cached password if already verified (prevents re-prompting)
+            if self._forensic_backup_password:
+                logger.info("[iOS] Reusing cached backup password (already verified)")
+            elif not will_encrypt:
                 # Encryption OFF → ask user for a temporary password to enable it.
                 # Encrypted backups contain more forensic data (HealthKit, WiFi, etc.)
                 if progress_callback:
@@ -2294,8 +2297,9 @@ class iOSDeviceConnector:
             logger.warning("[iOS] No password callback set — cannot request user password")
             return None
 
+        max_retries = 3
         error_msg = None
-        while True:
+        for attempt in range(max_retries):
             password = self._password_callback(error_msg)
             if not password:
                 # User cancelled or clicked "I don't know"
@@ -2308,8 +2312,13 @@ class iOSDeviceConnector:
                 logger.info("[iOS] User password verified successfully")
                 return password
 
-            error_msg = "Incorrect password. Please try again."
-            logger.info("[iOS] User password rejected, requesting again")
+            remaining = max_retries - attempt - 1
+            if remaining > 0:
+                error_msg = f"Incorrect password. {remaining} attempt(s) remaining."
+                logger.info(f"[iOS] User password rejected, {remaining} retries left")
+            else:
+                logger.warning("[iOS] User password rejected after all attempts")
+                return None
 
     def _request_encryption_password(
         self,
