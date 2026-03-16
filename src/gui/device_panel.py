@@ -19,6 +19,7 @@ from core.device_manager import (
     DeviceType,
     DeviceStatus
 )
+from core.device_enumerators import diagnose_device_prerequisites
 from gui.styles import COLORS
 
 
@@ -82,11 +83,32 @@ class DeviceListPanel(QWidget):
         self.devices_layout.setContentsMargins(0, 0, 0, 0)
         self.devices_layout.setSpacing(2)
 
-        # Empty state label (displayed when no devices)
-        self.empty_label = QLabel("No devices detected. Click 'Refresh' or '+ Add E01/RAW'")
+        # Empty state: connection guide (displayed when no devices)
+        self.empty_widget = QWidget()
+        self.empty_widget.setObjectName("emptyGuide")
+        empty_layout = QVBoxLayout(self.empty_widget)
+        empty_layout.setContentsMargins(4, 4, 4, 4)
+        empty_layout.setSpacing(4)
+
+        self.empty_label = QLabel("No devices detected")
         self.empty_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
-        self.empty_label.setWordWrap(True)
-        self.devices_layout.addWidget(self.empty_label)
+        empty_layout.addWidget(self.empty_label)
+
+        # Build guide text from diagnostics
+        self.guide_label = QLabel()
+        self.guide_label.setWordWrap(True)
+        self.guide_label.setTextFormat(Qt.TextFormat.RichText)
+        self.guide_label.setOpenExternalLinks(False)
+        self.guide_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 9px; "
+            f"background: {COLORS['bg_secondary']}; "
+            f"border: 1px solid {COLORS['border_subtle']}; "
+            f"border-radius: 4px; padding: 6px;"
+        )
+        empty_layout.addWidget(self.guide_label)
+
+        self._update_guide_text()
+        self.devices_layout.addWidget(self.empty_widget)
 
         self.devices_layout.addStretch()
 
@@ -100,13 +122,59 @@ class DeviceListPanel(QWidget):
         self.device_manager.device_removed.connect(self._on_device_removed)
         self.device_manager.device_updated.connect(self._on_device_updated)
 
+    def _update_guide_text(self):
+        """Build connection guide from prerequisite diagnostics"""
+        try:
+            diag = diagnose_device_prerequisites()
+        except Exception:
+            diag = {
+                'ios': {'driver_installed': False, 'library_available': False},
+                'android': {'adb_available': False},
+            }
+
+        lines = []
+
+        # iOS guide
+        ios = diag['ios']
+        if not ios['driver_installed']:
+            lines.append(
+                "<b>iOS</b>: Install <b>iTunes</b> or <b>Apple Devices</b> app first"
+            )
+        elif not ios['library_available']:
+            lines.append(
+                "<b>iOS</b>: Driver found, but connection library unavailable"
+            )
+        else:
+            lines.append(
+                '<b>iOS</b>: Unlock device → tap <b>"Trust This Computer"</b>'
+            )
+
+        # Android guide
+        adb = diag['android']
+        if not adb['adb_available']:
+            lines.append(
+                "<b>Android</b>: Enable <b>USB Debugging</b> in Developer Options"
+            )
+        else:
+            lines.append(
+                '<b>Android</b>: Allow <b>"USB Debugging"</b> on device screen'
+            )
+
+        tertiary = COLORS['text_tertiary']
+        lines.append(
+            f"<span style='color:{tertiary};'>"
+            "Use <b>+ Add E01/RAW</b> for forensic image files</span>"
+        )
+
+        self.guide_label.setText("<br>".join(lines))
+
     def _on_device_added(self, device: UnifiedDeviceInfo):
         """Device added"""
         if device.device_id in self.device_checkboxes:
             return
 
-        # Hide empty state label
-        self.empty_label.hide()
+        # Hide empty state widget
+        self.empty_widget.hide()
 
         # Create checkbox
         cb = QCheckBox(self._get_device_label(device))
@@ -132,9 +200,10 @@ class DeviceListPanel(QWidget):
             cb.deleteLater()
             self._update_summary()
 
-            # Show empty state label if no devices
+            # Show empty state guide if no devices
             if not self.device_checkboxes:
-                self.empty_label.show()
+                self._update_guide_text()
+                self.empty_widget.show()
 
     def _on_device_updated(self, device: UnifiedDeviceInfo):
         """Device updated"""
