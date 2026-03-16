@@ -432,7 +432,7 @@ class CollectorWindow(QMainWindow):
         # Step 0: Device Selection
         device_group = QGroupBox("0. Select Devices")
         device_layout = QVBoxLayout(device_group)
-        device_layout.setContentsMargins(6, 18, 6, 6)
+        device_layout.setContentsMargins(6, 14, 6, 6)
         device_layout.setSpacing(4)
 
         self.device_panel = DeviceListPanel(self.device_manager)
@@ -472,7 +472,7 @@ class CollectorWindow(QMainWindow):
         # Step 2: Artifacts (tab-based)
         artifacts_group = QGroupBox("2. Select Artifacts")
         artifacts_outer_layout = QVBoxLayout(artifacts_group)
-        artifacts_outer_layout.setContentsMargins(6, 16, 6, 6)
+        artifacts_outer_layout.setContentsMargins(6, 14, 6, 6)
         artifacts_outer_layout.setSpacing(4)
 
         # Create tab widget
@@ -2202,8 +2202,19 @@ class CollectorWindow(QMainWindow):
 
         if success:
             self._log(f"Collection completed: {message}")
+            self._log("")
+            self._log("✅ All evidence has been uploaded to the server.")
+            self._log("👉 Return to your web browser and start AI Analysis.")
+            self._log("")
             self._log("New token required for new collection.")
-            QMessageBox.information(self, "Success", f"{message}\n\nPlease get a new token for additional collections.")
+            QMessageBox.information(
+                self, "Collection Complete",
+                f"{message}\n\n"
+                "✅ All evidence has been uploaded.\n\n"
+                "Next step:\n"
+                "Return to your web browser and start AI Analysis.\n\n"
+                "A new token is required for additional collections."
+            )
         else:
             self._log(f"Collection failed: {message}", error=True)
             self._log("New token required for new collection.")
