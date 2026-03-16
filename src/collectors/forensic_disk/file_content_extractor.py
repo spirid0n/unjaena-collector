@@ -59,7 +59,7 @@ def _debug_log(message: str):
 
         _DEBUG_LOG_FILE.write(f"{datetime.now().isoformat()} {message}\n")
         _DEBUG_LOG_FILE.flush()
-    except:
+    except Exception:
         pass
 
 from .unified_disk_reader import UnifiedDiskReader, FilesystemError
@@ -1001,7 +1001,7 @@ class FileContentExtractor:
                                 new_filename = name_bytes.decode('utf-16-le')
                                 if namespace in (1, 3) or not filename:
                                     filename = new_filename
-                            except:
+                            except (UnicodeDecodeError, ValueError):
                                 pass
 
             pos += attr_length
@@ -1324,7 +1324,7 @@ class FileContentExtractor:
                         name = entry[pos+name_offset:pos+name_offset+name_length*2].decode('utf-16-le')
                         if name not in ads_names:
                             ads_names.append(name)
-                    except:
+                    except (UnicodeDecodeError, ValueError):
                         pass
 
             pos += attr_length

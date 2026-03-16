@@ -42,6 +42,7 @@ License:
     - pymobiledevice3 is GPL-3.0 licensed
     - Decryption logic is NOT included here (server-only)
 """
+import ctypes
 import os
 import re
 import sqlite3
@@ -1555,16 +1556,18 @@ class iOSBackupParser:
 
             if domain_filter:
                 if '*' in domain_filter:
-                    query += ' AND domain LIKE ?'
-                    params.append(domain_filter.replace('*', '%'))
+                    query += " AND domain LIKE ? ESCAPE '\\'"
+                    escaped = domain_filter.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                    params.append(escaped.replace('*', '%'))
                 else:
                     query += ' AND domain = ?'
                     params.append(domain_filter)
 
             if path_pattern:
                 if '*' in path_pattern:
-                    query += ' AND relativePath LIKE ?'
-                    params.append(path_pattern.replace('*', '%'))
+                    query += " AND relativePath LIKE ? ESCAPE '\\'"
+                    escaped = path_pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                    params.append(escaped.replace('*', '%'))
                 else:
                     query += ' AND relativePath = ?'
                     params.append(path_pattern)
@@ -1724,6 +1727,17 @@ class iOSDeviceConnector:
 
         # Timeout for all change_password() calls (seconds)
         self._CHANGE_PASSWORD_TIMEOUT = 15
+
+    def _clear_password(self):
+        """Zero-out and release the forensic backup password from memory."""
+        pw = self._forensic_backup_password
+        if pw and isinstance(pw, str):
+            try:
+                # Best-effort: overwrite CPython string internal buffer
+                ctypes.memset(ctypes.c_char_p(pw.encode('utf-8')), 0, len(pw))
+            except Exception:
+                pass
+        self._forensic_backup_password = None
 
     @staticmethod
     def is_available() -> Dict[str, Any]:
@@ -2132,12 +2146,12 @@ class iOSDeviceConnector:
                     else:
                         logger.warning("[iOS] Failed to enable encryption, proceeding unencrypted")
                         self._encryption_action = None
-                        self._forensic_backup_password = None
+                        self._clear_password()
                 else:
                     # User skipped → proceed unencrypted
                     logger.info("[iOS] User skipped encryption, proceeding unencrypted")
                     self._encryption_action = None
-                    self._forensic_backup_password = None
+                    self._clear_password()
             else:
                 # Encryption already ON → ask user for existing password
                 logger.info("[iOS] Encryption already ON — requesting existing password")
@@ -2210,7 +2224,7 @@ class iOSDeviceConnector:
                 else:
                     logger.warning("[iOS] Backup failed AND encryption restore failed")
                 self._encryption_action = None
-                self._forensic_backup_password = None
+                self._clear_password()
 
             yield '', {
                 'artifact_type': 'mobile_ios_device_backup',
@@ -2587,7 +2601,7 @@ class iOSDeviceConnector:
 
         self._lockdown = None
         self._backup_collector = None
-        self._forensic_backup_password = None
+        self._clear_password()
 
 
 class iOSCollector:

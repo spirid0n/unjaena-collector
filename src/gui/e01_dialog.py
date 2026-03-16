@@ -390,7 +390,7 @@ class E01SelectionDialog(QDialog):
         try:
             size = path.stat().st_size
             size_display = self._format_size(size)
-        except:
+        except OSError:
             size_display = "Unknown"
 
         # Update info

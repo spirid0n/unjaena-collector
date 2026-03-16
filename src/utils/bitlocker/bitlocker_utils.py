@@ -100,7 +100,7 @@ def _get_encryption_method_wmi(volume) -> str:
             8: "XTS-AES-256"
         }
         return methods.get(method_code, f"Unknown ({method_code})")
-    except:
+    except Exception:
         return "Unknown"
 
 
