@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-Device List Panel (Simplified)
+Device List Panel
 
-A compact UI for displaying device list.
+Displays detected devices and mobile connection status with
+beginner-friendly setup guidance.
 """
 
-from typing import Dict, Optional
+import sys
+from typing import Dict
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
-    QCheckBox, QLabel, QFrame, QPushButton, QFileDialog
+    QWidget, QVBoxLayout, QHBoxLayout,
+    QCheckBox, QLabel, QPushButton, QFileDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
 
 from core.device_manager import (
     UnifiedDeviceManager,
@@ -25,7 +26,7 @@ from gui.styles import COLORS
 
 class DeviceListPanel(QWidget):
     """
-    Compact device list panel
+    Device list panel with mobile connection guide.
     """
 
     selection_changed = pyqtSignal()
@@ -42,79 +43,53 @@ class DeviceListPanel(QWidget):
         """Setup UI"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
 
-        # Header row: buttons
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(4)
-        header_layout.setContentsMargins(0, 0, 0, 4)
+        # Header row
+        header = QHBoxLayout()
+        header.setSpacing(4)
+        header.setContentsMargins(0, 0, 0, 0)
 
-        # Refresh button
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedHeight(20)
         refresh_btn.clicked.connect(self._on_refresh_clicked)
-        header_layout.addWidget(refresh_btn)
+        header.addWidget(refresh_btn)
 
-        # Add image button
         add_btn = QPushButton("+ Add E01/RAW")
         add_btn.setFixedHeight(20)
         add_btn.clicked.connect(self._on_add_image_clicked)
-        header_layout.addWidget(add_btn)
+        header.addWidget(add_btn)
 
-        header_layout.addStretch()
+        header.addStretch()
 
-        # Selection summary
         self.summary_label = QLabel("0 selected")
-        self.summary_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 10px;")
-        header_layout.addWidget(self.summary_label)
+        self.summary_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 10px;"
+        )
+        header.addWidget(self.summary_label)
 
-        layout.addLayout(header_layout)
+        layout.addLayout(header)
 
-        # Scroll area (device list)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; }")
-
-        # Device list container
+        # Device list (no scroll — typically 1-5 items)
         self.devices_container = QWidget()
         self.devices_layout = QVBoxLayout(self.devices_container)
         self.devices_layout.setContentsMargins(0, 0, 0, 0)
         self.devices_layout.setSpacing(2)
+        layout.addWidget(self.devices_container)
 
-        # Empty state: connection guide (displayed when no devices)
-        self.empty_widget = QWidget()
-        self.empty_widget.setObjectName("emptyGuide")
-        empty_layout = QVBoxLayout(self.empty_widget)
-        empty_layout.setContentsMargins(4, 4, 4, 4)
-        empty_layout.setSpacing(4)
-
-        self.empty_label = QLabel("No devices detected")
-        self.empty_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
-        empty_layout.addWidget(self.empty_label)
-
-        # Build guide text from diagnostics
-        self.guide_label = QLabel()
-        self.guide_label.setWordWrap(True)
-        self.guide_label.setTextFormat(Qt.TextFormat.RichText)
-        self.guide_label.setOpenExternalLinks(False)
-        self.guide_label.setStyleSheet(
+        # Mobile connection guide (always visible)
+        self.mobile_guide = QLabel()
+        self.mobile_guide.setWordWrap(True)
+        self.mobile_guide.setTextFormat(Qt.TextFormat.RichText)
+        self.mobile_guide.setOpenExternalLinks(False)
+        self.mobile_guide.setStyleSheet(
             f"color: {COLORS['text_secondary']}; font-size: 9px; "
-            f"background: {COLORS['bg_secondary']}; "
+            f"background: {COLORS['bg_tertiary']}; "
             f"border: 1px solid {COLORS['border_subtle']}; "
             f"border-radius: 4px; padding: 6px;"
         )
-        empty_layout.addWidget(self.guide_label)
-
-        self._update_guide_text()
-        self.devices_layout.addWidget(self.empty_widget)
-
-        self.devices_layout.addStretch()
-
-        scroll.setWidget(self.devices_container)
-        scroll.setMinimumHeight(40)
-        layout.addWidget(scroll, 1)
+        self._update_mobile_guide()
+        layout.addWidget(self.mobile_guide)
 
     def _connect_signals(self):
         """Connect signals"""
@@ -122,8 +97,12 @@ class DeviceListPanel(QWidget):
         self.device_manager.device_removed.connect(self._on_device_removed)
         self.device_manager.device_updated.connect(self._on_device_updated)
 
-    def _update_guide_text(self):
-        """Build connection guide from prerequisite diagnostics"""
+    # =========================================================================
+    # Mobile Connection Guide
+    # =========================================================================
+
+    def _update_mobile_guide(self):
+        """Build beginner-friendly mobile connection guide."""
         try:
             diag = diagnose_device_prerequisites()
         except Exception:
@@ -132,65 +111,138 @@ class DeviceListPanel(QWidget):
                 'android': {'adb_available': False},
             }
 
-        lines = []
-
-        # iOS guide
-        ios = diag['ios']
-        if not ios['driver_installed']:
-            lines.append(
-                "<b>iOS</b>: Install <b>iTunes</b> or <b>Apple Devices</b> app first"
-            )
-        elif not ios['library_available']:
-            lines.append(
-                "<b>iOS</b>: Driver found, but connection library unavailable"
-            )
-        else:
-            lines.append(
-                '<b>iOS</b>: Unlock device → tap <b>"Trust This Computer"</b>'
-            )
-
-        # Android guide
-        adb = diag['android']
-        if not adb['adb_available']:
-            lines.append(
-                "<b>Android</b>: Enable <b>USB Debugging</b> in Developer Options"
-            )
-        else:
-            lines.append(
-                '<b>Android</b>: Allow <b>"USB Debugging"</b> on device screen'
-            )
-
-        tertiary = COLORS['text_tertiary']
-        lines.append(
-            f"<span style='color:{tertiary};'>"
-            "Use <b>+ Add E01/RAW</b> for forensic image files</span>"
+        has_ios = any(
+            did.startswith('ios_') for did in self.device_checkboxes
+        )
+        has_android = any(
+            did.startswith('android_') for did in self.device_checkboxes
         )
 
-        self.guide_label.setText("<br>".join(lines))
+        ok = COLORS['success']       # #3fb950
+        warn = COLORS['warning']     # #d29922
+        err = COLORS['error']        # #f85149
+        dim = COLORS['text_tertiary']
+
+        sections = []
+
+        # --- iOS ---
+        ios = diag['ios']
+        if has_ios:
+            sections.append(
+                f"<span style='color:{ok};'>● iOS — Connected</span>"
+            )
+        elif not ios['driver_installed']:
+            steps = self._ios_install_steps()
+            sections.append(
+                f"<span style='color:{err};'>● iOS — Setup Required</span>"
+                f"<br><span style='color:{dim};'>{steps}</span>"
+            )
+        elif not ios['library_available']:
+            sections.append(
+                f"<span style='color:{err};'>● iOS — Library Unavailable</span>"
+                f"<br><span style='color:{dim};'>"
+                "Reinstall the collector or run: pip install pymobiledevice3"
+                "</span>"
+            )
+        else:
+            sections.append(
+                f"<span style='color:{warn};'>● iOS — Ready</span>"
+                f"<br><span style='color:{dim};'>"
+                "1. Connect iPhone/iPad via USB cable<br>"
+                "2. Unlock the device<br>"
+                '3. Tap <b>"Trust"</b> when prompted on the device screen'
+                "</span>"
+            )
+
+        # --- Android ---
+        adb = diag['android']
+        if has_android:
+            sections.append(
+                f"<span style='color:{ok};'>● Android — Connected</span>"
+            )
+        elif not adb['adb_available']:
+            sections.append(
+                f"<span style='color:{err};'>● Android — Setup Required</span>"
+                f"<br><span style='color:{dim};'>"
+                "On the Android device:<br>"
+                "1. <b>Settings</b> > <b>About Phone</b> > "
+                "tap <b>Build Number</b> 7 times<br>"
+                "2. <b>Settings</b> > <b>Developer Options</b> > "
+                "enable <b>USB Debugging</b><br>"
+                "3. Connect via USB and tap <b>Allow</b> on the device"
+                "</span>"
+            )
+        else:
+            sections.append(
+                f"<span style='color:{warn};'>● Android — Ready</span>"
+                f"<br><span style='color:{dim};'>"
+                "1. Connect the device via USB cable<br>"
+                '2. Tap <b>"Allow USB Debugging"</b> on the device screen'
+                "</span>"
+            )
+
+        # --- E01/RAW hint ---
+        sections.append(
+            f"<span style='color:{dim};'>"
+            "● <b>E01/RAW</b>: Use <b>+ Add E01/RAW</b> button above"
+            "</span>"
+        )
+
+        self.mobile_guide.setText(
+            "<br>".join(sections)
+        )
+
+    @staticmethod
+    def _ios_install_steps() -> str:
+        """Return iOS driver install steps based on OS."""
+        if sys.platform == 'win32':
+            return (
+                "iTunes is required for iOS connection:<br>"
+                "1. Open <b>Microsoft Store</b> and search "
+                "<b>\"Apple Devices\"</b><br>"
+                "2. Install and restart this collector<br>"
+                "3. Connect iPhone/iPad via USB cable<br>"
+                '4. Tap <b>"Trust"</b> on the device screen'
+            )
+        elif sys.platform == 'darwin':
+            return (
+                "On macOS 10.15+, iOS support is built-in.<br>"
+                "1. Connect iPhone/iPad via USB cable<br>"
+                '2. Tap <b>"Trust"</b> on the device screen<br>'
+                "If not detected: install Xcode Command Line Tools"
+            )
+        else:
+            return (
+                "Install required packages:<br>"
+                "1. <b>sudo apt install libimobiledevice-utils "
+                "usbmuxd</b><br>"
+                "2. <b>sudo systemctl start usbmuxd</b><br>"
+                "3. Connect iPhone/iPad via USB cable<br>"
+                '4. Tap <b>"Trust"</b> on the device screen'
+            )
+
+    # =========================================================================
+    # Device Events
+    # =========================================================================
 
     def _on_device_added(self, device: UnifiedDeviceInfo):
         """Device added"""
         if device.device_id in self.device_checkboxes:
             return
 
-        # Hide empty state widget
-        self.empty_widget.hide()
-
-        # Create checkbox
         cb = QCheckBox(self._get_device_label(device))
         cb.setChecked(device.is_selected)
         cb.setEnabled(device.is_selectable)
         cb.setProperty("device_id", device.device_id)
-        cb.stateChanged.connect(lambda state, d=device.device_id: self._on_checkbox_changed(d, state))
-
-        # Tooltip
+        cb.stateChanged.connect(
+            lambda state, d=device.device_id: self._on_checkbox_changed(d, state)
+        )
         cb.setToolTip(self._get_device_tooltip(device))
 
         self.device_checkboxes[device.device_id] = cb
-
-        # Insert before stretch
-        self.devices_layout.insertWidget(self.devices_layout.count() - 1, cb)
+        self.devices_layout.addWidget(cb)
         self._update_summary()
+        self._update_mobile_guide()
 
     def _on_device_removed(self, device_id: str):
         """Device removed"""
@@ -199,11 +251,7 @@ class DeviceListPanel(QWidget):
             self.devices_layout.removeWidget(cb)
             cb.deleteLater()
             self._update_summary()
-
-            # Show empty state guide if no devices
-            if not self.device_checkboxes:
-                self._update_guide_text()
-                self.empty_widget.show()
+            self._update_mobile_guide()
 
     def _on_device_updated(self, device: UnifiedDeviceInfo):
         """Device updated"""
@@ -222,6 +270,7 @@ class DeviceListPanel(QWidget):
     def _on_refresh_clicked(self):
         """Refresh"""
         self.device_manager.refresh()
+        self._update_mobile_guide()
 
     def _on_add_image_clicked(self):
         """Add image"""
@@ -229,13 +278,17 @@ class DeviceListPanel(QWidget):
             self,
             "Select Forensic Image",
             "",
-            "Forensic Images (*.E01 *.e01 *.Ex01 *.dd *.raw *.img *.bin);;All Files (*)"
+            "Forensic Images (*.E01 *.e01 *.Ex01 *.dd *.raw *.img *.bin)"
+            ";;All Files (*)"
         )
-
         if file_path:
             device = self.device_manager.add_image_file(file_path)
             if device:
                 self.image_file_requested.emit()
+
+    # =========================================================================
+    # Display Helpers
+    # =========================================================================
 
     def _update_summary(self):
         """Update selection summary"""
@@ -251,29 +304,26 @@ class DeviceListPanel(QWidget):
             DeviceType.RAW_IMAGE: "📀",
             DeviceType.ANDROID_DEVICE: "📱",
             DeviceType.IOS_BACKUP: "🍎",
-            DeviceType.IOS_DEVICE: "📲",  # [2026-01-30] iOS USB direct connection
+            DeviceType.IOS_DEVICE: "📲",
         }
         icon = type_icons.get(device.device_type, "📁")
         label = device.display_name
 
-        # [2026-02-15] Display volume letter(s) for Windows physical disks
         if device.device_type == DeviceType.WINDOWS_PHYSICAL_DISK:
             all_volumes = device.metadata.get('all_volumes', [])
             if all_volumes:
                 volumes_str = ', '.join(f"{v}:" for v in all_volumes)
                 label = f"{label} [{volumes_str}]"
 
-        # [New] Display detected OS for E01/RAW images
         if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
             detected_os = device.metadata.get('detected_os', 'unknown')
             fs_type = device.metadata.get('filesystem_type', 'Unknown')
-
-            if detected_os == 'windows':
-                label = f"{label} [Win/{fs_type}]"
-            elif detected_os == 'linux':
-                label = f"{label} [Linux/{fs_type}]"
-            elif detected_os == 'macos':
-                label = f"{label} [macOS/{fs_type}]"
+            os_labels = {
+                'windows': 'Win', 'linux': 'Linux', 'macos': 'macOS'
+            }
+            os_tag = os_labels.get(detected_os)
+            if os_tag:
+                label = f"{label} [{os_tag}/{fs_type}]"
             elif detected_os != 'unknown':
                 label = f"{label} [{detected_os}/{fs_type}]"
 
@@ -287,13 +337,11 @@ class DeviceListPanel(QWidget):
             f"Status: {device.status.name}",
         ]
 
-        # [New] Add OS info and direct collection note for E01/RAW images
         if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
             detected_os = device.metadata.get('detected_os', 'unknown')
             fs_type = device.metadata.get('filesystem_type', 'Unknown')
             lines.append(f"Filesystem: {fs_type}")
             lines.append(f"Detected OS: {detected_os.upper()}")
-            lines.append("✅ Direct collection supported (no mount required)")
 
         if not device.is_selectable:
             lines.append(f"⚠ {device.selection_disabled_reason}")

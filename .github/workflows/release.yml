@@ -35,7 +35,7 @@ jobs:
       - name: Prepare config with version
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
           import json
           with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
@@ -51,7 +51,7 @@ jobs:
         working-directory: dist
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           mv IntelligenceCollector.exe "IntelligenceCollector-${VERSION}-windows-x64.exe"
 
       - name: Upload artifact
@@ -86,7 +86,7 @@ jobs:
 
       - name: Prepare config with version
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
           import json
           with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
@@ -101,7 +101,7 @@ jobs:
       - name: Package tar.gz
         working-directory: dist
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           chmod +x IntelligenceCollector
           tar czf "IntelligenceCollector-${VERSION}-linux-x64.tar.gz" IntelligenceCollector
 
@@ -133,7 +133,7 @@ jobs:
 
       - name: Prepare config with version
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           python3 -c "
           import json
           with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
@@ -148,7 +148,7 @@ jobs:
       - name: Create DMG
         working-directory: dist
         run: |
-          VERSION="${GITHUB_REF_NAME#collector-}"
+          VERSION="${GITHUB_REF_NAME#collector-v}"
           DMG_NAME="IntelligenceCollector-${VERSION}-macos-arm64.dmg"
 
           if [ -d "IntelligenceCollector.app" ]; then
