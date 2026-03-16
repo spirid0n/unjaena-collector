@@ -1855,6 +1855,14 @@ class iOSDeviceConnector:
             return False
 
         if result_box['success']:
+            # Reconnect lockdown — change_password() invalidates the session
+            try:
+                import time
+                time.sleep(1)  # Let iOS backup daemon restart
+                self._lockdown = create_using_usbmux(serial=self.udid)
+                logger.info("[iOS] Lockdown reconnected after change_password()")
+            except Exception as e:
+                logger.warning(f"[iOS] Lockdown reconnect failed after change_password(): {e}")
             return True
 
         logger.info(f"[iOS] change_password() failed: {result_box['error']}")
@@ -2111,6 +2119,15 @@ class iOSDeviceConnector:
                 'artifact_type': 'mobile_ios_device_backup',
                 'status': 'error',
                 'error': 'pymobiledevice3 not installed',
+            }
+            return
+
+        # Skip if backup already failed (prevents repeated password dialogs)
+        if self._backup_failed_reason:
+            yield '', {
+                'artifact_type': 'mobile_ios_device_backup',
+                'status': 'error',
+                'error': self._backup_failed_reason,
             }
             return
 
@@ -2548,10 +2565,7 @@ class iOSDeviceConnector:
                     pass
 
             if is_encrypted and not self._encrypted_backup_obj:
-                forensic_pw = _derive_forensic_password(self.udid) if self.udid else None
-                if forensic_pw:
-                    self._forensic_backup_password = forensic_pw
-                    self._encryption_action = 'was_already_on'
+                # Encrypted backup reuse requires password from current session
                 if self._forensic_backup_password:
                     self._init_encrypted_decryptor(str(backup_dir), progress_callback)
 
