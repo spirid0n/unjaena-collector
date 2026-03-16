@@ -262,7 +262,7 @@ class ConsentDialog(QDialog):
     def _apply_fallback_template(self):
         """Apply offline fallback template"""
         self.template_id = None
-        self.template_version = "offline-2.0"
+        self.template_version = "offline-2.1"
         self.template_content = self._get_consent_html()
 
         # Header text (by language)
@@ -554,14 +554,16 @@ class ConsentDialog(QDialog):
         td = self._consent_td_style()
         th = self._consent_th_style()
         return self._consent_html_wrapper(f"""
+        <div style="margin-bottom:12px; padding:8px; background:{COLORS['bg_secondary']}; border-radius:4px; font-size:11px; color:{COLORS['text_secondary']};">
+            Version: v2.1 | Effective: 2026-03-16 | unJaena AI</div>
         <h3 style="color: {COLORS['brand_primary']}; border-bottom: 2px solid {COLORS['brand_primary']}; padding-bottom: 8px;">
             1. Personal Information Collection and Use Consent</h3>
         <table style="{self._consent_table_style()}">
             <tr><th style="{th}; width:25%;">Item</th><th style="{th}">Description</th></tr>
             <tr><td style="{td}"><b>Collection Purpose</b></td><td style="{td}">Digital intelligence analysis, security incident investigation, evidence acquisition, AI-based anomaly detection</td></tr>
             <tr><td style="{td}"><b>Collection Items</b></td><td style="{td}"><b>[System]</b> Prefetch, Amcache, UserAssist, Event logs, Registry, MFT, USN Journal<br><b>[User Activity]</b> Browser history, USB history, Recycle Bin, Shortcuts, Jump lists<br><b>[Documents/Email]</b> Office documents, PDF, HWP, Email (pst/ost/eml/msg)</td></tr>
-            <tr><td style="{td}"><b>Retention Period</b></td><td style="{td}"><b>30 days</b> after case closure (automatically deleted)</td></tr>
-            <tr><td style="{td}"><b>Processing Method</b></td><td style="{td}">SHA-256 hash verification, TLS 1.3 encryption, AES-256-GCM storage, Chain of Custody</td></tr>
+            <tr><td style="{td}"><b>Retention Period</b></td><td style="{td}"><b>30 days</b> after case closure (automatically deleted). Retention may be extended using credits via the web platform.</td></tr>
+            <tr><td style="{td}"><b>Processing Method</b></td><td style="{td}">SHA-256 hash verification, TLS 1.3 encryption, AES-256-GCM storage, Evidence Integrity Tracking. While we apply industry-leading security measures, absolute security over internet transmission is technically impossible.</td></tr>
             <tr><td style="{td}"><b>Right to Refuse</b></td><td style="{td}">You have the right to refuse consent. If you refuse, data collection and analysis services cannot be provided.</td></tr>
         </table>
 
@@ -574,7 +576,7 @@ class ConsentDialog(QDialog):
         <h3 style="color: {COLORS['brand_accent']}; border-bottom: 2px solid {COLORS['brand_accent']}; padding-bottom: 8px;">
             3. AI Analysis and Automated Decision-Making Notice</h3>
         <p style="background: rgba(212,165,116,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['brand_accent']};">
-            <b>Notice pursuant to applicable AI and privacy regulations</b></p>
+            <b>Notice pursuant to applicable AI and privacy regulations (PIPA Art. 37-2, GDPR Art. 22)</b></p>
         <ul>
             <li><b>AI Usage:</b> Pattern recognition, anomaly detection, correlation analysis, automated report generation.</li>
             <li><b>Automated Decisions:</b> AI identifies suspicious activity, malware indicators, etc. for <u>reference only</u>.</li>
@@ -605,7 +607,17 @@ class ConsentDialog(QDialog):
             <li><b>Corporate investigation:</b> Legal team review and labor law compliance required.</li>
         </ul>
         <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
-            <b>Disclaimer:</b> unJaena AI is not liable for damages from AI analysis errors. However, this does not apply to damages caused by willful misconduct or gross negligence. All liability for unauthorized collection rests with the user.</p>
+            <b>Disclaimer:</b> unJaena AI does not guarantee the accuracy, completeness, or reliability of collected data or AI analysis results. Metadata timestamps may not reflect actual events due to system clock variations or file system behavior. unJaena AI is not liable for damages from AI analysis errors. However, this does not apply to damages caused by willful misconduct or gross negligence. All liability for unauthorized collection rests with the user.</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            6. Age Restriction</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            This service is intended for users aged <b>16 or older</b>. Users under 16 require consent from a parent or legal guardian. Users under 13 may not use this service under any circumstances (COPPA).</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            7. Governing Law &amp; Jurisdiction</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            This agreement and all disputes arising from the use of this service shall be governed by the laws of the <b>Republic of Korea</b>. The <b>Seoul Central District Court</b> shall have exclusive jurisdiction over any disputes.</p>
         """)
 
     def _get_consent_html_ko(self) -> str:
@@ -613,14 +625,16 @@ class ConsentDialog(QDialog):
         td = self._consent_td_style()
         th = self._consent_th_style()
         return self._consent_html_wrapper(f"""
+        <div style="margin-bottom:12px; padding:8px; background:{COLORS['bg_secondary']}; border-radius:4px; font-size:11px; color:{COLORS['text_secondary']};">
+            버전: v2.1 | 시행일: 2026-03-16 | unJaena AI</div>
         <h3 style="color: {COLORS['brand_primary']}; border-bottom: 2px solid {COLORS['brand_primary']}; padding-bottom: 8px;">
             1. 개인정보 수집·이용 동의</h3>
         <table style="{self._consent_table_style()}">
             <tr><th style="{th}; width:25%;">항목</th><th style="{th}">내용</th></tr>
-            <tr><td style="{td}"><b>수집 목적</b></td><td style="{td}">디지털 인텔리전스 분석, 보안 사고 조사, 데이터 확보, AI 기반 이상 탐지</td></tr>
+            <tr><td style="{td}"><b>수집 목적</b></td><td style="{td}">디지털 인텔리전스 분석, 보안 사고 조사, 증거 확보, AI 기반 이상 탐지</td></tr>
             <tr><td style="{td}"><b>수집 항목</b></td><td style="{td}"><b>[시스템]</b> Prefetch, Amcache, UserAssist, 이벤트 로그, 레지스트리, MFT, USN Journal<br><b>[사용자 활동]</b> 브라우저 기록, USB 연결 기록, 휴지통, 바로가기, 점프 목록<br><b>[문서/이메일]</b> Office 문서, PDF, HWP, 이메일 (pst/ost/eml/msg)</td></tr>
-            <tr><td style="{td}"><b>보관 기간</b></td><td style="{td}"><b>30일</b> (케이스 종료 후 자동 삭제)</td></tr>
-            <tr><td style="{td}"><b>처리 방법</b></td><td style="{td}">SHA-256 해시 검증, TLS 1.3 암호화 통신, AES-256-GCM 암호화 저장, Chain of Custody</td></tr>
+            <tr><td style="{td}"><b>보관 기간</b></td><td style="{td}"><b>30일</b> (케이스 종료 후 자동 삭제). 웹 플랫폼에서 크레딧을 사용하여 보관 기간을 연장할 수 있습니다.</td></tr>
+            <tr><td style="{td}"><b>처리 방법</b></td><td style="{td}">SHA-256 해시 검증, TLS 1.3 암호화 통신, AES-256-GCM 암호화 저장, 증거 무결성 추적(Evidence Integrity Tracking). 업계 최고 수준의 보안 조치를 적용하고 있으나, 인터넷 전송 환경에서 절대적인 보안은 기술적으로 불가능합니다.</td></tr>
             <tr><td style="{td}"><b>동의 거부권</b></td><td style="{td}">귀하는 동의를 거부할 권리가 있습니다. 동의를 거부하실 경우 데이터 수집 및 분석 서비스 이용이 불가합니다.</td></tr>
         </table>
 
@@ -664,7 +678,17 @@ class ConsentDialog(QDialog):
             <li><b>기업 내부 조사:</b> 법무팀 검토 및 노동법 준수가 필요합니다</li>
         </ul>
         <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
-            <b>면책:</b> AI 분석 결과의 오류로 인한 손해에 대해 unJaena AI는 책임지지 않습니다. 단, 고의 또는 중대한 과실로 인한 손해는 제외합니다. 무단 수집에 대한 법적 책임은 사용자에게 있습니다.</p>
+            <b>면책:</b> unJaena AI는 수집된 데이터 또는 AI 분석 결과의 정확성, 완전성, 신뢰성을 보증하지 않습니다. 메타데이터 타임스탬프는 시스템 시계 변동이나 파일 시스템 동작으로 인해 실제 이벤트를 반영하지 않을 수 있습니다. AI 분석 결과의 오류로 인한 손해에 대해 unJaena AI는 책임지지 않습니다. 단, 고의 또는 중대한 과실로 인한 손해는 제외합니다. 무단 수집에 대한 법적 책임은 사용자에게 있습니다.</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            6. 연령 제한</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            본 서비스는 <b>만 16세 이상</b>의 사용자를 대상으로 합니다. 만 16세 미만은 부모 또는 법정 대리인의 동의가 필요합니다. 만 13세 미만은 어떠한 경우에도 본 서비스를 이용할 수 없습니다 (COPPA).</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            7. 준거법 및 관할법원</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            본 동의서 및 서비스 이용과 관련된 모든 분쟁은 <b>대한민국 법률</b>에 따라 해석되며, <b>서울중앙지방법원</b>을 전속 관할법원으로 합니다.</p>
         """)
 
     def _get_consent_html_ja(self) -> str:
@@ -672,14 +696,16 @@ class ConsentDialog(QDialog):
         td = self._consent_td_style()
         th = self._consent_th_style()
         return self._consent_html_wrapper(f"""
+        <div style="margin-bottom:12px; padding:8px; background:{COLORS['bg_secondary']}; border-radius:4px; font-size:11px; color:{COLORS['text_secondary']};">
+            バージョン: v2.1 | 施行日: 2026-03-16 | unJaena AI</div>
         <h3 style="color: {COLORS['brand_primary']}; border-bottom: 2px solid {COLORS['brand_primary']}; padding-bottom: 8px;">
             1. 個人情報の収集・利用に関する同意</h3>
         <table style="{self._consent_table_style()}">
             <tr><th style="{th}; width:25%;">項目</th><th style="{th}">内容</th></tr>
-            <tr><td style="{td}"><b>収集目的</b></td><td style="{td}">デジタルインテリジェンス分析、セキュリティインシデント調査、データ取得、AI異常検知</td></tr>
-            <tr><td style="{td}"><b>収集項目</b></td><td style="{td}"><b>[システム]</b> Prefetch、Amcache、UserAssist、イベントログ、レジストリ、MFT、USN Journal<br><b>[ユーザー活動]</b> ブラウザ履歴、USB接続履歴、ごみ箱、ショートカット、ジャンプリスト<br><b>[文書/メール]</b> Office文書、PDF、HWP、メール</td></tr>
-            <tr><td style="{td}"><b>保存期間</b></td><td style="{td}"><b>30日間</b>（ケース終了後自動削除）</td></tr>
-            <tr><td style="{td}"><b>処理方法</b></td><td style="{td}">SHA-256ハッシュ検証、TLS 1.3暗号化通信、AES-256-GCM暗号化保存</td></tr>
+            <tr><td style="{td}"><b>収集目的</b></td><td style="{td}">デジタルインテリジェンス分析、セキュリティインシデント調査、証拠取得、AI異常検知</td></tr>
+            <tr><td style="{td}"><b>収集項目</b></td><td style="{td}"><b>[システム]</b> Prefetch、Amcache、UserAssist、イベントログ、レジストリ、MFT、USN Journal<br><b>[ユーザー活動]</b> ブラウザ履歴、USB接続履歴、ごみ箱、ショートカット、ジャンプリスト<br><b>[文書/メール]</b> Office文書、PDF、HWP、メール（pst/ost/eml/msg）</td></tr>
+            <tr><td style="{td}"><b>保存期間</b></td><td style="{td}"><b>30日間</b>（ケース終了後自動削除）。Webプラットフォームでクレジットを使用して保存期間を延長できます。</td></tr>
+            <tr><td style="{td}"><b>処理方法</b></td><td style="{td}">SHA-256ハッシュ検証、TLS 1.3暗号化通信、AES-256-GCM暗号化保存、証拠完全性追跡（Evidence Integrity Tracking）。業界最高水準のセキュリティ対策を講じていますが、インターネット通信における絶対的なセキュリティは技術的に不可能です。</td></tr>
             <tr><td style="{td}"><b>同意拒否権</b></td><td style="{td}">同意を拒否する権利があります。拒否された場合、データ収集・分析サービスをご利用いただけません。</td></tr>
         </table>
 
@@ -691,10 +717,13 @@ class ConsentDialog(QDialog):
 
         <h3 style="color: {COLORS['brand_accent']}; border-bottom: 2px solid {COLORS['brand_accent']}; padding-bottom: 8px;">
             3. AI分析および自動化された意思決定に関する告知</h3>
+        <p style="background: rgba(212,165,116,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['brand_accent']};">
+            <b>個人情報保護法および関連するAI規制に基づく告知</b></p>
         <ul>
             <li><b>AI使用：</b>パターン認識、異常検知、相関分析、自動レポート生成</li>
             <li><b>自動判定：</b>不審な活動、マルウェア指標等をAIが自動判定（<u>参考用</u>）</li>
-            <li><b>制限事項：</b>誤検知、検知漏れ、ハルシネーションが発生する可能性があります</li>
+            <li><b>制限事項：</b>誤検知（False Positive）、検知漏れ（False Negative）、ハルシネーション（Hallucination）が発生する可能性があります</li>
+            <li style="color: {COLORS['error']};"><b>法的リスク：</b>AI分析結果に基づく法的措置は紛争を招く可能性があります。必ず専門家にご相談ください</li>
             <li><b>権利：</b>拒否権、説明要求権、人的介入要求権を行使できます</li>
         </ul>
 
@@ -719,6 +748,18 @@ class ConsentDialog(QDialog):
             <li><b>他人のシステム：</b>システム所有者の書面による同意または法的根拠（令状等）が必要です</li>
             <li><b>企業内部調査：</b>法務チームの検証および労働法の遵守が必要です</li>
         </ul>
+        <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
+            <b>免責事項：</b>unJaena AIは、収集されたデータまたはAI分析結果の正確性、完全性、信頼性を保証しません。メタデータのタイムスタンプは、システムクロックの変動やファイルシステムの動作により、実際のイベントを反映していない場合があります。AI分析結果の誤りに起因する損害について、unJaena AIは責任を負いません。ただし、故意または重大な過失による損害は除きます。無断でのデータ収集に起因するすべての法的責任は利用者が負うものとします。</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            6. 年齢制限</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            本サービスは<b>16歳以上</b>のユーザーを対象としています。16歳未満の方は、保護者または法定代理人の同意が必要です。13歳未満の方は、いかなる場合も本サービスをご利用いただけません（COPPA）。</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            7. 準拠法および管轄裁判所</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            本同意書およびサービス利用に関するすべての紛争は、<b>大韓民国の法律</b>に従い解釈され、<b>ソウル中央地方裁判所</b>を専属管轄裁判所とします。</p>
         """)
 
     def _get_consent_html_zh(self) -> str:
@@ -726,14 +767,16 @@ class ConsentDialog(QDialog):
         td = self._consent_td_style()
         th = self._consent_th_style()
         return self._consent_html_wrapper(f"""
+        <div style="margin-bottom:12px; padding:8px; background:{COLORS['bg_secondary']}; border-radius:4px; font-size:11px; color:{COLORS['text_secondary']};">
+            版本: v2.1 | 生效日期: 2026-03-16 | unJaena AI</div>
         <h3 style="color: {COLORS['brand_primary']}; border-bottom: 2px solid {COLORS['brand_primary']}; padding-bottom: 8px;">
             1. 个人信息收集和使用同意</h3>
         <table style="{self._consent_table_style()}">
             <tr><th style="{th}; width:25%;">项目</th><th style="{th}">说明</th></tr>
-            <tr><td style="{td}"><b>收集目的</b></td><td style="{td}">数字智能分析、安全事件调查、数据获取、基于AI的异常检测</td></tr>
-            <tr><td style="{td}"><b>收集项目</b></td><td style="{td}"><b>[系统]</b> Prefetch、Amcache、UserAssist、事件日志、注册表、MFT、USN Journal<br><b>[用户活动]</b> 浏览器历史、USB连接记录、回收站、快捷方式、跳转列表<br><b>[文档/邮件]</b> Office文档、PDF、HWP、邮件</td></tr>
-            <tr><td style="{td}"><b>保留期限</b></td><td style="{td}"><b>30天</b>（案件结束后自动删除）</td></tr>
-            <tr><td style="{td}"><b>处理方法</b></td><td style="{td}">SHA-256哈希验证、TLS 1.3加密通信、AES-256-GCM加密存储</td></tr>
+            <tr><td style="{td}"><b>收集目的</b></td><td style="{td}">数字智能分析、安全事件调查、证据获取、基于AI的异常检测</td></tr>
+            <tr><td style="{td}"><b>收集项目</b></td><td style="{td}"><b>[系统]</b> Prefetch、Amcache、UserAssist、事件日志、注册表、MFT、USN Journal<br><b>[用户活动]</b> 浏览器历史、USB连接记录、回收站、快捷方式、跳转列表<br><b>[文档/邮件]</b> Office文档、PDF、HWP、邮件（pst/ost/eml/msg）</td></tr>
+            <tr><td style="{td}"><b>保留期限</b></td><td style="{td}"><b>30天</b>（案件结束后自动删除）。可通过Web平台使用积分延长保留期限。</td></tr>
+            <tr><td style="{td}"><b>处理方法</b></td><td style="{td}">SHA-256哈希验证、TLS 1.3加密通信、AES-256-GCM加密存储、证据完整性追踪（Evidence Integrity Tracking）。我们采用业界领先的安全措施，但互联网传输环境下的绝对安全在技术上是不可能的。</td></tr>
             <tr><td style="{td}"><b>拒绝同意权</b></td><td style="{td}">您有权拒绝同意。拒绝后将无法使用数据收集和分析服务。</td></tr>
         </table>
 
@@ -745,10 +788,13 @@ class ConsentDialog(QDialog):
 
         <h3 style="color: {COLORS['brand_accent']}; border-bottom: 2px solid {COLORS['brand_accent']}; padding-bottom: 8px;">
             3. AI分析及自动化决策告知</h3>
+        <p style="background: rgba(212,165,116,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['brand_accent']};">
+            <b>根据适用的AI及隐私保护相关法规的告知</b></p>
         <ul>
             <li><b>AI使用：</b>模式识别、异常检测、关联分析、自动报告生成</li>
             <li><b>自动判断：</b>AI自动识别可疑活动、恶意软件指标等（<u>仅供参考</u>）</li>
-            <li><b>局限性：</b>可能出现误报、漏报和AI幻觉</li>
+            <li><b>局限性：</b>可能出现误报（False Positive）、漏报（False Negative）和AI幻觉（Hallucination）</li>
+            <li style="color: {COLORS['error']};"><b>法律风险：</b>基于AI分析结果采取法律行动可能引发争议。请务必咨询专业人士</li>
             <li><b>您的权利：</b>拒绝权、解释请求权、人工干预请求权</li>
         </ul>
 
@@ -773,6 +819,18 @@ class ConsentDialog(QDialog):
             <li><b>他人系统：</b>需要系统所有者的书面同意或法律依据（搜查令等）</li>
             <li><b>企业内部调查：</b>需要法务团队审查及劳动法合规</li>
         </ul>
+        <p style="background: rgba(100,100,100,0.2); padding: 12px; border-radius: 8px; margin-top: 12px;">
+            <b>免责声明：</b>unJaena AI不保证所收集数据或AI分析结果的准确性、完整性或可靠性。元数据时间戳可能因系统时钟偏差或文件系统行为而无法反映实际事件。对于因AI分析结果错误导致的损失，unJaena AI不承担责任。但因故意或重大过失造成的损失除外。因未经授权收集数据而产生的所有法律责任由用户自行承担。</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            6. 年龄限制</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            本服务面向<b>16周岁及以上</b>用户。16周岁以下用户需获得父母或法定监护人的同意。13周岁以下用户在任何情况下均不得使用本服务（COPPA）。</p>
+
+        <h3 style="color: {COLORS['text_secondary']}; border-bottom: 2px solid {COLORS['text_secondary']}; padding-bottom: 8px;">
+            7. 准据法及管辖法院</h3>
+        <p style="background: rgba(100,100,100,0.15); padding: 12px; border-radius: 8px; border-left: 4px solid {COLORS['text_secondary']};">
+            本同意书及因使用本服务产生的所有争议，适用<b>大韩民国法律</b>，由<b>首尔中央地方法院</b>专属管辖。</p>
         """)
 
     def _update_button_state(self):
