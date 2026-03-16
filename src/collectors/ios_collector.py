@@ -124,48 +124,35 @@ def _sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+# Session-scoped HMAC key: generated once per process, never persisted to disk.
+# The key is only used locally to derive iOS backup passwords — it is never
+# transmitted to the server (uploads use a server-provided DEK).
+_session_hmac_key: Optional[bytes] = None
+
+
 def _get_hmac_key() -> bytes:
     """
-    Load HMAC key for forensic backup password derivation.
+    Get HMAC key for forensic backup password derivation.
+
+    The key exists only in memory for the duration of the collection session.
+    It is never written to disk or transmitted to the server.
 
     Priority:
       1. Environment variable COLLECTOR_HMAC_KEY (for CI / production)
-      2. Auto-generated local key (for end-user convenience)
-
-    The auto-generated key is persisted to ~/.collector/hmac_key so the
-    same password is derived on subsequent runs (crash recovery).
+      2. Per-session random key (generated once, lives in memory only)
     """
-    # 1. Environment variable (highest priority)
+    global _session_hmac_key
+
+    # 1. Environment variable (for CI / managed deployments)
     env_key = os.environ.get('COLLECTOR_HMAC_KEY')
     if env_key:
         return env_key.encode()
 
-    # 2. Auto-generate and persist locally
-    import secrets
-    key_dir = Path.home() / '.collector'
-    key_file = key_dir / 'hmac_key'
-
-    try:
-        if key_file.exists():
-            stored = key_file.read_text(encoding='utf-8').strip()
-            if stored:
-                return stored.encode()
-    except Exception:
-        pass
-
-    # Generate new key
-    try:
-        key_dir.mkdir(parents=True, exist_ok=True)
-        new_key = secrets.token_hex(32)
-        key_file.write_text(new_key, encoding='utf-8')
-        _debug_print(f"[iOS] Generated HMAC key: {key_file}")
-        return new_key.encode()
-    except Exception as e:
-        # Last resort: derive from machine identity (deterministic, no file needed)
-        import uuid
-        fallback = hashlib.sha256(f"collector-{uuid.getnode()}".encode()).hexdigest()
-        _debug_print(f"[iOS] Using machine-derived HMAC key (file write failed: {e})")
-        return fallback.encode()
+    # 2. Per-session key (generated once per process)
+    if _session_hmac_key is None:
+        import secrets
+        _session_hmac_key = secrets.token_hex(32).encode()
+    return _session_hmac_key
 
 
 def _derive_forensic_password(udid: str) -> str:
