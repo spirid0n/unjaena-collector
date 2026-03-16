@@ -128,16 +128,44 @@ def _get_hmac_key() -> bytes:
     """
     Load HMAC key for forensic backup password derivation.
 
-    Security: Environment variable ONLY (no config file fallback).
-    Set COLLECTOR_HMAC_KEY before running the collector.
+    Priority:
+      1. Environment variable COLLECTOR_HMAC_KEY (for CI / production)
+      2. Auto-generated local key (for end-user convenience)
+
+    The auto-generated key is persisted to ~/.collector/hmac_key so the
+    same password is derived on subsequent runs (crash recovery).
     """
+    # 1. Environment variable (highest priority)
     env_key = os.environ.get('COLLECTOR_HMAC_KEY')
-    if not env_key:
-        raise RuntimeError(
-            "COLLECTOR_HMAC_KEY environment variable is required for iOS backup collection. "
-            "See documentation for setup instructions."
-        )
-    return env_key.encode()
+    if env_key:
+        return env_key.encode()
+
+    # 2. Auto-generate and persist locally
+    import secrets
+    key_dir = Path.home() / '.collector'
+    key_file = key_dir / 'hmac_key'
+
+    try:
+        if key_file.exists():
+            stored = key_file.read_text(encoding='utf-8').strip()
+            if stored:
+                return stored.encode()
+    except Exception:
+        pass
+
+    # Generate new key
+    try:
+        key_dir.mkdir(parents=True, exist_ok=True)
+        new_key = secrets.token_hex(32)
+        key_file.write_text(new_key, encoding='utf-8')
+        _debug_print(f"[iOS] Generated HMAC key: {key_file}")
+        return new_key.encode()
+    except Exception as e:
+        # Last resort: derive from machine identity (deterministic, no file needed)
+        import uuid
+        fallback = hashlib.sha256(f"collector-{uuid.getnode()}".encode()).hexdigest()
+        _debug_print(f"[iOS] Using machine-derived HMAC key (file write failed: {e})")
+        return fallback.encode()
 
 
 def _derive_forensic_password(udid: str) -> str:
