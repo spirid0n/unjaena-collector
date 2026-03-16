@@ -43,7 +43,7 @@ class DeviceListPanel(QWidget):
         """Setup UI"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(8)
 
         # Header row
         header = QHBoxLayout()
