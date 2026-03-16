@@ -749,19 +749,31 @@ def diagnose_device_prerequisites() -> dict:
         pass
 
     # iOS: check Apple Mobile Device Support driver (Windows)
+    # Supports both traditional iTunes and Microsoft Store "Apple Devices" app
     if sys.platform == 'win32':
         import winreg
+        # Registry keys: iTunes (desktop) and Apple Devices (UWP/Store)
         apple_keys = [
             r"SOFTWARE\Apple Inc.\Apple Mobile Device Support",
             r"SOFTWARE\Apple Computer, Inc.\Apple Mobile Device Support",
+            r"SOFTWARE\Apple Inc.\Apple Devices",
         ]
         for key_path in apple_keys:
             try:
-                winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
-                result['ios']['driver_installed'] = True
-                break
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path):
+                    result['ios']['driver_installed'] = True
+                    break
             except OSError:
                 continue
+
+        # Fallback: check if Apple Mobile Device Service is registered
+        if not result['ios']['driver_installed']:
+            try:
+                svc_key = r"SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service"
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, svc_key):
+                    result['ios']['driver_installed'] = True
+            except OSError:
+                pass
     else:
         # macOS/Linux: usbmuxd is typically pre-installed or comes with libimobiledevice
         import shutil
