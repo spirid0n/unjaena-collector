@@ -212,7 +212,7 @@ class PagefileAnalyzer:
                                     'page_num': abs_offset // self.PAGE_SIZE,
                                 }
                                 total_strings += 1
-                        except:
+                        except (UnicodeDecodeError, ValueError):
                             pass
 
             offset += self.CHUNK_SIZE - 1024  # Handle boundary overlap
@@ -400,7 +400,7 @@ class PagefileAnalyzer:
 
                 try:
                     path_str = path.decode('utf-8', errors='ignore')
-                except:
+                except UnicodeDecodeError:
                     path_str = path.decode('cp949', errors='ignore')
 
                 paths.append({

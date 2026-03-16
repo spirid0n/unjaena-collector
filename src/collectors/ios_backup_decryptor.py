@@ -170,16 +170,18 @@ class iOSEncryptedBackupParser:
 
             if domain_filter:
                 if '*' in domain_filter:
-                    query += ' AND domain LIKE ?'
-                    params.append(domain_filter.replace('*', '%'))
+                    query += " AND domain LIKE ? ESCAPE '\\'"
+                    escaped = domain_filter.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                    params.append(escaped.replace('*', '%'))
                 else:
                     query += ' AND domain = ?'
                     params.append(domain_filter)
 
             if path_pattern:
                 if '*' in path_pattern:
-                    query += ' AND relativePath LIKE ?'
-                    params.append(path_pattern.replace('*', '%'))
+                    query += " AND relativePath LIKE ? ESCAPE '\\'"
+                    escaped = path_pattern.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                    params.append(escaped.replace('*', '%'))
                 else:
                     query += ' AND relativePath = ?'
                     params.append(path_pattern)

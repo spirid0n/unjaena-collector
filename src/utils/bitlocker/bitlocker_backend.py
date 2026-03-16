@@ -185,7 +185,7 @@ class BitLockerBackend(UnifiedDiskReader):
                 6: "AES-256-XTS",
             }
             return methods.get(method, f"Unknown ({method})")
-        except:
+        except Exception:
             return "Unknown"
 
     # ========== Key Setting Methods ==========
@@ -343,7 +343,7 @@ class BitLockerBackend(UnifiedDiskReader):
                 0x2000: "Password",
             }
             return types.get(ptype, f"Unknown ({ptype})")
-        except:
+        except Exception:
             return "Unknown"
 
     @property

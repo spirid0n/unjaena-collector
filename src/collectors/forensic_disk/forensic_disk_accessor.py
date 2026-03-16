@@ -433,7 +433,7 @@ class ForensicDiskAccessor:
                 name_bytes = entry[56:128]
                 try:
                     name = name_bytes.decode('utf-16-le').rstrip('\x00')
-                except:
+                except (UnicodeDecodeError, ValueError):
                     name = ""
 
                 # Detect filesystem
