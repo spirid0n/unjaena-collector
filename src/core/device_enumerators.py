@@ -756,42 +756,55 @@ def diagnose_device_prerequisites() -> dict:
         except Exception as e2:
             result['_debug'].append(f"lib_err2={type(e2).__name__}")
 
-    # iOS: check Apple Mobile Device Support driver (Windows)
-    if sys.platform == 'win32':
+    # iOS: check Apple driver — try actual usbmux connection first (most reliable),
+    # then fall back to registry check. PyInstaller exe may have restricted registry
+    # access even when the driver is fully functional.
+    if result['ios']['library_available']:
         try:
-            import winreg
-            apple_keys = [
-                r"SOFTWARE\Apple Inc.\Apple Mobile Device Support",
-                r"SOFTWARE\Apple Computer, Inc.\Apple Mobile Device Support",
-                r"SOFTWARE\Apple Inc.\Apple Devices",
-                r"SOFTWARE\Wow6432Node\Apple Inc.\Apple Mobile Device Support",
-                r"SOFTWARE\Wow6432Node\Apple Inc.\Apple Devices",
-            ]
-            for key_path in apple_keys:
-                try:
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path):
-                        result['ios']['driver_installed'] = True
-                        result['_debug'].append(f"drv={key_path.split(chr(92))[-1]}")
-                        break
-                except OSError:
-                    continue
-
-            if not result['ios']['driver_installed']:
-                try:
-                    svc_key = r"SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service"
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, svc_key):
-                        result['ios']['driver_installed'] = True
-                        result['_debug'].append("drv=AMDS_svc")
-                except OSError:
-                    result['_debug'].append("drv=none")
+            from pymobiledevice3.usbmux import list_devices
+            list_devices()  # Returns [] if no device, throws if driver missing
+            result['ios']['driver_installed'] = True
+            result['_debug'].append("drv=usbmux_ok")
         except Exception as e:
-            result['_debug'].append(f"drv_err={type(e).__name__}:{e}")
-    else:
-        try:
-            import shutil
-            result['ios']['driver_installed'] = shutil.which('usbmuxd') is not None
-        except Exception:
-            pass
+            result['_debug'].append(f"drv_usbmux={type(e).__name__}")
+
+    # Fallback: registry check (Windows) or usbmuxd binary check (Unix)
+    if not result['ios']['driver_installed']:
+        if sys.platform == 'win32':
+            try:
+                import winreg
+                apple_keys = [
+                    r"SOFTWARE\Apple Inc.\Apple Mobile Device Support",
+                    r"SOFTWARE\Apple Computer, Inc.\Apple Mobile Device Support",
+                    r"SOFTWARE\Apple Inc.\Apple Devices",
+                    r"SOFTWARE\Wow6432Node\Apple Inc.\Apple Mobile Device Support",
+                    r"SOFTWARE\Wow6432Node\Apple Inc.\Apple Devices",
+                ]
+                for key_path in apple_keys:
+                    try:
+                        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path):
+                            result['ios']['driver_installed'] = True
+                            result['_debug'].append(f"drv=reg:{key_path.split(chr(92))[-1]}")
+                            break
+                    except OSError:
+                        continue
+
+                if not result['ios']['driver_installed']:
+                    try:
+                        svc_key = r"SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service"
+                        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, svc_key):
+                            result['ios']['driver_installed'] = True
+                            result['_debug'].append("drv=reg:AMDS_svc")
+                    except OSError:
+                        result['_debug'].append("drv=none")
+            except Exception as e:
+                result['_debug'].append(f"drv_err={type(e).__name__}")
+        else:
+            try:
+                import shutil
+                result['ios']['driver_installed'] = shutil.which('usbmuxd') is not None
+            except Exception:
+                pass
 
     # Android: check ADB availability
     try:
