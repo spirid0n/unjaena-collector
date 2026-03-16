@@ -102,10 +102,7 @@ def get_secure_config(cli_server_url: str = None) -> dict:
 
     # Step 3: Override with environment variables (highest priority after CLI)
     dev_mode_default = str(merged_config.get('dev_mode', 'false')).lower()
-    allow_insecure_default = str(merged_config.get('allow_insecure', 'false')).lower()
-
     dev_mode = os.environ.get('COLLECTOR_DEV_MODE', dev_mode_default).lower() == 'true'
-    allow_insecure = os.environ.get('COLLECTOR_ALLOW_INSECURE', allow_insecure_default).lower() == 'true'
 
     # URL settings: CLI > env > user config > file config > default
     server_url = cli_server_url or os.environ.get(
@@ -117,32 +114,30 @@ def get_secure_config(cli_server_url: str = None) -> dict:
         merged_config.get('ws_url', 'wss://127.0.0.1:8000')
     )
 
-    # [Security] Enforce HTTPS/WSS and warnings
+    # [Security] Enforce HTTPS/WSS — local HTTP allowed in dev_mode only
     local_patterns = ('127.0.0.1', 'localhost', '::1', '0.0.0.0')
     is_local_server = any(p in server_url for p in local_patterns)
 
-    if allow_insecure:
-        print("=" * 60)
-        print("[SECURITY WARNING] allow_insecure=true is set!")
-        print("[SECURITY WARNING] Data will be transmitted without encryption.")
-        print("[SECURITY WARNING] Never use this in production environment!")
-        print("=" * 60)
-    elif not dev_mode:
-        if server_url.startswith('http://'):
-            if is_local_server:
-                print("[Security] Local development server (HTTP) detected - allowed")
-            else:
-                print("[SECURITY ERROR] HTTP is not allowed in production environment.")
-                print("[SECURITY ERROR] Use HTTPS URL or set COLLECTOR_DEV_MODE=true.")
-                raise ValueError(f"Production requires HTTPS. Got: {server_url}")
+    if server_url.startswith('http://'):
+        if is_local_server and dev_mode:
+            print("[Security] Local development server (HTTP) detected - allowed")
+        elif is_local_server:
+            print("[Security] Local server (HTTP) detected - use dev_mode for explicit opt-in")
+            print("[Security] Continuing with local HTTP connection")
+        else:
+            print("[SECURITY ERROR] HTTP is not allowed for remote servers.")
+            print("[SECURITY ERROR] Use HTTPS URL for production environment.")
+            raise ValueError(f"Remote server requires HTTPS. Got: {server_url}")
 
-        if ws_url.startswith('ws://'):
-            if is_local_server:
-                print("[Security] Local development server (WS) detected - allowed")
-            else:
-                print("[SECURITY ERROR] WS is not allowed in production environment.")
-                print("[SECURITY ERROR] Use WSS URL or set COLLECTOR_DEV_MODE=true.")
-                raise ValueError(f"Production requires WSS. Got: {ws_url}")
+    if ws_url.startswith('ws://') and not ws_url.startswith('wss://'):
+        if is_local_server and dev_mode:
+            print("[Security] Local development server (WS) detected - allowed")
+        elif is_local_server:
+            print("[Security] Local server (WS) detected - use dev_mode for explicit opt-in")
+        else:
+            print("[SECURITY ERROR] WS is not allowed for remote servers.")
+            print("[SECURITY ERROR] Use WSS URL for production environment.")
+            raise ValueError(f"Remote server requires WSS. Got: {ws_url}")
 
     config = {
         'server_url': server_url,
@@ -150,7 +145,6 @@ def get_secure_config(cli_server_url: str = None) -> dict:
         'version': merged_config.get('version', '2.1.1'),
         'app_name': merged_config.get('app_name', 'Digital Forensics Collector'),
         'dev_mode': dev_mode,
-        'allow_insecure': allow_insecure,
         'is_release': getattr(sys, 'frozen', False),
     }
 

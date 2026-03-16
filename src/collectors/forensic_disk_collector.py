@@ -228,7 +228,7 @@ class ForensicDiskCollector:
         if self.accessor:
             try:
                 self.accessor.close()
-            except:
+            except Exception:
                 pass
             self.accessor = None
 

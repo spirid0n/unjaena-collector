@@ -943,7 +943,7 @@ class macOSCollector:
             if BIPLIST_AVAILABLE:
                 try:
                     return biplist.readPlist(str(path))
-                except:
+                except Exception:
                     pass
         return None
 
@@ -1046,7 +1046,7 @@ class macOSCollector:
                     try:
                         info['hostname'] = hf.read_text().strip()
                         break
-                    except:
+                    except OSError:
                         pass
 
         return info
@@ -1063,7 +1063,7 @@ class macOSCollector:
                 plist_data = plistlib.loads(content)
                 info['macos_version'] = plist_data.get('ProductVersion')
                 info['build_version'] = plist_data.get('ProductBuildVersion')
-            except:
+            except Exception:
                 pass
 
             # Read hostname
@@ -1073,7 +1073,7 @@ class macOSCollector:
                     content = hostname_file.read_random(0, hostname_file.info.meta.size)
                     info['hostname'] = content.decode('utf-8', errors='replace').strip()
                     break
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -1121,7 +1121,7 @@ def check_macos_target(target_path: str) -> Dict[str, Any]:
             with open(version_plist, 'rb') as f:
                 data = plistlib.load(f)
                 result['macos_version'] = data.get('ProductVersion')
-        except:
+        except Exception:
             pass
 
     if result['has_system'] and result['has_library']:
