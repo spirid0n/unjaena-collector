@@ -720,3 +720,58 @@ def create_default_enumerators() -> Dict[str, BaseDeviceEnumerator]:
 
     logger.info(f"Created {len(enumerators)} device enumerators: {list(enumerators.keys())}")
     return enumerators
+
+
+def diagnose_device_prerequisites() -> dict:
+    """
+    Check device connection prerequisites and return diagnostic results.
+
+    Returns:
+        {
+            'ios': {'driver_installed': bool, 'library_available': bool},
+            'android': {'adb_available': bool},
+        }
+
+    Security: This function only checks for the presence of software
+    components. It does not access any device data, network resources,
+    or execute external binaries.
+    """
+    result = {
+        'ios': {'driver_installed': False, 'library_available': False},
+        'android': {'adb_available': False},
+    }
+
+    # iOS: check pymobiledevice3 availability
+    try:
+        from collectors.ios_collector import PYMOBILEDEVICE3_AVAILABLE
+        result['ios']['library_available'] = PYMOBILEDEVICE3_AVAILABLE
+    except ImportError:
+        pass
+
+    # iOS: check Apple Mobile Device Support driver (Windows)
+    if sys.platform == 'win32':
+        import winreg
+        apple_keys = [
+            r"SOFTWARE\Apple Inc.\Apple Mobile Device Support",
+            r"SOFTWARE\Apple Computer, Inc.\Apple Mobile Device Support",
+        ]
+        for key_path in apple_keys:
+            try:
+                winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+                result['ios']['driver_installed'] = True
+                break
+            except OSError:
+                continue
+    else:
+        # macOS/Linux: usbmuxd is typically pre-installed or comes with libimobiledevice
+        import shutil
+        result['ios']['driver_installed'] = shutil.which('usbmuxd') is not None
+
+    # Android: check ADB availability
+    try:
+        from collectors.android_collector import ADB_AVAILABLE
+        result['android']['adb_available'] = ADB_AVAILABLE
+    except ImportError:
+        pass
+
+    return result
