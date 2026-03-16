@@ -633,10 +633,9 @@ class CollectorWindow(QMainWindow):
         self._heartbeat_frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
         self._heartbeat_idx = 0
 
-        # Collected files list
+        # Collected files list (hidden — file names shown in log instead)
         self.collected_list = QListWidget()
-        self.collected_list.setMaximumHeight(50)
-        progress_layout.addWidget(self.collected_list)
+        self.collected_list.setVisible(False)
 
         progress_outer_layout.addWidget(progress_content)
 
@@ -1482,20 +1481,18 @@ class CollectorWindow(QMainWindow):
             except Exception as e:
                 logging.getLogger(__name__).warning(f"[RequestSigner] Init failed: {e}")
                 self.request_signer = None
-            # [2026-03-06] 서버가 localhost URL을 반환하면 config URL 우선 사용
-            # RunPod 등 원격 서버에서 API_BASE_URL 미설정 시 localhost를 반환하는 문제 방지
-            raw_server_url = result.server_url or ""
-            raw_ws_url = result.ws_url or ""
-            if "localhost" in raw_server_url or "127.0.0.1" in raw_server_url:
-                raw_server_url = self.config['server_url']
-                raw_ws_url = self.config['ws_url']
-            if not raw_server_url:
-                raw_server_url = self.config['server_url']
-            if not raw_ws_url:
-                raw_ws_url = self.config['ws_url']
+            # [Security] Always use config URL — never trust server_url from auth response
+            # Prevents MITM attack via malicious server_url injection in auth response
+            config_server_url = self.config['server_url']
+            config_ws_url = self.config['ws_url']
+            if result.server_url and result.server_url != config_server_url:
+                logging.getLogger(__name__).warning(
+                    f"[SECURITY] Server returned different URL in auth response — ignored. "
+                    f"Config: {config_server_url}, Response: {result.server_url}"
+                )
             # On Windows, localhost resolves to IPv6 (::1) causing Docker connection failure
-            self.server_url = raw_server_url.replace('://localhost', '://127.0.0.1')
-            self.ws_url = raw_ws_url.replace('://localhost', '://127.0.0.1')
+            self.server_url = config_server_url.replace('://localhost', '://127.0.0.1')
+            self.ws_url = config_ws_url.replace('://localhost', '://127.0.0.1')
             self.allowed_artifacts = result.allowed_artifacts or list(ARTIFACT_TYPES.keys())
 
             self.token_status.setText(f"Valid - Case: {self.case_id[:8]}...")
@@ -1534,10 +1531,11 @@ class CollectorWindow(QMainWindow):
         else:
             self.token_status.setText(f"Invalid: {result.error}")
             self.token_status.setStyleSheet("color: #f72585;")
-            self._log(f"Token validation failed: {result.error}", error=True)
 
             # [2026-02-03] Display user-friendly error message popup
             friendly_error = translate_error(result.error or "Unknown error")
+            self._log(f"Token validation failed: {friendly_error.title} - {friendly_error.message}", error=True)
+            self._log(f"Solution: {friendly_error.solution}", error=True)
             QMessageBox.warning(
                 self,
                 f"⚠️ {friendly_error.title}",
@@ -2161,17 +2159,8 @@ class CollectorWindow(QMainWindow):
         self.elapsed_label.setText(f"{spinner} {time_str}")
 
     def _add_collected_file(self, filename: str, success: bool):
-        """Add file to collected list (scroll deferred to avoid progressive slowdown)"""
-        item = QListWidgetItem(filename)
-        if success:
-            item.setForeground(QColor("#4cc9f0"))
-        else:
-            item.setForeground(QColor("#f72585"))
-        self.collected_list.addItem(item)
-        # Only auto-scroll when list is small; for large lists it causes
-        # O(n) re-layout per addItem, degrading from fast to crawl.
-        if self.collected_list.count() <= 200:
-            self.collected_list.scrollToBottom()
+        """Add file to collected list — disabled (file names shown in log only)"""
+        pass
 
     def _collection_finished(self, success: bool, message: str):
         """Handle collection completion"""

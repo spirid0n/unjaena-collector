@@ -37,14 +37,17 @@ sys.path.insert(0, str(COLLECTOR_SRC))
 sys.path.insert(0, str(BACKEND_DIR))
 
 # === Constants ===
-REAL_BACKUP_PATH = Path(r"C:\Users\TeacherPark\AppData\Local\Temp\ios_e2e_collection\ios_backup\backup\00008101-001E788A3E20001E")
+REAL_BACKUP_PATH = Path(os.getenv(
+    'TEST_IOS_BACKUP_PATH',
+    './test_fixtures/ios_backup'
+))
 
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'user': 'forensic_admin',
-    'password': 'forensic_secure_2024',
-    'database': 'forensics',
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', '5432')),
+    'user': os.getenv('DB_USER', 'forensic_admin'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'forensics'),
 }
 
 # Expected messenger configurations (ground truth from Manifest.db)
