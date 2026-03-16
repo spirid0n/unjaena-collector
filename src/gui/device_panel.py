@@ -116,6 +116,20 @@ class DeviceListPanel(QWidget):
         scroll.setMinimumHeight(40)
         layout.addWidget(scroll, 1)
 
+        # Mobile connection status (always visible, below device list)
+        self.mobile_status_label = QLabel()
+        self.mobile_status_label.setWordWrap(True)
+        self.mobile_status_label.setTextFormat(Qt.TextFormat.RichText)
+        self.mobile_status_label.setOpenExternalLinks(False)
+        self.mobile_status_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 9px; "
+            f"background: {COLORS['bg_secondary']}; "
+            f"border: 1px solid {COLORS['border_subtle']}; "
+            f"border-radius: 3px; padding: 4px;"
+        )
+        self._update_mobile_status()
+        layout.addWidget(self.mobile_status_label)
+
     def _connect_signals(self):
         """Connect signals"""
         self.device_manager.device_added.connect(self._on_device_added)
@@ -123,7 +137,18 @@ class DeviceListPanel(QWidget):
         self.device_manager.device_updated.connect(self._on_device_updated)
 
     def _update_guide_text(self):
-        """Build connection guide from prerequisite diagnostics"""
+        """Build connection guide (shown only when no devices detected)"""
+        tertiary = COLORS['text_tertiary']
+        self.guide_label.setText(
+            f"<span style='color:{tertiary};'>"
+            "Connect a device via USB or use "
+            "<b>+ Add E01/RAW</b> for forensic image files.<br>"
+            "See mobile status below for iOS/Android requirements."
+            "</span>"
+        )
+
+    def _update_mobile_status(self):
+        """Update mobile device connection status (always visible)"""
         try:
             diag = diagnose_device_prerequisites()
         except Exception:
@@ -134,39 +159,53 @@ class DeviceListPanel(QWidget):
 
         lines = []
 
-        # iOS guide
+        # Check if iOS/Android devices are currently detected
+        has_ios = any(
+            did.startswith('ios_') for did in self.device_checkboxes
+        )
+        has_android = any(
+            did.startswith('android_') for did in self.device_checkboxes
+        )
+
+        # iOS status
         ios = diag['ios']
-        if not ios['driver_installed']:
+        if has_ios:
             lines.append(
-                "<b>iOS</b>: Install <b>iTunes</b> or <b>Apple Devices</b> app first"
+                "<span style='color:#4ade80;'>📲 <b>iOS</b>: Connected</span>"
+            )
+        elif not ios['driver_installed']:
+            lines.append(
+                "📲 <b>iOS</b>: Install <b>iTunes</b> or "
+                "<b>Apple Devices</b> app first"
             )
         elif not ios['library_available']:
             lines.append(
-                "<b>iOS</b>: Driver found, but connection library unavailable"
+                "📲 <b>iOS</b>: Driver found, but connection library unavailable"
             )
         else:
             lines.append(
-                '<b>iOS</b>: Unlock device → tap <b>"Trust This Computer"</b>'
+                '📲 <b>iOS</b>: Unlock device → tap '
+                '<b>"Trust This Computer"</b>'
             )
 
-        # Android guide
+        # Android status
         adb = diag['android']
-        if not adb['adb_available']:
+        if has_android:
             lines.append(
-                "<b>Android</b>: Enable <b>USB Debugging</b> in Developer Options"
+                "<span style='color:#4ade80;'>📱 <b>Android</b>: Connected</span>"
+            )
+        elif not adb['adb_available']:
+            lines.append(
+                "📱 <b>Android</b>: Enable <b>USB Debugging</b> "
+                "in Developer Options"
             )
         else:
             lines.append(
-                '<b>Android</b>: Allow <b>"USB Debugging"</b> on device screen'
+                '📱 <b>Android</b>: Allow <b>"USB Debugging"</b> '
+                'on device screen'
             )
 
-        tertiary = COLORS['text_tertiary']
-        lines.append(
-            f"<span style='color:{tertiary};'>"
-            "Use <b>+ Add E01/RAW</b> for forensic image files</span>"
-        )
-
-        self.guide_label.setText("<br>".join(lines))
+        self.mobile_status_label.setText("<br>".join(lines))
 
     def _on_device_added(self, device: UnifiedDeviceInfo):
         """Device added"""
@@ -191,6 +230,7 @@ class DeviceListPanel(QWidget):
         # Insert before stretch
         self.devices_layout.insertWidget(self.devices_layout.count() - 1, cb)
         self._update_summary()
+        self._update_mobile_status()
 
     def _on_device_removed(self, device_id: str):
         """Device removed"""
@@ -204,6 +244,7 @@ class DeviceListPanel(QWidget):
             if not self.device_checkboxes:
                 self._update_guide_text()
                 self.empty_widget.show()
+            self._update_mobile_status()
 
     def _on_device_updated(self, device: UnifiedDeviceInfo):
         """Device updated"""
@@ -222,6 +263,7 @@ class DeviceListPanel(QWidget):
     def _on_refresh_clicked(self):
         """Refresh"""
         self.device_manager.refresh()
+        self._update_mobile_status()
 
     def _on_add_image_clicked(self):
         """Add image"""
