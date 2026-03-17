@@ -21,6 +21,9 @@ class DiskSourceType(Enum):
     RAW_IMAGE = "raw"
     VHD_IMAGE = "vhd"
     VMDK_IMAGE = "vmdk"
+    VHDX_IMAGE = "vhdx"
+    QCOW2_IMAGE = "qcow2"
+    VDI_IMAGE = "vdi"
 
 
 @dataclass

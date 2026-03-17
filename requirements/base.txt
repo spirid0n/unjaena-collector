@@ -16,3 +16,7 @@ psutil>=5.9.0
 
 # Utilities
 python-dateutil>=2.8.0
+
+# Disk encryption (BitLocker + LUKS)
+dissect.fve>=3.9
+dissect.hypervisor>=3.14

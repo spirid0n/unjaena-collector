@@ -108,9 +108,9 @@ class BitLockerDialog(QDialog):
             warning_frame.setObjectName("warningFrame")
             warning_layout = QHBoxLayout(warning_frame)
             warning_label = QLabel(
-                "Warning: pybde (libbde-python) is not installed.\n"
+                "Warning: Decryption library is not installed.\n"
                 "Installation is required to use BitLocker decryption:\n"
-                "pip install libbde-python"
+                "pip install dissect.fve"
             )
             warning_label.setObjectName("warningText")
             warning_label.setWordWrap(True)

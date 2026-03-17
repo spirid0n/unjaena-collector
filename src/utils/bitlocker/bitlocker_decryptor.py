@@ -88,8 +88,8 @@ class BitLockerDecryptor:
     def _initialize(self) -> None:
         if not is_pybde_available():
             raise BitLockerError(
-                "pybde (libbde-python) is not installed. "
-                "Install with: pip install libbde-python"
+                "dissect.fve is not installed. "
+                "Install with: pip install dissect.fve"
             )
 
         slice_reader = PartitionSliceReader(
@@ -201,6 +201,166 @@ class BitLockerDecryptor:
         )
 
     @classmethod
+    def from_vmdk(
+        cls,
+        vmdk_path: str,
+        partition_index: int = 0
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor from VMDK image"""
+        from .disk_backends import VMDKDiskBackend
+
+        backend = VMDKDiskBackend(vmdk_path)
+        partitions = cls._detect_partitions(backend)
+
+        if partition_index >= len(partitions):
+            backend.close()
+            raise BitLockerError(f"Partition {partition_index} not found")
+
+        partition = partitions[partition_index]
+
+        if partition.filesystem != 'BitLocker':
+            backend.close()
+            raise BitLockerError(
+                f"Partition {partition_index} is not BitLocker encrypted "
+                f"(filesystem: {partition.filesystem})"
+            )
+
+        return cls(
+            disk_backend=backend,
+            partition_offset=partition.offset,
+            partition_size=partition.size,
+            partition_index=partition_index
+        )
+
+    @classmethod
+    def from_vhd(
+        cls,
+        vhd_path: str,
+        partition_index: int = 0
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor from VHD image"""
+        from .disk_backends import VHDDiskBackend
+
+        backend = VHDDiskBackend(vhd_path)
+        partitions = cls._detect_partitions(backend)
+
+        if partition_index >= len(partitions):
+            backend.close()
+            raise BitLockerError(f"Partition {partition_index} not found")
+
+        partition = partitions[partition_index]
+
+        if partition.filesystem != 'BitLocker':
+            backend.close()
+            raise BitLockerError(
+                f"Partition {partition_index} is not BitLocker encrypted "
+                f"(filesystem: {partition.filesystem})"
+            )
+
+        return cls(
+            disk_backend=backend,
+            partition_offset=partition.offset,
+            partition_size=partition.size,
+            partition_index=partition_index
+        )
+
+    @classmethod
+    def from_vhdx(
+        cls,
+        vhdx_path: str,
+        partition_index: int = 0
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor from VHDX image"""
+        from .disk_backends import VHDXDiskBackend
+
+        backend = VHDXDiskBackend(vhdx_path)
+        partitions = cls._detect_partitions(backend)
+
+        if partition_index >= len(partitions):
+            backend.close()
+            raise BitLockerError(f"Partition {partition_index} not found")
+
+        partition = partitions[partition_index]
+
+        if partition.filesystem != 'BitLocker':
+            backend.close()
+            raise BitLockerError(
+                f"Partition {partition_index} is not BitLocker encrypted "
+                f"(filesystem: {partition.filesystem})"
+            )
+
+        return cls(
+            disk_backend=backend,
+            partition_offset=partition.offset,
+            partition_size=partition.size,
+            partition_index=partition_index
+        )
+
+    @classmethod
+    def from_qcow2(
+        cls,
+        qcow2_path: str,
+        partition_index: int = 0
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor from QCOW2 image"""
+        from .disk_backends import QCOW2DiskBackend
+
+        backend = QCOW2DiskBackend(qcow2_path)
+        partitions = cls._detect_partitions(backend)
+
+        if partition_index >= len(partitions):
+            backend.close()
+            raise BitLockerError(f"Partition {partition_index} not found")
+
+        partition = partitions[partition_index]
+
+        if partition.filesystem != 'BitLocker':
+            backend.close()
+            raise BitLockerError(
+                f"Partition {partition_index} is not BitLocker encrypted "
+                f"(filesystem: {partition.filesystem})"
+            )
+
+        return cls(
+            disk_backend=backend,
+            partition_offset=partition.offset,
+            partition_size=partition.size,
+            partition_index=partition_index
+        )
+
+    @classmethod
+    def from_vdi(
+        cls,
+        vdi_path: str,
+        partition_index: int = 0
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor from VDI image"""
+        from .disk_backends import VDIDiskBackend
+
+        backend = VDIDiskBackend(vdi_path)
+        partitions = cls._detect_partitions(backend)
+
+        if partition_index >= len(partitions):
+            backend.close()
+            raise BitLockerError(f"Partition {partition_index} not found")
+
+        partition = partitions[partition_index]
+
+        if partition.filesystem != 'BitLocker':
+            backend.close()
+            raise BitLockerError(
+                f"Partition {partition_index} is not BitLocker encrypted "
+                f"(filesystem: {partition.filesystem})"
+            )
+
+        return cls(
+            disk_backend=backend,
+            partition_offset=partition.offset,
+            partition_size=partition.size,
+            partition_index=partition_index
+        )
+
+    @classmethod
     def from_raw_image(
         cls,
         image_path: str,
@@ -236,8 +396,8 @@ class BitLockerDecryptor:
             partition_index=partition_info.index
         )
 
-    @staticmethod
-    def _detect_partitions(backend: UnifiedDiskReader) -> List[PartitionInfo]:
+    @classmethod
+    def _detect_partitions(cls, backend: UnifiedDiskReader) -> List[PartitionInfo]:
         """Detect partition table (simple implementation)"""
         import struct
         partitions = []
@@ -286,11 +446,15 @@ class BitLockerDecryptor:
 
         return partitions
 
-    @staticmethod
-    def _detect_filesystem(vbr: bytes) -> str:
+    @classmethod
+    def _detect_filesystem(cls, vbr: bytes) -> str:
         """Detect filesystem from VBR"""
         if len(vbr) < 512:
             return "Unknown"
+
+        # LUKS signature: "LUKS\xba\xbe" at offset 0
+        if len(vbr) >= 6 and vbr[:6] == b'LUKS\xba\xbe':
+            return "LUKS"
 
         # BitLocker signature: "-FVE-FS-" at offset 3
         if vbr[3:11] == b'-FVE-FS-':

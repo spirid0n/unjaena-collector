@@ -243,6 +243,326 @@ class E01DiskBackend(UnifiedDiskReader):
                 self._is_open = False
 
 
+class VMDKDiskBackend(UnifiedDiskReader):
+    """VMware VMDK virtual disk backend"""
+
+    def __init__(self, vmdk_path: str):
+        super().__init__()
+        self.image_path = vmdk_path
+        self._fh = None
+        self._vmdk = None
+        self._open()
+
+    def _open(self):
+        if not os.path.exists(self.image_path):
+            raise DiskNotFoundError(f"VMDK file not found: {self.image_path}")
+        try:
+            from dissect.hypervisor.disk.vmdk import VMDK
+            logger.info(f"Opening VMDK image: {self.image_path}")
+            self._fh = open(self.image_path, 'rb')
+            self._vmdk = VMDK(self._fh)
+            self._disk_size = self._vmdk.size
+            self._sector_size = 512
+            self._is_open = True
+            logger.info(f"VMDK image opened: {self._disk_size / (1024**3):.2f} GB")
+        except ImportError:
+            raise DiskError("dissect.hypervisor not installed. Run: pip install dissect.hypervisor")
+        except Exception as e:
+            raise DiskError(f"Failed to open VMDK: {e}")
+
+    def read(self, offset: int, size: int) -> bytes:
+        if not self._is_open:
+            raise DiskError("VMDK not open")
+        try:
+            self._vmdk.seek(offset)
+            return self._vmdk.read(size)
+        except Exception as e:
+            raise DiskReadError(f"VMDK read failed at offset {offset}: {e}")
+
+    def get_disk_info(self) -> DiskInfo:
+        return DiskInfo(
+            source_type=DiskSourceType.VMDK_IMAGE,
+            total_size=self._disk_size,
+            sector_size=self._sector_size,
+            source_path=self.image_path,
+            is_readonly=True
+        )
+
+    def get_size(self) -> int:
+        return self._disk_size
+
+    def close(self):
+        if self._vmdk and hasattr(self._vmdk, 'close'):
+            try:
+                self._vmdk.close()
+            except Exception:
+                pass
+        self._vmdk = None
+        if self._fh:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        self._is_open = False
+
+
+class VHDDiskBackend(UnifiedDiskReader):
+    """Hyper-V VHD virtual disk backend"""
+
+    def __init__(self, vhd_path: str):
+        super().__init__()
+        self.image_path = vhd_path
+        self._fh = None
+        self._vhd = None
+        self._open()
+
+    def _open(self):
+        if not os.path.exists(self.image_path):
+            raise DiskNotFoundError(f"VHD file not found: {self.image_path}")
+        try:
+            from dissect.hypervisor.disk.vhd import VHD
+            logger.info(f"Opening VHD image: {self.image_path}")
+            self._fh = open(self.image_path, 'rb')
+            self._vhd = VHD(self._fh)
+            self._disk_size = self._vhd.size
+            self._sector_size = 512
+            self._is_open = True
+            logger.info(f"VHD image opened: {self._disk_size / (1024**3):.2f} GB")
+        except ImportError:
+            raise DiskError("dissect.hypervisor not installed. Run: pip install dissect.hypervisor")
+        except Exception as e:
+            raise DiskError(f"Failed to open VHD: {e}")
+
+    def read(self, offset: int, size: int) -> bytes:
+        if not self._is_open:
+            raise DiskError("VHD not open")
+        try:
+            self._vhd.seek(offset)
+            return self._vhd.read(size)
+        except Exception as e:
+            raise DiskReadError(f"VHD read failed at offset {offset}: {e}")
+
+    def get_disk_info(self) -> DiskInfo:
+        return DiskInfo(
+            source_type=DiskSourceType.VHD_IMAGE,
+            total_size=self._disk_size,
+            sector_size=self._sector_size,
+            source_path=self.image_path,
+            is_readonly=True
+        )
+
+    def get_size(self) -> int:
+        return self._disk_size
+
+    def close(self):
+        if self._vhd and hasattr(self._vhd, 'close'):
+            try:
+                self._vhd.close()
+            except Exception:
+                pass
+        self._vhd = None
+        if self._fh:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        self._is_open = False
+
+
+class VHDXDiskBackend(UnifiedDiskReader):
+    """Hyper-V VHDX virtual disk backend"""
+
+    def __init__(self, vhdx_path: str):
+        super().__init__()
+        self.image_path = vhdx_path
+        self._fh = None
+        self._vhdx = None
+        self._open()
+
+    def _open(self):
+        if not os.path.exists(self.image_path):
+            raise DiskNotFoundError(f"VHDX file not found: {self.image_path}")
+        try:
+            from dissect.hypervisor.disk.vhdx import VHDX
+            logger.info(f"Opening VHDX image: {self.image_path}")
+            self._fh = open(self.image_path, 'rb')
+            self._vhdx = VHDX(self._fh)
+            self._disk_size = self._vhdx.size
+            self._sector_size = 512
+            self._is_open = True
+            logger.info(f"VHDX image opened: {self._disk_size / (1024**3):.2f} GB")
+        except ImportError:
+            raise DiskError("dissect.hypervisor not installed. Run: pip install dissect.hypervisor")
+        except Exception as e:
+            raise DiskError(f"Failed to open VHDX: {e}")
+
+    def read(self, offset: int, size: int) -> bytes:
+        if not self._is_open:
+            raise DiskError("VHDX not open")
+        try:
+            self._vhdx.seek(offset)
+            return self._vhdx.read(size)
+        except Exception as e:
+            raise DiskReadError(f"VHDX read failed at offset {offset}: {e}")
+
+    def get_disk_info(self) -> DiskInfo:
+        return DiskInfo(
+            source_type=DiskSourceType.VHDX_IMAGE,
+            total_size=self._disk_size,
+            sector_size=self._sector_size,
+            source_path=self.image_path,
+            is_readonly=True
+        )
+
+    def get_size(self) -> int:
+        return self._disk_size
+
+    def close(self):
+        if self._vhdx and hasattr(self._vhdx, 'close'):
+            try:
+                self._vhdx.close()
+            except Exception:
+                pass
+        self._vhdx = None
+        if self._fh:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        self._is_open = False
+
+
+class QCOW2DiskBackend(UnifiedDiskReader):
+    """KVM/QEMU QCOW2 virtual disk backend"""
+
+    def __init__(self, qcow2_path: str):
+        super().__init__()
+        self.image_path = qcow2_path
+        self._fh = None
+        self._qcow2 = None
+        self._open()
+
+    def _open(self):
+        if not os.path.exists(self.image_path):
+            raise DiskNotFoundError(f"QCOW2 file not found: {self.image_path}")
+        try:
+            from dissect.hypervisor.disk.qcow2 import QCow2
+            logger.info(f"Opening QCOW2 image: {self.image_path}")
+            self._fh = open(self.image_path, 'rb')
+            self._qcow2 = QCow2(self._fh)
+            self._disk_size = self._qcow2.size
+            self._sector_size = 512
+            self._is_open = True
+            logger.info(f"QCOW2 image opened: {self._disk_size / (1024**3):.2f} GB")
+        except ImportError:
+            raise DiskError("dissect.hypervisor not installed. Run: pip install dissect.hypervisor")
+        except Exception as e:
+            raise DiskError(f"Failed to open QCOW2: {e}")
+
+    def read(self, offset: int, size: int) -> bytes:
+        if not self._is_open:
+            raise DiskError("QCOW2 not open")
+        try:
+            self._qcow2.seek(offset)
+            return self._qcow2.read(size)
+        except Exception as e:
+            raise DiskReadError(f"QCOW2 read failed at offset {offset}: {e}")
+
+    def get_disk_info(self) -> DiskInfo:
+        return DiskInfo(
+            source_type=DiskSourceType.QCOW2_IMAGE,
+            total_size=self._disk_size,
+            sector_size=self._sector_size,
+            source_path=self.image_path,
+            is_readonly=True
+        )
+
+    def get_size(self) -> int:
+        return self._disk_size
+
+    def close(self):
+        if self._qcow2 and hasattr(self._qcow2, 'close'):
+            try:
+                self._qcow2.close()
+            except Exception:
+                pass
+        self._qcow2 = None
+        if self._fh:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        self._is_open = False
+
+
+class VDIDiskBackend(UnifiedDiskReader):
+    """VirtualBox VDI virtual disk backend"""
+
+    def __init__(self, vdi_path: str):
+        super().__init__()
+        self.image_path = vdi_path
+        self._fh = None
+        self._vdi = None
+        self._open()
+
+    def _open(self):
+        if not os.path.exists(self.image_path):
+            raise DiskNotFoundError(f"VDI file not found: {self.image_path}")
+        try:
+            from dissect.hypervisor.disk.vdi import VDI
+            logger.info(f"Opening VDI image: {self.image_path}")
+            self._fh = open(self.image_path, 'rb')
+            self._vdi = VDI(self._fh)
+            self._disk_size = self._vdi.size
+            self._sector_size = 512
+            self._is_open = True
+            logger.info(f"VDI image opened: {self._disk_size / (1024**3):.2f} GB")
+        except ImportError:
+            raise DiskError("dissect.hypervisor not installed. Run: pip install dissect.hypervisor")
+        except Exception as e:
+            raise DiskError(f"Failed to open VDI: {e}")
+
+    def read(self, offset: int, size: int) -> bytes:
+        if not self._is_open:
+            raise DiskError("VDI not open")
+        try:
+            self._vdi.seek(offset)
+            return self._vdi.read(size)
+        except Exception as e:
+            raise DiskReadError(f"VDI read failed at offset {offset}: {e}")
+
+    def get_disk_info(self) -> DiskInfo:
+        return DiskInfo(
+            source_type=DiskSourceType.VDI_IMAGE,
+            total_size=self._disk_size,
+            sector_size=self._sector_size,
+            source_path=self.image_path,
+            is_readonly=True
+        )
+
+    def get_size(self) -> int:
+        return self._disk_size
+
+    def close(self):
+        if self._vdi and hasattr(self._vdi, 'close'):
+            try:
+                self._vdi.close()
+            except Exception:
+                pass
+        self._vdi = None
+        if self._fh:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        self._is_open = False
+
+
 class RAWImageBackend(UnifiedDiskReader):
     """RAW/DD image file backend"""
 
@@ -337,5 +657,15 @@ def create_disk_backend(source: str) -> UnifiedDiskReader:
 
     if ext in ('.e01', '.ex01', '.s01', '.l01'):
         return E01DiskBackend(source)
+    elif ext == '.vmdk':
+        return VMDKDiskBackend(source)
+    elif ext == '.vhd':
+        return VHDDiskBackend(source)
+    elif ext == '.vhdx':
+        return VHDXDiskBackend(source)
+    elif ext == '.qcow2':
+        return QCOW2DiskBackend(source)
+    elif ext == '.vdi':
+        return VDIDiskBackend(source)
     else:
         return RAWImageBackend(source)

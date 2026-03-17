@@ -321,6 +321,9 @@ def _detect_filesystem(vbr: bytes) -> str:
     if len(vbr) < 512:
         return "Unknown"
 
+    # LUKS signature at offset 0
+    if len(vbr) >= 6 and vbr[:6] == b'LUKS\xba\xbe':
+        return "LUKS"
     if vbr[3:11] == b'-FVE-FS-':
         return "BitLocker"
     if vbr[3:7] == b'NTFS':
@@ -334,9 +337,9 @@ def _detect_filesystem(vbr: bytes) -> str:
 
 
 def is_pybde_installed() -> bool:
-    """Check if pybde (libbde-python) is installed"""
+    """Check if decryption library (dissect.fve) is installed"""
     try:
-        import pybde
+        from dissect.fve.bde import BDE
         return True
     except ImportError:
         return False

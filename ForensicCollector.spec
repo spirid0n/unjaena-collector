@@ -183,6 +183,10 @@ collect_packages = [
     'pycrashreport',       # GPL-3.0 — iOS crash report parsing
     'pygnuutils',          # GPL-3.0 — GNU utility wrappers
     'adb_shell',           # Apache-2.0 — Android ADB communication
+    'dissect.fve',         # AGPL-3.0 — BitLocker/LUKS decryption (pure Python)
+    'dissect.hypervisor',  # AGPL-3.0 — VMDK/VHD/VHDX/QCOW2/VDI disk images
+    'dissect.cstruct',     # AGPL-3.0 — Binary structure parsing (dissect dependency)
+    'dissect.util',        # AGPL-3.0 — Utility functions (dissect dependency)
 ]
 
 for pkg in collect_packages:
