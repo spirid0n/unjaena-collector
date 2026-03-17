@@ -1413,14 +1413,26 @@ class CollectorWindow(QMainWindow):
     def check_server_connection(self):
         """Check if server is reachable"""
         validator = TokenValidator(self.config['server_url'])
-        if validator.check_server_health():
+        result = validator.check_server_health()
+        # Support both old (bool) and new (tuple) return
+        if isinstance(result, tuple):
+            success, error_detail = result
+        else:
+            success, error_detail = result, None
+
+        if success:
             self.server_status.setText("Server: Connected")
             self.server_status.setStyleSheet("color: #4cc9f0;")
             self._log("Server connection established")
         else:
             self.server_status.setText("Server: Disconnected")
             self.server_status.setStyleSheet("color: #f72585;")
-            self._log("Warning: Cannot connect to server", error=True)
+            if error_detail and "SSL" in error_detail:
+                self._log(f"SSL certificate error connecting to server", error=True)
+            else:
+                self._log(f"Cannot connect to server: {self.config['server_url']}", error=True)
+            if error_detail:
+                self._log(f"Detail: {error_detail}", error=True)
 
     def _toggle_token_visibility(self):
         """Toggle token visibility"""
