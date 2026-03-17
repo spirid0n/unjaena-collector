@@ -2739,6 +2739,15 @@ class iOSCollector:
             self.parser = iOSBackupParser(path)
         return True
 
+    def close(self):
+        """Clean up parser resources (temp decrypted Manifest.db)."""
+        if self.parser and hasattr(self.parser, 'close'):
+            try:
+                self.parser.close()
+            except Exception:
+                pass
+        self.parser = None
+
     @property
     def is_encrypted(self) -> bool:
         """Check if selected backup is encrypted"""

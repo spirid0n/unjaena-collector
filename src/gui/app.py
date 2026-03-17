@@ -3044,6 +3044,7 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit("Starting artifact collection...", False)
             collected_raw_files = []  # (file_path, artifact_type, metadata)
+            _ios_collectors = []  # Track iOS collectors for cleanup
 
             # If devices are selected, collect per device
             if self.selected_devices:
@@ -3063,6 +3064,10 @@ class CollectionWorker(QThread):
                     if not collector:
                         self.log_message.emit(f"{device_name}: Collector creation failed", True)
                         continue
+
+                    # Track iOS collectors for cleanup (encrypted backup temp files)
+                    if hasattr(collector, 'close'):
+                        _ios_collectors.append(collector)
 
                     for artifact_type in self.artifacts:
                         if self._cancelled:
@@ -3480,6 +3485,14 @@ class CollectionWorker(QThread):
         finally:
             # [2026-02-22] Stop heartbeat thread
             self._stop_heartbeat()
+
+            # Close iOS collectors BEFORE removing temp directory
+            # (releases decrypted Manifest.db temp files)
+            for _col in locals().get('_ios_collectors', []):
+                try:
+                    _col.close()
+                except Exception:
+                    pass
 
             # Cleanup temporary directory (delete collected files)
             if output_dir and os.path.exists(output_dir):
