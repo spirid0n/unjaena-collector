@@ -1,8 +1,0 @@
-{
-    "server_url": "https://YOUR_SERVER_URL",
-    "ws_url": "wss://YOUR_SERVER_URL",
-    "dev_mode": false,
-    "allow_insecure": false,
-    "version": "2.3.0",
-    "app_name": "Digital Intelligence Collector"
-}
