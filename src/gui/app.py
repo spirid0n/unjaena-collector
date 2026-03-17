@@ -1766,72 +1766,98 @@ class CollectorWindow(QMainWindow):
                             )
                             self._bitlocker_auto_decrypt_used = False
                     else:
-                        # Try pybde-based decryption
-                        self._log(f"Attempting BitLocker decryption... (Key type: {dialog_result.key_type})")
+                        # Try pybde-based decryption with retry on wrong key
+                        while True:
+                            self._log(f"Attempting BitLocker decryption... (Key type: {dialog_result.key_type})")
 
-                        try:
-                            decryptor = BitLockerDecryptor.from_detection_result(
-                                drive_number=0,
-                                detection_result=bitlocker_result
-                            )
-
-                            # Decrypt based on key type
-                            if dialog_result.key_type == "recovery_password":
-                                unlock_result = decryptor.unlock_with_recovery_password(
-                                    dialog_result.key_value
+                            try:
+                                decryptor = BitLockerDecryptor.from_detection_result(
+                                    drive_number=0,
+                                    detection_result=bitlocker_result
                                 )
-                            elif dialog_result.key_type == "password":
-                                unlock_result = decryptor.unlock_with_password(
-                                    dialog_result.key_value
-                                )
-                            elif dialog_result.key_type == "bek_file":
-                                unlock_result = decryptor.unlock_with_bek_file(
-                                    dialog_result.bek_path
-                                )
-                            else:
-                                unlock_result = None
 
-                            # [Security] Clear key from memory after use
-                            dialog_result.key_value = None
+                                # Decrypt based on key type
+                                if dialog_result.key_type == "recovery_password":
+                                    unlock_result = decryptor.unlock_with_recovery_password(
+                                        dialog_result.key_value
+                                    )
+                                elif dialog_result.key_type == "password":
+                                    unlock_result = decryptor.unlock_with_password(
+                                        dialog_result.key_value
+                                    )
+                                elif dialog_result.key_type == "bek_file":
+                                    unlock_result = decryptor.unlock_with_bek_file(
+                                        dialog_result.bek_path
+                                    )
+                                else:
+                                    unlock_result = None
 
-                            if unlock_result and unlock_result.success:
-                                bitlocker_decryptor = decryptor
-                                bitlocker_info = unlock_result.volume_info
-                                self._log("BitLocker decryption successful! Proceeding with collection from encrypted volume.")
-                            else:
-                                error_msg = unlock_result.error_message if unlock_result else "Unknown error"
-                                self._log(f"BitLocker decryption failed: {error_msg}", error=True)
+                                # [Security] Clear key from memory after use
+                                dialog_result.key_value = None
+
+                                if unlock_result and unlock_result.success:
+                                    bitlocker_decryptor = decryptor
+                                    bitlocker_info = unlock_result.volume_info
+                                    self._log("BitLocker decryption successful! Proceeding with collection from encrypted volume.")
+                                    break  # Success
+                                else:
+                                    error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                                    self._log(f"BitLocker decryption failed: {error_msg}", error=True)
+                                    decryptor.close()
+
+                                    # Ask user: retry or skip
+                                    retry = QMessageBox.question(
+                                        self,
+                                        "BitLocker Decryption Failed",
+                                        f"Decryption failed: {error_msg}\n\n"
+                                        "Try again with a different key?\n"
+                                        "Click 'No' to proceed without decryption.",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.Yes
+                                    )
+                                    if retry == QMessageBox.StandardButton.Yes:
+                                        dialog_result = show_bitlocker_dialog(
+                                            partition_info={
+                                                'partition_index': bitlocker_result.partition_index,
+                                                'partition_offset': bitlocker_result.partition_offset,
+                                                'partition_size': bitlocker_result.partition_size,
+                                                'encryption_method': bitlocker_result.encryption_method,
+                                            },
+                                            pybde_available=is_pybde_installed(),
+                                            config=self.config,
+                                            parent=self
+                                        )
+                                        if not dialog_result.success or dialog_result.skip:
+                                            self._log("User skipped retry. Proceeding without decryption.")
+                                            break
+                                        continue  # Retry with new key
+                                    else:
+                                        self._log("User skipped decryption. Proceeding in encrypted state.")
+                                        break
+
+                            except BitLockerError as e:
+                                self._log(f"BitLocker error: {e}", error=True)
                                 QMessageBox.warning(
                                     self,
-                                    "BitLocker Decryption Failed",
-                                    f"Decryption failed: {error_msg}\n\n"
-                                    "Proceeding with fallback method (encrypted state)."
+                                    "BitLocker Error",
+                                    f"Error processing BitLocker:\n{e}\n\n"
+                                    "Proceeding with fallback method."
                                 )
-                                # Cleanup decryptor
-                                decryptor.close()
-
-                        except BitLockerError as e:
-                            self._log(f"BitLocker error: {e}", error=True)
-                            QMessageBox.warning(
-                                self,
-                                "BitLocker Error",
-                                f"Error processing BitLocker:\n{e}\n\n"
-                                "Proceeding with fallback method."
-                            )
-                        except Exception as e:
-                            self._log(f"Unexpected error: {e}", error=True)
-                            # Cleanup decryptor on unexpected error
-                            if 'decryptor' in locals():
-                                try:
-                                    decryptor.close()
-                                except Exception:
-                                    pass
-                            QMessageBox.warning(
-                                self,
-                                "Error",
-                                f"An error occurred:\n{e}\n\n"
-                                "Proceeding with fallback method."
-                            )
+                                break
+                            except Exception as e:
+                                self._log(f"Unexpected error: {e}", error=True)
+                                if 'decryptor' in locals():
+                                    try:
+                                        decryptor.close()
+                                    except Exception:
+                                        pass
+                                QMessageBox.warning(
+                                    self,
+                                    "Error",
+                                    f"An error occurred:\n{e}\n\n"
+                                    "Proceeding with fallback method."
+                                )
+                                break
 
                 elif dialog_result.skip:
                     self._log("Skipping BitLocker decryption, proceeding with collection in encrypted state.")
