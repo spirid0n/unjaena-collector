@@ -2946,24 +2946,26 @@ class CollectionWorker(QThread):
 
             # Windows physical disk
             elif device_type == DeviceType.WINDOWS_PHYSICAL_DISK:
+                # Get decrypted reader if BitLocker was unlocked via dialog
+                decrypted_reader = None
+                if self.bitlocker_decryptor:
+                    try:
+                        decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
+                        self.log_message.emit("BitLocker decrypted volume available for MFT collection.", False)
+                    except Exception as e:
+                        self.log_message.emit(f"BitLocker decrypted volume access failed: {e}", True)
+
                 # Use LocalMFTCollector (BitLocker auto-detection + directory fallback)
                 if BASE_MFT_AVAILABLE:
-                    # [2026-02-15] Get volume letter from metadata, fallback to 'C' if None
                     volume = device.metadata.get('volume') or 'C'
                     self.log_message.emit(f"Using volume: {volume}:", False)
-                    collector = LocalMFTCollector(output_dir, volume=volume)
+                    collector = LocalMFTCollector(output_dir, volume=volume, decrypted_reader=decrypted_reader)
                     self.log_message.emit(
                         f"Collection mode: {collector.get_collection_mode()}", False
                     )
                     return collector
                 else:
                     # Use legacy ArtifactCollector if BaseMFTCollector unavailable
-                    decrypted_reader = None
-                    if self.bitlocker_decryptor:
-                        try:
-                            decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
-                        except Exception:
-                            pass
                     return ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
 
             # Android device
