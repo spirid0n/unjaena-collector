@@ -172,19 +172,10 @@ extra_datas = []
 extra_binaries = []
 extra_hiddenimports = []
 
-# =============================================================================
-# SSL CA Certificate Bundle (required for requests + PyInstaller)
-# Without this, requests.get(verify=True) fails in bundled builds
-# =============================================================================
-try:
-    import certifi
-    extra_datas.append((certifi.where(), 'certifi'))
-except ImportError:
-    print("[WARN] certifi not found — SSL verification may fail in built executable")
-
 # Packages that require full collection (all submodules + data + binaries)
 # License compatibility verified: all GPL-3.0 / MIT / BSD / Apache-2.0
 collect_packages = [
+    'certifi',             # MPL-2.0 — SSL CA certificates (required for requests in PyInstaller)
     'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
     'construct',           # MIT — binary data parsing (dynamic struct definitions)
     'srptools',            # MIT — SRP authentication protocol
