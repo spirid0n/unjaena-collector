@@ -2132,6 +2132,27 @@ class iOSDeviceConnector:
             }
             return
 
+        # Reuse existing backup from this session (prevents second password prompt
+        # and avoids creating a duplicate ~26-min backup)
+        if self._backup_path and self._backup_path.exists():
+            manifest = self._backup_path / 'Manifest.plist'
+            if manifest.exists():
+                logger.info(f"[iOS] Reusing existing backup at {self._backup_path}")
+                if progress_callback:
+                    progress_callback("Using existing backup (already created)")
+                total_size = sum(
+                    f.stat().st_size for f in self._backup_path.rglob('*') if f.is_file()
+                )
+                yield str(self._backup_path), {
+                    'artifact_type': 'mobile_ios_device_backup',
+                    'backup_path': str(self._backup_path),
+                    'status': 'success',
+                    'message': 'Reused existing backup',
+                    'encrypted': bool(self._forensic_backup_password),
+                    'total_size': total_size,
+                }
+                return
+
         if progress_callback:
             progress_callback("Creating iOS backup (this may take a while)")
 
