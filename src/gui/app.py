@@ -1922,6 +1922,9 @@ class CollectorWindow(QMainWindow):
                                             else:
                                                 unlock_result = None
 
+                                            # [Security] Clear key from memory after use
+                                            dialog_result.key_value = None
+
                                             if unlock_result and unlock_result.success:
                                                 image_bitlocker_decryptors[device.device_id] = decryptor
                                                 self._log("BitLocker decryption successful!")
@@ -1937,6 +1940,11 @@ class CollectorWindow(QMainWindow):
                                                 decryptor.close()
                                         except (BitLockerError, Exception) as e:
                                             self._log(f"BitLocker error: {e}", error=True)
+                                            if 'decryptor' in locals():
+                                                try:
+                                                    decryptor.close()
+                                                except Exception:
+                                                    pass
                                 elif dialog_result.skip:
                                     self._log("Skipping BitLocker decryption for disk image.")
                                 else:
@@ -1967,12 +1975,15 @@ class CollectorWindow(QMainWindow):
                                             partition_index=p.index
                                         )
                                         unlock_res = luks_dec.unlock_with_passphrase(luks_result.passphrase)
+                                        # [Security] Clear passphrase from memory after use
+                                        luks_result.passphrase = None
                                         if unlock_res.success:
                                             luks_decryptors[device.device_id] = luks_dec
                                             self._log("LUKS decryption successful!")
                                             backend = None  # don't close — owned by luks_dec
                                         else:
                                             self._log(f"LUKS decryption failed: {unlock_res.error_message}", error=True)
+                                            luks_dec.close()
                                             QMessageBox.warning(
                                                 self, "LUKS Decryption Failed",
                                                 f"Decryption failed: {unlock_res.error_message}\n\n"
@@ -1980,6 +1991,11 @@ class CollectorWindow(QMainWindow):
                                             )
                                     except Exception as e:
                                         self._log(f"LUKS error: {e}", error=True)
+                                        if 'luks_dec' in locals():
+                                            try:
+                                                luks_dec.close()
+                                            except Exception:
+                                                pass
                                 elif luks_result.skip:
                                     self._log("Skipping LUKS decryption.")
                                 else:

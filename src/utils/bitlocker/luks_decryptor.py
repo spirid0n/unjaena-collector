@@ -59,7 +59,16 @@ class LUKSDecryptor:
 
         self._luks_backend: Optional[LUKSBackend] = None
 
-        self._initialize()
+        try:
+            self._initialize()
+        except Exception:
+            if self._disk_backend:
+                try:
+                    self._disk_backend.close()
+                except Exception:
+                    pass
+                self._disk_backend = None
+            raise
 
     def _initialize(self) -> None:
         try:

@@ -3234,6 +3234,7 @@ class LocalMFTCollector(_LocalMFTBase):
             logger.debug("pybde not installed, cannot decrypt BitLocker")
             return False
 
+        decryptor = None
         try:
             # Initialize BitLocker decryptor
             decryptor = BitLockerDecryptor.from_physical_disk(
@@ -3257,6 +3258,12 @@ class LocalMFTCollector(_LocalMFTBase):
         except Exception as e:
             logger.debug(f"BitLocker decryption attempt failed: {e}")
             return False
+        finally:
+            if decryptor is not None:
+                try:
+                    decryptor.close()
+                except Exception:
+                    pass
 
     def _get_source_description(self) -> str:
         """Return source description"""

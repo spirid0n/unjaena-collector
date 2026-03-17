@@ -690,9 +690,12 @@ def enable_bitlocker(
                 protection_status="On"
             )
 
-        # Wait until completion
-        while True:
+        # Wait until completion (max 4 hours to prevent infinite loop)
+        max_wait = 4 * 3600  # seconds
+        elapsed = 0
+        while elapsed < max_wait:
             time.sleep(check_interval)
+            elapsed += check_interval
             status = get_bitlocker_status(drive)
 
             if not status.success:
@@ -713,6 +716,12 @@ def enable_bitlocker(
                     percentage=100.0,
                     protection_status="On"
                 )
+
+        # Timeout reached
+        return ManageBdeResult(
+            success=False,
+            error=f"BitLocker encryption timed out after {max_wait // 3600} hours"
+        )
 
     except subprocess.TimeoutExpired:
         return ManageBdeResult(success=False, error="manage-bde timeout")

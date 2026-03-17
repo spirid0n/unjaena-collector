@@ -64,7 +64,12 @@ class LUKSBackend(UnifiedDiskReader):
         try:
             if isinstance(self._source, str):
                 self._source_fh = open(self._source, 'rb')
-                self._luks = LUKS(self._source_fh)
+                try:
+                    self._luks = LUKS(self._source_fh)
+                except Exception:
+                    self._source_fh.close()
+                    self._source_fh = None
+                    raise
                 logger.info(f"Opened LUKS volume from path: {self._source}")
             else:
                 self._luks = LUKS(self._source)

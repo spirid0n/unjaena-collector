@@ -260,7 +260,12 @@ class VMDKDiskBackend(UnifiedDiskReader):
             from dissect.hypervisor.disk.vmdk import VMDK
             logger.info(f"Opening VMDK image: {self.image_path}")
             self._fh = open(self.image_path, 'rb')
-            self._vmdk = VMDK(self._fh)
+            try:
+                self._vmdk = VMDK(self._fh)
+            except Exception:
+                self._fh.close()
+                self._fh = None
+                raise
             self._disk_size = self._vmdk.size
             self._sector_size = 512
             self._is_open = True
@@ -324,7 +329,12 @@ class VHDDiskBackend(UnifiedDiskReader):
             from dissect.hypervisor.disk.vhd import VHD
             logger.info(f"Opening VHD image: {self.image_path}")
             self._fh = open(self.image_path, 'rb')
-            self._vhd = VHD(self._fh)
+            try:
+                self._vhd = VHD(self._fh)
+            except Exception:
+                self._fh.close()
+                self._fh = None
+                raise
             self._disk_size = self._vhd.size
             self._sector_size = 512
             self._is_open = True
@@ -388,7 +398,12 @@ class VHDXDiskBackend(UnifiedDiskReader):
             from dissect.hypervisor.disk.vhdx import VHDX
             logger.info(f"Opening VHDX image: {self.image_path}")
             self._fh = open(self.image_path, 'rb')
-            self._vhdx = VHDX(self._fh)
+            try:
+                self._vhdx = VHDX(self._fh)
+            except Exception:
+                self._fh.close()
+                self._fh = None
+                raise
             self._disk_size = self._vhdx.size
             self._sector_size = 512
             self._is_open = True
@@ -452,7 +467,12 @@ class QCOW2DiskBackend(UnifiedDiskReader):
             from dissect.hypervisor.disk.qcow2 import QCow2
             logger.info(f"Opening QCOW2 image: {self.image_path}")
             self._fh = open(self.image_path, 'rb')
-            self._qcow2 = QCow2(self._fh)
+            try:
+                self._qcow2 = QCow2(self._fh)
+            except Exception:
+                self._fh.close()
+                self._fh = None
+                raise
             self._disk_size = self._qcow2.size
             self._sector_size = 512
             self._is_open = True
@@ -516,7 +536,12 @@ class VDIDiskBackend(UnifiedDiskReader):
             from dissect.hypervisor.disk.vdi import VDI
             logger.info(f"Opening VDI image: {self.image_path}")
             self._fh = open(self.image_path, 'rb')
-            self._vdi = VDI(self._fh)
+            try:
+                self._vdi = VDI(self._fh)
+            except Exception:
+                self._fh.close()
+                self._fh = None
+                raise
             self._disk_size = self._vdi.size
             self._sector_size = 512
             self._is_open = True
