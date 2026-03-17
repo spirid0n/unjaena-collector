@@ -37,11 +37,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+          else:
+              c = {'server_url':'https://YOUR_SERVER_URL','ws_url':'wss://YOUR_SERVER_URL','dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build EXE
@@ -88,11 +91,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+          else:
+              c = {'server_url':'https://YOUR_SERVER_URL','ws_url':'wss://YOUR_SERVER_URL','dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build Linux binary
@@ -135,11 +141,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python3 -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+          else:
+              c = {'server_url':'https://YOUR_SERVER_URL','ws_url':'wss://YOUR_SERVER_URL','dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build macOS binary
