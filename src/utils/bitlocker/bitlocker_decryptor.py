@@ -137,12 +137,39 @@ class BitLockerDecryptor:
     # ========== Factory Methods ==========
 
     @classmethod
+    def from_detection_result(
+        cls,
+        drive_number: int,
+        detection_result: 'BitLockerVolumeDetectionResult'
+    ) -> 'BitLockerDecryptor':
+        """Create BitLockerDecryptor using cached detection result.
+
+        Avoids re-scanning the partition table, which can fail on GPT disks
+        or when the OS caches VBR differently between reads.
+        """
+        from .disk_backends import PhysicalDiskBackend
+
+        if not detection_result.is_encrypted:
+            raise BitLockerError("Detection result indicates no BitLocker encryption")
+
+        if not detection_result.partition_offset or not detection_result.partition_size:
+            raise BitLockerError("Detection result missing partition offset/size")
+
+        backend = PhysicalDiskBackend(drive_number)
+        return cls(
+            disk_backend=backend,
+            partition_offset=detection_result.partition_offset,
+            partition_size=detection_result.partition_size,
+            partition_index=detection_result.partition_index
+        )
+
+    @classmethod
     def from_physical_disk(
         cls,
         drive_number: int,
         partition_index: int = 0
     ) -> 'BitLockerDecryptor':
-        """Create BitLockerDecryptor from physical disk"""
+        """Create BitLockerDecryptor from physical disk (re-scans partitions)"""
         from .disk_backends import PhysicalDiskBackend
 
         backend = PhysicalDiskBackend(drive_number)

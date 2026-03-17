@@ -1770,9 +1770,9 @@ class CollectorWindow(QMainWindow):
                         self._log(f"Attempting BitLocker decryption... (Key type: {dialog_result.key_type})")
 
                         try:
-                            decryptor = BitLockerDecryptor.from_physical_disk(
+                            decryptor = BitLockerDecryptor.from_detection_result(
                                 drive_number=0,
-                                partition_index=bitlocker_result.partition_index
+                                detection_result=bitlocker_result
                             )
 
                             # Decrypt based on key type
