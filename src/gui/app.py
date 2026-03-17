@@ -1791,6 +1791,9 @@ class CollectorWindow(QMainWindow):
                             else:
                                 unlock_result = None
 
+                            # [Security] Clear key from memory after use
+                            dialog_result.key_value = None
+
                             if unlock_result and unlock_result.success:
                                 bitlocker_decryptor = decryptor
                                 bitlocker_info = unlock_result.volume_info
@@ -1817,6 +1820,12 @@ class CollectorWindow(QMainWindow):
                             )
                         except Exception as e:
                             self._log(f"Unexpected error: {e}", error=True)
+                            # Cleanup decryptor on unexpected error
+                            if 'decryptor' in locals():
+                                try:
+                                    decryptor.close()
+                                except Exception:
+                                    pass
                             QMessageBox.warning(
                                 self,
                                 "Error",

@@ -42,7 +42,15 @@ def detect_bitlocker_on_system_drive() -> BitLockerVolumeDetectionResult:
     try:
         # Check BitLocker status via WMI
         result = _check_bitlocker_via_wmi()
-        if result:
+        if result and result.is_encrypted:
+            # WMI doesn't provide partition geometry — supplement with direct scan
+            if not result.partition_offset or not result.partition_size:
+                direct = _check_bitlocker_direct()
+                if direct.is_encrypted:
+                    # Use direct scan's geometry, keep WMI's drive letter/method
+                    direct.drive_letter = result.drive_letter or direct.drive_letter
+                    direct.encryption_method = result.encryption_method or direct.encryption_method
+                    return direct
             return result
 
         # Fall back to direct disk check if WMI fails
@@ -547,9 +555,12 @@ def disable_bitlocker(
                 protection_status="Off"
             )
 
-        # Wait until completion
-        while True:
+        # Wait until completion (max 4 hours to prevent infinite loop)
+        max_wait = 4 * 3600  # seconds
+        elapsed = 0
+        while elapsed < max_wait:
             time.sleep(check_interval)
+            elapsed += check_interval
             status = get_bitlocker_status(drive)
 
             if not status.success:
@@ -571,6 +582,12 @@ def disable_bitlocker(
                     percentage=0.0,
                     protection_status="Off"
                 )
+
+        # Timeout reached
+        return ManageBdeResult(
+            success=False,
+            error=f"BitLocker decryption timed out after {max_wait // 3600} hours"
+        )
 
     except subprocess.TimeoutExpired:
         return ManageBdeResult(success=False, error="manage-bde timeout")

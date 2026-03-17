@@ -83,7 +83,17 @@ class BitLockerDecryptor:
         self._bitlocker_backend: Optional[BitLockerBackend] = None
         self._partition_info: Optional[BitLockerPartitionInfo] = None
 
-        self._initialize()
+        try:
+            self._initialize()
+        except Exception:
+            # Prevent disk backend leak if initialization fails
+            if self._disk_backend:
+                try:
+                    self._disk_backend.close()
+                except Exception:
+                    pass
+                self._disk_backend = None
+            raise
 
     def _initialize(self) -> None:
         if not is_pybde_available():
