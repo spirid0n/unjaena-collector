@@ -17,6 +17,14 @@ import argparse
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Fix SSL CA bundle path for PyInstaller builds
+if getattr(sys, 'frozen', False):
+    _meipass = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    _ca_bundle = os.path.join(_meipass, 'certifi', 'cacert.pem')
+    if os.path.exists(_ca_bundle):
+        os.environ.setdefault('SSL_CERT_FILE', _ca_bundle)
+        os.environ.setdefault('REQUESTS_CA_BUNDLE', _ca_bundle)
+
 
 # =============================================================================
 # P1 Security Enhancement: HTTPS/WSS Required
