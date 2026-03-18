@@ -22,7 +22,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QElapsedTimer
 from PyQt6.QtGui import QFont, QColor, QIcon
 
 from core.token_validator import TokenValidator, ValidationResult
-from core.encryptor import FileEncryptor
+from core.encryptor import FileHashCalculator
 from core.uploader import R2DirectUploader
 from core.request_signer import RequestSigner
 from collectors.artifact_collector import (
@@ -3227,7 +3227,7 @@ class CollectionWorker(QThread):
             if _sys.platform != 'win32':
                 os.chmod(output_dir, 0o700)  # Unix: owner-only access
 
-            encryptor = FileEncryptor()
+            hash_calculator = FileHashCalculator()
 
             # ========================================
             # STAGE 1: Collection (30%)
@@ -3497,15 +3497,15 @@ class CollectionWorker(QThread):
                 return
 
             # ========================================
-            # STAGE 2: Encryption (30%)
+            # STAGE 2: Prepare metadata (30%)
             # ========================================
-            self.log_message.emit(f"🔐 Encrypting {len(collected_raw_files)} files...", False)
-            encrypted_files = []  # (enc_path, artifact_type, metadata)
+            self.log_message.emit(f"🔐 Preparing {len(collected_raw_files)} files for upload...", False)
+            encrypted_files = []  # (file_path, artifact_type, metadata)
             total_files = len(collected_raw_files)
 
             for j, (file_path, artifact_type, metadata) in enumerate(collected_raw_files):
                 if self._cancelled:
-                    self.finished.emit(False, "Encryption cancelled")
+                    self.finished.emit(False, "Preparation cancelled")
                     return
 
                 filename = Path(file_path).name
@@ -3515,35 +3515,40 @@ class CollectionWorker(QThread):
 
                 self.progress_updated.emit(
                     2, stage_progress, overall_progress,
-                    f"Encrypting: {filename}",
+                    f"Preparing: {filename}",
                     remaining
                 )
 
                 try:
-                    enc_result = encryptor.encrypt_file(file_path)
+                    # Reuse hash from Stage 1 (already computed during collection)
+                    original_hash = metadata.get('hash_sha256', '')
+                    if not original_hash:
+                        # Fallback: compute hash only if Stage 1 didn't provide it
+                        hash_result = hash_calculator.calculate_file_hash(file_path)
+                        original_hash = hash_result.sha256_hash
 
                     # Add required metadata fields for server
-                    metadata['original_hash'] = enc_result.original_hash
-                    metadata['original_size'] = enc_result.original_size
+                    metadata['original_hash'] = original_hash
+                    metadata['original_size'] = metadata.get('size', os.path.getsize(file_path))
                     metadata['collection_time'] = datetime.utcnow().isoformat()
 
                     # Legacy encryption info (now handled by server)
                     metadata['encryption'] = {
-                        'nonce': enc_result.nonce,
-                        'original_hash': enc_result.original_hash,
+                        'nonce': 'hash_only',
+                        'original_hash': original_hash,
                     }
 
                     encrypted_files.append((
-                        enc_result.encrypted_path,
+                        file_path,
                         artifact_type,
                         metadata
                     ))
 
                 except Exception as e:
-                    self.log_message.emit(f"Encryption failed ({filename}): {e}", True)
+                    self.log_message.emit(f"Preparation failed ({filename}): {e}", True)
 
             if self._cancelled:
-                self.finished.emit(False, "Encryption cancelled")
+                self.finished.emit(False, "Preparation cancelled")
                 return
 
             # ========================================
