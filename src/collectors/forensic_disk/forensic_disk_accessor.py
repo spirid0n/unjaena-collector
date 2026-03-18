@@ -877,6 +877,10 @@ class ForensicDiskAccessor:
             # Full MFT traversal - dynamic size detection (no limit)
             max_entries = self._get_mft_entry_count()
             logger.info(f"MFT index building: scanning up to {max_entries:,} entries")
+
+            # Preload entire $MFT into memory for fast scanning
+            mft_preloaded = self._extractor.preload_mft()
+
             consecutive_errors = 0
             max_consecutive_errors = 1000
             indexed_count = 0
@@ -894,7 +898,7 @@ class ForensicDiskAccessor:
                         continue
 
                     consecutive_errors = 0
-                    metadata = self._extractor.get_file_metadata(entry_num)
+                    metadata = self._extractor.get_file_metadata(entry_num, entry_data=entry_data)
 
                     # Only add non-deleted items to index
                     if not metadata.is_deleted:
@@ -913,6 +917,9 @@ class ForensicDiskAccessor:
                     if consecutive_errors > max_consecutive_errors:
                         break
                     continue
+
+            if mft_preloaded:
+                self._extractor.release_mft_preload()
 
             self._parent_index_built = True
             logger.info(f"MFT parent-child index built: {len(self._parent_child_index)} parent directories, {indexed_count} files indexed")
@@ -1033,6 +1040,10 @@ class ForensicDiskAccessor:
 
         logger.info(f"Scanning MFT: {total_mft_entries:,} entries (max)")
 
+        # Preload entire $MFT into memory for fast scanning
+        # (critical for BitLocker decrypted volumes — avoids per-entry AES decryption)
+        mft_preloaded = self._extractor.preload_mft()
+
         # Traverse MFT entries
         entry_num = 0
         skip_count = 0  # Count of skipped empty entries
@@ -1048,9 +1059,9 @@ class ForensicDiskAccessor:
                     continue
                 result['total_entries'] += 1
 
-                # Extract metadata
+                # Extract metadata (reuse already-read entry to avoid double decrypt)
                 try:
-                    metadata = self._extractor.get_file_metadata(entry_num)
+                    metadata = self._extractor.get_file_metadata(entry_num, entry_data=entry)
                 except Exception as e:
                     result['errors'].append((entry_num, str(e)))
                     entry_num += 1
@@ -1093,6 +1104,10 @@ class ForensicDiskAccessor:
                 # Continue even on error (digital forensics principle: complete collection)
 
             entry_num += 1
+
+        # Release preloaded MFT to free memory (parsed metadata is kept)
+        if mft_preloaded:
+            self._extractor.release_mft_preload()
 
         logger.info(f"Scanned {entry_num:,} MFT entries ({skip_count:,} empty/invalid skipped): "
                    f"{len(result['active_files'])} files, "
