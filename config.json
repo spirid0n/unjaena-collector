@@ -1,8 +1,8 @@
 {
-    "server_url": "https://your-server.example.com",
-    "ws_url": "wss://your-server.example.com",
+    "server_url": "https://btb91itnsaquzl-80.proxy.runpod.net",
+    "ws_url": "wss://btb91itnsaquzl-80.proxy.runpod.net",
     "dev_mode": false,
     "allow_insecure": false,
-    "version": "2.1.0",
+    "version": "2.4.0",
     "app_name": "Digital Intelligence Collector"
 }

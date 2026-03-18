@@ -97,7 +97,7 @@ class E01SelectionDialog(QDialog):
     """
 
     # Supported extensions
-    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.dd *.raw *.img *.bin"
+    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi"
 
     def __init__(self, parent=None):
         super().__init__(parent)

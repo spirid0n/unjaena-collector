@@ -3128,11 +3128,12 @@ class LocalMFTCollector(_LocalMFTBase):
     - Include system folders
     """
 
-    def __init__(self, output_dir: str, volume: str = 'C'):
+    def __init__(self, output_dir: str, volume: str = 'C', decrypted_reader=None):
         """
         Args:
             output_dir: Directory to store extracted artifacts
             volume: Volume to collect from (default: 'C')
+            decrypted_reader: Pre-decrypted BitLocker/LUKS volume reader (optional)
         """
         if not BASE_MFT_AVAILABLE:
             raise ImportError("BaseMFTCollector not available")
@@ -3147,7 +3148,7 @@ class LocalMFTCollector(_LocalMFTBase):
         self._bitlocker_detected: bool = False
         self._bitlocker_decrypted: bool = False
         self._use_directory_fallback: bool = False
-        self._decrypted_reader = None
+        self._decrypted_reader = decrypted_reader
 
         self._initialize_accessor()
 
@@ -3184,7 +3185,19 @@ class LocalMFTCollector(_LocalMFTBase):
                     self._bitlocker_detected = True
                     logger.info(f"BitLocker encrypted partition detected at index {partition_result['index']}")
 
-                    # Attempt decryption
+                    # Use pre-decrypted reader if available (from GUI dialog)
+                    if self._decrypted_reader:
+                        try:
+                            self._accessor = ForensicDiskAccessor(self._decrypted_reader)
+                            self._accessor.select_partition(0)
+                            self._partition_index = 0
+                            self._bitlocker_decrypted = True
+                            logger.info("Using pre-decrypted BitLocker volume for MFT collection")
+                            return True
+                        except Exception as e:
+                            logger.warning(f"Decrypted reader initialization failed: {e}")
+
+                    # Attempt auto-decryption
                     if self._try_bitlocker_decryption(partition_result['index']):
                         self._bitlocker_decrypted = True
                         logger.info("BitLocker decryption successful, using MFT collection")
@@ -3234,6 +3247,7 @@ class LocalMFTCollector(_LocalMFTBase):
             logger.debug("pybde not installed, cannot decrypt BitLocker")
             return False
 
+        decryptor = None
         try:
             # Initialize BitLocker decryptor
             decryptor = BitLockerDecryptor.from_physical_disk(
@@ -3257,6 +3271,12 @@ class LocalMFTCollector(_LocalMFTBase):
         except Exception as e:
             logger.debug(f"BitLocker decryption attempt failed: {e}")
             return False
+        finally:
+            if decryptor is not None:
+                try:
+                    decryptor.close()
+                except Exception:
+                    pass
 
     def _get_source_description(self) -> str:
         """Return source description"""
@@ -4092,20 +4112,29 @@ class ArtifactCollector:
         # Priority 1: ForensicDiskAccessor (pure Python)
         # ==========================================================
         if use_mft and FORENSIC_DISK_AVAILABLE and ForensicDiskAccessor is not None:
-            try:
-                # Get physical drive number
-                drive_number = self._get_physical_drive_number()
-                if drive_number is not None:
-                    self.forensic_disk_accessor = ForensicDiskAccessor.from_physical_disk(drive_number)
-                    # Select partition for volume
-                    partition_idx = self._find_partition_for_volume()
-                    if partition_idx is not None:
-                        self.forensic_disk_accessor.select_partition(partition_idx)
-                        self.collection_mode = 'forensic_disk_accessor'
-                        _debug_print(f"[INFO] ForensicDiskAccessor initialized for {self.volume}: (Drive {drive_number}, Partition {partition_idx})")
-            except Exception as e:
-                _debug_print(f"[WARNING] ForensicDiskAccessor unavailable: {e}")
-                self.forensic_disk_accessor = None
+            # Use decrypted reader directly (BitLocker/LUKS already unlocked)
+            if self.decrypted_reader:
+                try:
+                    self.forensic_disk_accessor = ForensicDiskAccessor(self.decrypted_reader)
+                    self.forensic_disk_accessor.select_partition(0)
+                    self.collection_mode = 'forensic_disk_accessor'
+                    _debug_print("[INFO] ForensicDiskAccessor initialized from decrypted volume")
+                except Exception as e:
+                    _debug_print(f"[WARNING] Decrypted volume ForensicDiskAccessor failed: {e}")
+                    self.forensic_disk_accessor = None
+            else:
+                try:
+                    drive_number = self._get_physical_drive_number()
+                    if drive_number is not None:
+                        self.forensic_disk_accessor = ForensicDiskAccessor.from_physical_disk(drive_number)
+                        partition_idx = self._find_partition_for_volume()
+                        if partition_idx is not None:
+                            self.forensic_disk_accessor.select_partition(partition_idx)
+                            self.collection_mode = 'forensic_disk_accessor'
+                            _debug_print(f"[INFO] ForensicDiskAccessor initialized for {self.volume}: (Drive {drive_number}, Partition {partition_idx})")
+                except Exception as e:
+                    _debug_print(f"[WARNING] ForensicDiskAccessor unavailable: {e}")
+                    self.forensic_disk_accessor = None
 
         # ==========================================================
         # Priority 2: MFTCollector (pytsk3) - fallback
