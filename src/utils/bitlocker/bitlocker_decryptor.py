@@ -162,8 +162,10 @@ class BitLockerDecryptor:
         if not detection_result.is_encrypted:
             raise BitLockerError("Detection result indicates no BitLocker encryption")
 
-        if not detection_result.partition_offset or not detection_result.partition_size:
+        if detection_result.partition_offset is None or detection_result.partition_size is None:
             raise BitLockerError("Detection result missing partition offset/size")
+        if detection_result.partition_size <= 0:
+            raise BitLockerError(f"Invalid partition size: {detection_result.partition_size}")
 
         backend = PhysicalDiskBackend(drive_number)
         return cls(

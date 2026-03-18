@@ -1758,6 +1758,8 @@ class CollectorWindow(QMainWindow):
                                 self._bitlocker_auto_decrypt_used = False
 
                         except Exception as e:
+                            if 'progress' in dir() and progress:
+                                progress.close()
                             self._log(f"BitLocker auto-unlock error: {e}", error=True)
                             QMessageBox.warning(
                                 self,
@@ -1811,13 +1813,12 @@ class CollectorWindow(QMainWindow):
                                     self._log(f"BitLocker decryption failed: {error_msg}", error=True)
                                     decryptor.close()
 
-                                    # Ask user: retry or skip
+                                    # Ask user: retry or abort
                                     retry = QMessageBox.question(
                                         self,
                                         "BitLocker Decryption Failed",
                                         f"Decryption failed: {error_msg}\n\n"
-                                        "Try again with a different key?\n"
-                                        "Click 'No' to proceed without decryption.",
+                                        "Try again with a different key?",
                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                         QMessageBox.StandardButton.Yes
                                     )
@@ -1833,23 +1834,45 @@ class CollectorWindow(QMainWindow):
                                             config=self.config,
                                             parent=self
                                         )
-                                        if not dialog_result.success or dialog_result.skip:
-                                            self._log("User skipped retry. Proceeding without decryption.")
+                                        if not dialog_result.success and not dialog_result.skip:
+                                            # Cancel pressed — abort collection
+                                            self._log("BitLocker dialog cancelled. Aborting collection.")
+                                            QMessageBox.information(
+                                                self, "Collection Cancelled",
+                                                "BitLocker configuration was cancelled.\nCollection will not proceed."
+                                            )
+                                            return
+                                        elif dialog_result.skip:
+                                            self._log("User skipped decryption. Proceeding without decryption.")
                                             break
                                         continue  # Retry with new key
                                     else:
-                                        self._log("User skipped decryption. Proceeding in encrypted state.")
-                                        break
+                                        # No = abort collection
+                                        self._log("BitLocker decryption cancelled. Aborting collection.")
+                                        QMessageBox.information(
+                                            self, "Collection Cancelled",
+                                            "BitLocker decryption was cancelled.\nCollection will not proceed."
+                                        )
+                                        return
 
                             except BitLockerError as e:
                                 self._log(f"BitLocker error: {e}", error=True)
-                                QMessageBox.warning(
+                                retry = QMessageBox.question(
                                     self,
                                     "BitLocker Error",
                                     f"Error processing BitLocker:\n{e}\n\n"
-                                    "Proceeding with fallback method."
+                                    "Try again?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.Yes
                                 )
-                                break
+                                if retry == QMessageBox.StandardButton.No:
+                                    self._log("BitLocker decryption cancelled. Aborting collection.")
+                                    QMessageBox.information(
+                                        self, "Collection Cancelled",
+                                        "BitLocker decryption was cancelled.\nCollection will not proceed."
+                                    )
+                                    return
+                                continue  # Retry
                             except Exception as e:
                                 self._log(f"Unexpected error: {e}", error=True)
                                 if 'decryptor' in locals():
@@ -1857,13 +1880,22 @@ class CollectorWindow(QMainWindow):
                                         decryptor.close()
                                     except Exception:
                                         pass
-                                QMessageBox.warning(
+                                retry = QMessageBox.question(
                                     self,
                                     "Error",
                                     f"An error occurred:\n{e}\n\n"
-                                    "Proceeding with fallback method."
+                                    "Try again?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                    QMessageBox.StandardButton.Yes
                                 )
-                                break
+                                if retry == QMessageBox.StandardButton.No:
+                                    self._log("BitLocker error. Aborting collection.")
+                                    QMessageBox.information(
+                                        self, "Collection Cancelled",
+                                        "Collection will not proceed due to an error."
+                                    )
+                                    return
+                                continue  # Retry
 
                 elif dialog_result.skip:
                     self._log("Skipping BitLocker decryption, proceeding with collection in encrypted state.")
@@ -1921,16 +1953,26 @@ class CollectorWindow(QMainWindow):
                                     parent=self
                                 )
 
-                                if dialog_result.success and not dialog_result.skip:
-                                    # manage-bde (auto_decrypt) is only for live systems, not disk images
-                                    if getattr(dialog_result, 'auto_decrypt', False):
-                                        self._log("Auto-decrypt (manage-bde) is not available for disk images.", error=True)
-                                        QMessageBox.warning(
-                                            self, "Not Supported",
-                                            "Auto-decrypt (manage-bde) only works on live Windows systems.\n"
-                                            "Please use Recovery Key, Password, or BEK file instead."
-                                        )
-                                    else:
+                                # Retry loop for disk image BitLocker
+                                while True:
+                                    if dialog_result.success and not dialog_result.skip:
+                                        # manage-bde (auto_decrypt) is only for live systems
+                                        if getattr(dialog_result, 'auto_decrypt', False):
+                                            self._log("Auto-decrypt (manage-bde) is not available for disk images.", error=True)
+                                            QMessageBox.warning(
+                                                self, "Not Supported",
+                                                "Auto-decrypt (manage-bde) only works on live Windows systems.\n"
+                                                "Please use Recovery Key, Password, or BEK file instead."
+                                            )
+                                            # Re-show dialog
+                                            dialog_result = show_bitlocker_dialog(
+                                                partition_info={'partition_index': p.index, 'partition_offset': p.offset,
+                                                                'partition_size': p.size, 'encryption_method': ''},
+                                                pybde_available=is_pybde_installed(), config=self.config, parent=self
+                                            )
+                                            continue
+
+                                        decryptor = None
                                         try:
                                             decryptor = BitLockerDecryptor(
                                                 disk_backend=backend,
@@ -1966,36 +2008,61 @@ class CollectorWindow(QMainWindow):
                                                 image_bitlocker_decryptors[device.device_id] = decryptor
                                                 self._log("BitLocker decryption successful!")
                                                 backend = None  # don't close — owned by decryptor
+                                                break  # Success — exit retry loop
                                             else:
                                                 error_msg = (unlock_result.error_message if unlock_result else "") or "Decryption failed"
                                                 self._log(f"BitLocker decryption failed: {error_msg}", error=True)
-                                                QMessageBox.warning(
-                                                    self, "BitLocker Decryption Failed",
-                                                    f"Decryption failed: {error_msg}\n\n"
-                                                    "Proceeding with encrypted state."
-                                                )
                                                 decryptor.close()
+                                                decryptor = None
+
                                         except (BitLockerError, Exception) as e:
                                             self._log(f"BitLocker error: {e}", error=True)
-                                            if 'decryptor' in locals():
+                                            error_msg = str(e) or "Decryption error"
+                                            if decryptor:
                                                 try:
                                                     decryptor.close()
                                                 except Exception:
                                                     pass
-                                elif dialog_result.skip:
-                                    self._log("Skipping BitLocker decryption for disk image.")
-                                else:
-                                    # Cancelled — abort entire collection
-                                    self._log("BitLocker dialog cancelled. Aborting collection.")
-                                    if backend:
-                                        backend.close()
-                                    QMessageBox.information(
-                                        self,
-                                        "Collection Cancelled",
-                                        "BitLocker configuration was cancelled. Collection will not proceed."
-                                    )
-                                    return
-                                break  # Handle first encrypted partition per image
+                                                decryptor = None
+
+                                        # Unlock failed — ask retry or abort
+                                        retry = QMessageBox.question(
+                                            self, "BitLocker Decryption Failed",
+                                            f"Decryption failed: {error_msg}\n\n"
+                                            "Try again with a different key?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            QMessageBox.StandardButton.Yes
+                                        )
+                                        if retry == QMessageBox.StandardButton.No:
+                                            self._log("BitLocker decryption cancelled. Aborting collection.")
+                                            if backend:
+                                                backend.close()
+                                            QMessageBox.information(
+                                                self, "Collection Cancelled",
+                                                "BitLocker decryption was cancelled.\nCollection will not proceed."
+                                            )
+                                            return
+                                        # Yes — re-show dialog
+                                        dialog_result = show_bitlocker_dialog(
+                                            partition_info={'partition_index': p.index, 'partition_offset': p.offset,
+                                                            'partition_size': p.size, 'encryption_method': ''},
+                                            pybde_available=is_pybde_installed(), config=self.config, parent=self
+                                        )
+                                        continue  # Retry with new key
+
+                                    elif dialog_result.skip:
+                                        self._log("Skipping BitLocker decryption for disk image.")
+                                        break
+                                    else:
+                                        # Cancelled — abort entire collection
+                                        self._log("BitLocker dialog cancelled. Aborting collection.")
+                                        if backend:
+                                            backend.close()
+                                        QMessageBox.information(
+                                            self, "Collection Cancelled",
+                                            "BitLocker configuration was cancelled.\nCollection will not proceed."
+                                        )
+                                        return
 
                             # --- LUKS in disk image ---
                             elif p.filesystem == 'LUKS':
@@ -2012,50 +2079,79 @@ class CollectorWindow(QMainWindow):
                                     parent=self
                                 )
 
-                                if luks_result.success and not luks_result.skip:
-                                    try:
-                                        luks_dec = LUKSDecryptor(
-                                            disk_backend=backend,
-                                            partition_offset=p.offset,
-                                            partition_size=p.size,
-                                            partition_index=p.index
-                                        )
-                                        unlock_res = luks_dec.unlock_with_passphrase(luks_result.passphrase)
-                                        # [Security] Clear passphrase from memory after use
-                                        luks_result.passphrase = None
-                                        if unlock_res.success:
-                                            luks_decryptors[device.device_id] = luks_dec
-                                            self._log("LUKS decryption successful!")
-                                            backend = None  # don't close — owned by luks_dec
-                                        else:
-                                            self._log(f"LUKS decryption failed: {unlock_res.error_message}", error=True)
-                                            luks_dec.close()
-                                            QMessageBox.warning(
-                                                self, "LUKS Decryption Failed",
-                                                f"Decryption failed: {unlock_res.error_message}\n\n"
-                                                "Proceeding with encrypted state."
+                                # Retry loop for disk image LUKS
+                                while True:
+                                    if luks_result.success and not luks_result.skip:
+                                        luks_dec = None
+                                        error_msg = "Decryption failed"
+                                        try:
+                                            luks_dec = LUKSDecryptor(
+                                                disk_backend=backend,
+                                                partition_offset=p.offset,
+                                                partition_size=p.size,
+                                                partition_index=p.index
                                             )
-                                    except Exception as e:
-                                        self._log(f"LUKS error: {e}", error=True)
-                                        if 'luks_dec' in locals():
-                                            try:
+                                            unlock_res = luks_dec.unlock_with_passphrase(luks_result.passphrase)
+                                            # [Security] Clear passphrase from memory after use
+                                            luks_result.passphrase = None
+                                            if unlock_res.success:
+                                                luks_decryptors[device.device_id] = luks_dec
+                                                self._log("LUKS decryption successful!")
+                                                backend = None  # don't close — owned by luks_dec
+                                                break  # Success — exit retry loop
+                                            else:
+                                                error_msg = unlock_res.error_message or "Decryption failed"
+                                                self._log(f"LUKS decryption failed: {error_msg}", error=True)
                                                 luks_dec.close()
-                                            except Exception:
-                                                pass
-                                elif luks_result.skip:
-                                    self._log("Skipping LUKS decryption.")
-                                else:
-                                    # Cancelled — abort entire collection
-                                    self._log("LUKS dialog cancelled. Aborting collection.")
-                                    if backend:
-                                        backend.close()
-                                    QMessageBox.information(
-                                        self,
-                                        "Collection Cancelled",
-                                        "Encryption configuration was cancelled. Collection will not proceed."
-                                    )
-                                    return
-                                break  # Handle first encrypted partition per image
+                                                luks_dec = None
+                                        except Exception as e:
+                                            self._log(f"LUKS error: {e}", error=True)
+                                            error_msg = str(e) or "LUKS error"
+                                            if luks_dec:
+                                                try:
+                                                    luks_dec.close()
+                                                except Exception:
+                                                    pass
+                                                luks_dec = None
+
+                                        # Unlock failed — ask retry or abort
+                                        retry = QMessageBox.question(
+                                            self, "LUKS Decryption Failed",
+                                            f"Decryption failed: {error_msg}\n\n"
+                                            "Try again with a different passphrase?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            QMessageBox.StandardButton.Yes
+                                        )
+                                        if retry == QMessageBox.StandardButton.No:
+                                            self._log("LUKS decryption cancelled. Aborting collection.")
+                                            if backend:
+                                                backend.close()
+                                            QMessageBox.information(
+                                                self, "Collection Cancelled",
+                                                "LUKS decryption was cancelled.\nCollection will not proceed."
+                                            )
+                                            return
+                                        # Yes — re-show dialog
+                                        luks_result = show_luks_dialog(
+                                            partition_info={'partition_index': p.index, 'partition_offset': p.offset,
+                                                            'partition_size': p.size},
+                                            fve_available=is_fve_available(), parent=self
+                                        )
+                                        continue  # Retry with new passphrase
+
+                                    elif luks_result.skip:
+                                        self._log("Skipping LUKS decryption.")
+                                        break
+                                    else:
+                                        # Cancelled — abort entire collection
+                                        self._log("LUKS dialog cancelled. Aborting collection.")
+                                        if backend:
+                                            backend.close()
+                                        QMessageBox.information(
+                                            self, "Collection Cancelled",
+                                            "Encryption configuration was cancelled.\nCollection will not proceed."
+                                        )
+                                        return
                     finally:
                         if backend:
                             backend.close()
