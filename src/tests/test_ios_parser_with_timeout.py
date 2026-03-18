@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Test configuration
-BACKUP_PATH = Path("C:/project/AI-DF/collector/test_ios_backup/00008130-000239522E21001C")
-OUTPUT_DIR = Path("C:/project/AI-DF/collector/test_ios_output")
+BACKUP_PATH = Path(__file__).parent.parent.parent / "test_ios_backup" / "00008130-000239522E21001C"
+OUTPUT_DIR = Path(__file__).parent.parent.parent / "test_ios_output"
 DEFAULT_TIMEOUT = 30  # seconds per operation
 
 
