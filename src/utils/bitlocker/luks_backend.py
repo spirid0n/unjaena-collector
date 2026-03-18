@@ -141,10 +141,14 @@ class LUKSBackend(UnifiedDiskReader):
 
             return True
 
+        except ValueError as e:
+            logger.error(f"LUKS unlock failed: {e}")
+            self._is_unlocked = False
+            raise DiskError(str(e))
         except Exception as e:
             logger.error(f"LUKS unlock failed: {e}")
             self._is_unlocked = False
-            return False
+            raise DiskError(f"LUKS unlock failed: {e}")
 
     def is_locked(self) -> bool:
         return not self._is_unlocked

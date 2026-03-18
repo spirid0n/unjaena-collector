@@ -523,20 +523,13 @@ class BitLockerDecryptor:
 
         try:
             self._bitlocker_backend.set_recovery_password(recovery_password)
-            success = self._bitlocker_backend.unlock()
+            self._bitlocker_backend.unlock()
 
-            if success:
-                return BitLockerUnlockResult(
-                    success=True,
-                    key_type=BitLockerKeyType.RECOVERY_PASSWORD,
-                    volume_info=self._get_volume_info_dict()
-                )
-            else:
-                return BitLockerUnlockResult(
-                    success=False,
-                    key_type=BitLockerKeyType.RECOVERY_PASSWORD,
-                    error_message="Invalid recovery password"
-                )
+            return BitLockerUnlockResult(
+                success=True,
+                key_type=BitLockerKeyType.RECOVERY_PASSWORD,
+                volume_info=self._get_volume_info_dict()
+            )
 
         except Exception as e:
             return BitLockerUnlockResult(
@@ -555,20 +548,13 @@ class BitLockerDecryptor:
 
         try:
             self._bitlocker_backend.set_password(password)
-            success = self._bitlocker_backend.unlock()
+            self._bitlocker_backend.unlock()
 
-            if success:
-                return BitLockerUnlockResult(
-                    success=True,
-                    key_type=BitLockerKeyType.PASSWORD,
-                    volume_info=self._get_volume_info_dict()
-                )
-            else:
-                return BitLockerUnlockResult(
-                    success=False,
-                    key_type=BitLockerKeyType.PASSWORD,
-                    error_message="Invalid password"
-                )
+            return BitLockerUnlockResult(
+                success=True,
+                key_type=BitLockerKeyType.PASSWORD,
+                volume_info=self._get_volume_info_dict()
+            )
 
         except Exception as e:
             return BitLockerUnlockResult(
@@ -587,20 +573,13 @@ class BitLockerDecryptor:
 
         try:
             self._bitlocker_backend.read_startup_key(bek_path)
-            success = self._bitlocker_backend.unlock()
+            self._bitlocker_backend.unlock()
 
-            if success:
-                return BitLockerUnlockResult(
-                    success=True,
-                    key_type=BitLockerKeyType.BEK_FILE,
-                    volume_info=self._get_volume_info_dict()
-                )
-            else:
-                return BitLockerUnlockResult(
-                    success=False,
-                    key_type=BitLockerKeyType.BEK_FILE,
-                    error_message="Invalid BEK file"
-                )
+            return BitLockerUnlockResult(
+                success=True,
+                key_type=BitLockerKeyType.BEK_FILE,
+                volume_info=self._get_volume_info_dict()
+            )
 
         except Exception as e:
             return BitLockerUnlockResult(

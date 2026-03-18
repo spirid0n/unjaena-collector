@@ -1974,7 +1974,16 @@ class CollectorWindow(QMainWindow):
                                 elif dialog_result.skip:
                                     self._log("Skipping BitLocker decryption for disk image.")
                                 else:
-                                    self._log("BitLocker dialog cancelled.")
+                                    # Cancelled — abort entire collection
+                                    self._log("BitLocker dialog cancelled. Aborting collection.")
+                                    if backend:
+                                        backend.close()
+                                    QMessageBox.information(
+                                        self,
+                                        "Collection Cancelled",
+                                        "BitLocker configuration was cancelled. Collection will not proceed."
+                                    )
+                                    return
                                 break  # Handle first encrypted partition per image
 
                             # --- LUKS in disk image ---
@@ -2025,7 +2034,16 @@ class CollectorWindow(QMainWindow):
                                 elif luks_result.skip:
                                     self._log("Skipping LUKS decryption.")
                                 else:
-                                    self._log("LUKS dialog cancelled.")
+                                    # Cancelled — abort entire collection
+                                    self._log("LUKS dialog cancelled. Aborting collection.")
+                                    if backend:
+                                        backend.close()
+                                    QMessageBox.information(
+                                        self,
+                                        "Collection Cancelled",
+                                        "Encryption configuration was cancelled. Collection will not proceed."
+                                    )
+                                    return
                                 break  # Handle first encrypted partition per image
                     finally:
                         if backend:

@@ -105,6 +105,11 @@ class PartitionSliceReader:
     def tell(self) -> int:
         return self._position
 
+    @property
+    def size(self) -> int:
+        """Size property for compatibility with dissect.fve BitlockerStream"""
+        return self._size
+
     def get_size(self) -> int:
         return self._size
 
@@ -135,6 +140,7 @@ class BitLockerBackend(UnifiedDiskReader):
 
         self._source = source
         self._bde = None
+        self._stream = None  # BitlockerStream (decrypted, seekable)
         self._source_fh = None  # file handle we opened (to close later)
         self._is_unlocked = False
         self._volume_info: Optional[BitLockerVolumeInfo] = None
@@ -191,11 +197,8 @@ class BitLockerBackend(UnifiedDiskReader):
                 is_locked=is_locked
             )
 
-            # Try to get size
-            try:
-                self._disk_size = self._bde.size
-            except Exception:
-                self._disk_size = 0
+            # Size is only available after unlock (via BitlockerStream)
+            self._disk_size = 0
 
         except Exception as e:
             logger.warning(f"Failed to load volume info: {e}")
@@ -244,6 +247,11 @@ class BitLockerBackend(UnifiedDiskReader):
     # ========== Unlock ==========
 
     def unlock(self) -> bool:
+        """Unlock the BitLocker volume with the previously set key.
+
+        Returns True on success.
+        Raises BitLockerError on failure with the actual error message from dissect.fve.
+        """
         if not self._bde:
             raise BitLockerError("Volume not opened")
 
@@ -264,21 +272,28 @@ class BitLockerBackend(UnifiedDiskReader):
                 with open(value, 'rb') as f:
                     self._bde.unlock_with_bek(f)
 
+            # BDE.open() returns BitlockerStream (AlignedStream with seek/read)
+            self._stream = self._bde.open()
             self._is_unlocked = True
             logger.info(f"BitLocker volume unlocked using {self._key_type_used.value}")
 
             # Update size after unlock
             try:
-                self._disk_size = self._bde.size
+                self._disk_size = self._stream.size
             except Exception:
                 pass
 
             return True
 
+        except ValueError as e:
+            # dissect.fve raises ValueError for key validation/decryption failures
+            logger.error(f"BitLocker unlock failed: {e}")
+            self._is_unlocked = False
+            raise BitLockerError(str(e))
         except Exception as e:
             logger.error(f"BitLocker unlock failed: {e}")
             self._is_unlocked = False
-            return False
+            raise BitLockerError(f"Unlock failed: {e}")
 
     def is_locked(self) -> bool:
         return not self._is_unlocked
@@ -286,17 +301,16 @@ class BitLockerBackend(UnifiedDiskReader):
     # ========== UnifiedDiskReader Interface Implementation ==========
 
     def read(self, offset: int, size: int) -> bytes:
-        if not self._bde:
-            raise BitLockerError("Volume not opened")
-
-        if not self._is_unlocked:
-            raise BitLockerError(
-                "Volume is locked. Call unlock() with valid credentials first."
-            )
+        if not self._stream:
+            if not self._is_unlocked:
+                raise BitLockerError(
+                    "Volume is locked. Call unlock() with valid credentials first."
+                )
+            raise BitLockerError("Decrypted stream not available")
 
         try:
-            self._bde.seek(offset)
-            return self._bde.read(size)
+            self._stream.seek(offset)
+            return self._stream.read(size)
         except Exception as e:
             raise BitLockerError(f"Failed to read decrypted data: {e}")
 
@@ -317,6 +331,15 @@ class BitLockerBackend(UnifiedDiskReader):
         )
 
     def close(self) -> None:
+        if self._stream:
+            try:
+                if hasattr(self._stream, 'close'):
+                    self._stream.close()
+            except Exception as e:
+                logger.warning(f"Error closing BitLocker stream: {e}")
+            finally:
+                self._stream = None
+
         if self._bde:
             try:
                 if hasattr(self._bde, 'close'):
