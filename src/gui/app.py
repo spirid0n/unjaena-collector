@@ -55,7 +55,10 @@ try:
         BitLockerDecryptor,
         BitLockerKeyType,
         is_pybde_installed,
-        BitLockerError
+        BitLockerError,
+        is_fve_available,
+        is_luks_partition,
+        LUKSDecryptor,
     )
     BITLOCKER_AVAILABLE = True
 except ImportError:
@@ -1075,7 +1078,7 @@ class CollectorWindow(QMainWindow):
         layout.setSpacing(4)
 
         # Status label (simplified)
-        self.linux_info_label = QLabel("Select Linux E01/RAW image")
+        self.linux_info_label = QLabel("Select Linux disk image")
         self.linux_info_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
         layout.addWidget(self.linux_info_label)
 
@@ -1118,7 +1121,7 @@ class CollectorWindow(QMainWindow):
         layout.setSpacing(4)
 
         # Status label (simplified)
-        self.macos_info_label = QLabel("Select macOS E01/RAW image")
+        self.macos_info_label = QLabel("Select macOS disk image")
         self.macos_info_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
         layout.addWidget(self.macos_info_label)
 
@@ -1215,7 +1218,10 @@ class CollectorWindow(QMainWindow):
                 target_tab = tab_map['ios']
                 break
 
-            elif device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+            elif device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                                        DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                                        DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                                        DeviceType.VDI_IMAGE):
                 detected_os = device.metadata.get('detected_os', 'unknown')
                 if detected_os == 'windows':
                     target_tab = tab_map['windows']
@@ -1252,7 +1258,10 @@ class CollectorWindow(QMainWindow):
         macos_images = []
 
         for device in selected_devices:
-            if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+            if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                                        DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                                        DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                                        DeviceType.VDI_IMAGE):
                 detected_os = device.metadata.get('detected_os', 'unknown')
                 fs_type = device.metadata.get('filesystem_type', 'Unknown')
 
@@ -1269,7 +1278,7 @@ class CollectorWindow(QMainWindow):
                 )
                 self.linux_info_label.setStyleSheet(f"color: {COLORS['success']}; font-size: 9px;")
             else:
-                self.linux_info_label.setText("Select a Linux E01/RAW image from device list")
+                self.linux_info_label.setText("Select a Linux disk image from device list")
                 self.linux_info_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
 
         # Update macOS tab info
@@ -1280,7 +1289,7 @@ class CollectorWindow(QMainWindow):
                 )
                 self.macos_info_label.setStyleSheet(f"color: {COLORS['success']}; font-size: 9px;")
             else:
-                self.macos_info_label.setText("Select a macOS E01/RAW image from device list")
+                self.macos_info_label.setText("Select a macOS disk image from device list")
                 self.macos_info_label.setStyleSheet(f"color: {COLORS['text_tertiary']}; font-size: 9px;")
 
     def _update_collect_button_state(self):
@@ -1404,14 +1413,26 @@ class CollectorWindow(QMainWindow):
     def check_server_connection(self):
         """Check if server is reachable"""
         validator = TokenValidator(self.config['server_url'])
-        if validator.check_server_health():
+        result = validator.check_server_health()
+        # Support both old (bool) and new (tuple) return
+        if isinstance(result, tuple):
+            success, error_detail = result
+        else:
+            success, error_detail = result, None
+
+        if success:
             self.server_status.setText("Server: Connected")
             self.server_status.setStyleSheet("color: #4cc9f0;")
             self._log("Server connection established")
         else:
             self.server_status.setText("Server: Disconnected")
             self.server_status.setStyleSheet("color: #f72585;")
-            self._log("Warning: Cannot connect to server", error=True)
+            if error_detail and "SSL" in error_detail:
+                self._log(f"SSL certificate error connecting to server", error=True)
+            else:
+                self._log(f"Cannot connect to server: {self.config['server_url']}", error=True)
+            if error_detail:
+                self._log(f"Detail: {error_detail}", error=True)
 
     def _toggle_token_visibility(self):
         """Toggle token visibility"""
@@ -1745,63 +1766,98 @@ class CollectorWindow(QMainWindow):
                             )
                             self._bitlocker_auto_decrypt_used = False
                     else:
-                        # Try pybde-based decryption
-                        self._log(f"Attempting BitLocker decryption... (Key type: {dialog_result.key_type})")
+                        # Try pybde-based decryption with retry on wrong key
+                        while True:
+                            self._log(f"Attempting BitLocker decryption... (Key type: {dialog_result.key_type})")
 
-                        try:
-                            decryptor = BitLockerDecryptor.from_physical_disk(
-                                drive_number=0,
-                                partition_index=bitlocker_result.partition_index
-                            )
+                            try:
+                                decryptor = BitLockerDecryptor.from_detection_result(
+                                    drive_number=0,
+                                    detection_result=bitlocker_result
+                                )
 
-                            # Decrypt based on key type
-                            if dialog_result.key_type == "recovery_password":
-                                unlock_result = decryptor.unlock_with_recovery_password(
-                                    dialog_result.key_value
-                                )
-                            elif dialog_result.key_type == "password":
-                                unlock_result = decryptor.unlock_with_password(
-                                    dialog_result.key_value
-                                )
-                            elif dialog_result.key_type == "bek_file":
-                                unlock_result = decryptor.unlock_with_bek_file(
-                                    dialog_result.bek_path
-                                )
-                            else:
-                                unlock_result = None
+                                # Decrypt based on key type
+                                if dialog_result.key_type == "recovery_password":
+                                    unlock_result = decryptor.unlock_with_recovery_password(
+                                        dialog_result.key_value
+                                    )
+                                elif dialog_result.key_type == "password":
+                                    unlock_result = decryptor.unlock_with_password(
+                                        dialog_result.key_value
+                                    )
+                                elif dialog_result.key_type == "bek_file":
+                                    unlock_result = decryptor.unlock_with_bek_file(
+                                        dialog_result.bek_path
+                                    )
+                                else:
+                                    unlock_result = None
 
-                            if unlock_result and unlock_result.success:
-                                bitlocker_decryptor = decryptor
-                                bitlocker_info = unlock_result.volume_info
-                                self._log("BitLocker decryption successful! Proceeding with collection from encrypted volume.")
-                            else:
-                                error_msg = unlock_result.error_message if unlock_result else "Unknown error"
-                                self._log(f"BitLocker decryption failed: {error_msg}", error=True)
+                                # [Security] Clear key from memory after use
+                                dialog_result.key_value = None
+
+                                if unlock_result and unlock_result.success:
+                                    bitlocker_decryptor = decryptor
+                                    bitlocker_info = unlock_result.volume_info
+                                    self._log("BitLocker decryption successful! Proceeding with collection from encrypted volume.")
+                                    break  # Success
+                                else:
+                                    error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                                    self._log(f"BitLocker decryption failed: {error_msg}", error=True)
+                                    decryptor.close()
+
+                                    # Ask user: retry or skip
+                                    retry = QMessageBox.question(
+                                        self,
+                                        "BitLocker Decryption Failed",
+                                        f"Decryption failed: {error_msg}\n\n"
+                                        "Try again with a different key?\n"
+                                        "Click 'No' to proceed without decryption.",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.Yes
+                                    )
+                                    if retry == QMessageBox.StandardButton.Yes:
+                                        dialog_result = show_bitlocker_dialog(
+                                            partition_info={
+                                                'partition_index': bitlocker_result.partition_index,
+                                                'partition_offset': bitlocker_result.partition_offset,
+                                                'partition_size': bitlocker_result.partition_size,
+                                                'encryption_method': bitlocker_result.encryption_method,
+                                            },
+                                            pybde_available=is_pybde_installed(),
+                                            config=self.config,
+                                            parent=self
+                                        )
+                                        if not dialog_result.success or dialog_result.skip:
+                                            self._log("User skipped retry. Proceeding without decryption.")
+                                            break
+                                        continue  # Retry with new key
+                                    else:
+                                        self._log("User skipped decryption. Proceeding in encrypted state.")
+                                        break
+
+                            except BitLockerError as e:
+                                self._log(f"BitLocker error: {e}", error=True)
                                 QMessageBox.warning(
                                     self,
-                                    "BitLocker Decryption Failed",
-                                    f"Decryption failed: {error_msg}\n\n"
-                                    "Proceeding with fallback method (encrypted state)."
+                                    "BitLocker Error",
+                                    f"Error processing BitLocker:\n{e}\n\n"
+                                    "Proceeding with fallback method."
                                 )
-                                # Cleanup decryptor
-                                decryptor.close()
-
-                        except BitLockerError as e:
-                            self._log(f"BitLocker error: {e}", error=True)
-                            QMessageBox.warning(
-                                self,
-                                "BitLocker Error",
-                                f"Error processing BitLocker:\n{e}\n\n"
-                                "Proceeding with fallback method."
-                            )
-                        except Exception as e:
-                            self._log(f"Unexpected error: {e}", error=True)
-                            QMessageBox.warning(
-                                self,
-                                "Error",
-                                f"An error occurred:\n{e}\n\n"
-                                "Proceeding with fallback method."
-                            )
+                                break
+                            except Exception as e:
+                                self._log(f"Unexpected error: {e}", error=True)
+                                if 'decryptor' in locals():
+                                    try:
+                                        decryptor.close()
+                                    except Exception:
+                                        pass
+                                QMessageBox.warning(
+                                    self,
+                                    "Error",
+                                    f"An error occurred:\n{e}\n\n"
+                                    "Proceeding with fallback method."
+                                )
+                                break
 
                 elif dialog_result.skip:
                     self._log("Skipping BitLocker decryption, proceeding with collection in encrypted state.")
@@ -1816,6 +1872,184 @@ class CollectorWindow(QMainWindow):
                     return
             else:
                 self._log("No BitLocker encrypted volume detected.")
+
+        # Encryption detection for disk images (BitLocker + LUKS)
+        # Scans partitions in E01/RAW/VMDK/VHD/VHDX/QCOW2/VDI for encryption signatures
+        image_bitlocker_decryptors = {}  # device_id -> BitLockerDecryptor
+        luks_decryptors = {}  # device_id -> LUKSDecryptor
+        if BITLOCKER_AVAILABLE:
+            disk_image_types = (
+                DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                DeviceType.VDI_IMAGE,
+            )
+            for device in selected_devices:
+                if device.device_type not in disk_image_types:
+                    continue
+
+                file_path = device.metadata.get('file_path')
+                if not file_path:
+                    continue
+
+                try:
+                    from utils.bitlocker.disk_backends import create_disk_backend
+                    backend = create_disk_backend(file_path)
+                    try:
+                        partitions = BitLockerDecryptor._detect_partitions(backend)
+                        for p in partitions:
+                            # --- BitLocker in disk image ---
+                            if p.filesystem == 'BitLocker':
+                                self._log(f"BitLocker encrypted partition detected: {device.display_name} (Partition #{p.index})")
+
+                                from gui.bitlocker_dialog import show_bitlocker_dialog
+                                dialog_result = show_bitlocker_dialog(
+                                    partition_info={
+                                        'partition_index': p.index,
+                                        'partition_offset': p.offset,
+                                        'partition_size': p.size,
+                                        'encryption_method': '',
+                                    },
+                                    pybde_available=is_pybde_installed(),
+                                    config=self.config,
+                                    parent=self
+                                )
+
+                                if dialog_result.success and not dialog_result.skip:
+                                    # manage-bde (auto_decrypt) is only for live systems, not disk images
+                                    if getattr(dialog_result, 'auto_decrypt', False):
+                                        self._log("Auto-decrypt (manage-bde) is not available for disk images.", error=True)
+                                        QMessageBox.warning(
+                                            self, "Not Supported",
+                                            "Auto-decrypt (manage-bde) only works on live Windows systems.\n"
+                                            "Please use Recovery Key, Password, or BEK file instead."
+                                        )
+                                    else:
+                                        try:
+                                            decryptor = BitLockerDecryptor(
+                                                disk_backend=backend,
+                                                partition_offset=p.offset,
+                                                partition_size=p.size,
+                                                partition_index=p.index
+                                            )
+
+                                            if dialog_result.key_type == "recovery_password":
+                                                unlock_result = decryptor.unlock_with_recovery_password(
+                                                    dialog_result.key_value
+                                                )
+                                            elif dialog_result.key_type == "password":
+                                                unlock_result = decryptor.unlock_with_password(
+                                                    dialog_result.key_value
+                                                )
+                                            elif dialog_result.key_type == "bek_file":
+                                                unlock_result = decryptor.unlock_with_bek_file(
+                                                    dialog_result.bek_path
+                                                )
+                                            else:
+                                                unlock_result = None
+
+                                            # [Security] Clear key from memory after use
+                                            dialog_result.key_value = None
+
+                                            if unlock_result and unlock_result.success:
+                                                image_bitlocker_decryptors[device.device_id] = decryptor
+                                                self._log("BitLocker decryption successful!")
+                                                backend = None  # don't close — owned by decryptor
+                                            else:
+                                                error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                                                self._log(f"BitLocker decryption failed: {error_msg}", error=True)
+                                                QMessageBox.warning(
+                                                    self, "BitLocker Decryption Failed",
+                                                    f"Decryption failed: {error_msg}\n\n"
+                                                    "Proceeding with encrypted state."
+                                                )
+                                                decryptor.close()
+                                        except (BitLockerError, Exception) as e:
+                                            self._log(f"BitLocker error: {e}", error=True)
+                                            if 'decryptor' in locals():
+                                                try:
+                                                    decryptor.close()
+                                                except Exception:
+                                                    pass
+                                elif dialog_result.skip:
+                                    self._log("Skipping BitLocker decryption for disk image.")
+                                else:
+                                    # Cancelled — abort entire collection
+                                    self._log("BitLocker dialog cancelled. Aborting collection.")
+                                    if backend:
+                                        backend.close()
+                                    QMessageBox.information(
+                                        self,
+                                        "Collection Cancelled",
+                                        "BitLocker configuration was cancelled. Collection will not proceed."
+                                    )
+                                    return
+                                break  # Handle first encrypted partition per image
+
+                            # --- LUKS in disk image ---
+                            elif p.filesystem == 'LUKS':
+                                self._log(f"LUKS encrypted partition detected: {device.display_name} (Partition #{p.index})")
+
+                                from gui.luks_dialog import show_luks_dialog
+                                luks_result = show_luks_dialog(
+                                    partition_info={
+                                        'partition_index': p.index,
+                                        'partition_offset': p.offset,
+                                        'partition_size': p.size,
+                                    },
+                                    fve_available=is_fve_available(),
+                                    parent=self
+                                )
+
+                                if luks_result.success and not luks_result.skip:
+                                    try:
+                                        luks_dec = LUKSDecryptor(
+                                            disk_backend=backend,
+                                            partition_offset=p.offset,
+                                            partition_size=p.size,
+                                            partition_index=p.index
+                                        )
+                                        unlock_res = luks_dec.unlock_with_passphrase(luks_result.passphrase)
+                                        # [Security] Clear passphrase from memory after use
+                                        luks_result.passphrase = None
+                                        if unlock_res.success:
+                                            luks_decryptors[device.device_id] = luks_dec
+                                            self._log("LUKS decryption successful!")
+                                            backend = None  # don't close — owned by luks_dec
+                                        else:
+                                            self._log(f"LUKS decryption failed: {unlock_res.error_message}", error=True)
+                                            luks_dec.close()
+                                            QMessageBox.warning(
+                                                self, "LUKS Decryption Failed",
+                                                f"Decryption failed: {unlock_res.error_message}\n\n"
+                                                "Proceeding with encrypted state."
+                                            )
+                                    except Exception as e:
+                                        self._log(f"LUKS error: {e}", error=True)
+                                        if 'luks_dec' in locals():
+                                            try:
+                                                luks_dec.close()
+                                            except Exception:
+                                                pass
+                                elif luks_result.skip:
+                                    self._log("Skipping LUKS decryption.")
+                                else:
+                                    # Cancelled — abort entire collection
+                                    self._log("LUKS dialog cancelled. Aborting collection.")
+                                    if backend:
+                                        backend.close()
+                                    QMessageBox.information(
+                                        self,
+                                        "Collection Cancelled",
+                                        "Encryption configuration was cancelled. Collection will not proceed."
+                                    )
+                                    return
+                                break  # Handle first encrypted partition per image
+                    finally:
+                        if backend:
+                            backend.close()
+                except Exception as e:
+                    self._log(f"Encryption detection failed for {device.display_name}: {e}", error=True)
 
         # iOS encrypted backup detection and password handling
         ios_backup_password = None
@@ -1915,8 +2149,12 @@ class CollectorWindow(QMainWindow):
             # Phase 3.1: Linux/macOS options
             linux_mount_path=linux_mount if linux_mount else None,
             macos_mount_path=macos_mount if macos_mount else None,
-            # BitLocker decrypted volume
+            # BitLocker decrypted volume (physical disk)
             bitlocker_decryptor=bitlocker_decryptor,
+            # BitLocker decrypted volumes (disk images)
+            image_bitlocker_decryptors=image_bitlocker_decryptors,
+            # LUKS decrypted volumes (disk images)
+            luks_decryptors=luks_decryptors,
             # iOS encrypted backup password
             ios_backup_password=ios_backup_password,
             # Include deleted files option
@@ -2448,8 +2686,12 @@ class CollectionWorker(QThread):
         # Phase 3.1: Linux/macOS options
         linux_mount_path: str = None,
         macos_mount_path: str = None,
-        # BitLocker decrypted volume
+        # BitLocker decrypted volume (physical disk)
         bitlocker_decryptor=None,
+        # BitLocker decrypted volumes (disk images, device_id -> BitLockerDecryptor)
+        image_bitlocker_decryptors=None,
+        # LUKS decrypted volumes (disk images, device_id -> LUKSDecryptor)
+        luks_decryptors=None,
         # iOS encrypted backup password
         ios_backup_password: str = None,
         # Include deleted files
@@ -2482,8 +2724,14 @@ class CollectionWorker(QThread):
         self.linux_mount_path = linux_mount_path
         self.macos_mount_path = macos_mount_path
 
-        # BitLocker decrypted volume
+        # BitLocker decrypted volume (physical disk)
         self.bitlocker_decryptor = bitlocker_decryptor
+
+        # BitLocker decrypted volumes (disk images)
+        self.image_bitlocker_decryptors = image_bitlocker_decryptors or {}
+
+        # LUKS decrypted volumes (disk images)
+        self.luks_decryptors = luks_decryptors or {}
 
         # iOS encrypted backup password
         self.ios_backup_password = ios_backup_password
@@ -2660,10 +2908,35 @@ class CollectionWorker(QThread):
         try:
             device_type = device.device_type
 
-            # E01/RAW image
-            if device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+            # E01/RAW/VMDK/VHD/VHDX/QCOW2/VDI image
+            if device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                               DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                               DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                               DeviceType.VDI_IMAGE):
+                # BitLocker-decrypted partition in disk image
+                bl_dec = self.image_bitlocker_decryptors.get(device.device_id)
+                if bl_dec:
+                    try:
+                        decrypted_reader = bl_dec.get_decrypted_reader()
+                        self.log_message.emit("Using BitLocker decrypted volume for collection.", False)
+                        return ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
+                    except Exception as e:
+                        self.log_message.emit(f"BitLocker decrypted volume access failed: {e}", True)
+
+                # LUKS-decrypted partition in disk image
+                luks_dec = self.luks_decryptors.get(device.device_id)
+                if luks_dec:
+                    try:
+                        decrypted_reader = luks_dec.get_decrypted_reader()
+                        self.log_message.emit("Using LUKS decrypted volume for collection.", False)
+                        return ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
+                    except Exception as e:
+                        self.log_message.emit(f"LUKS decrypted volume access failed: {e}", True)
+
+                # Fall through to normal E01 collector
+
                 if E01ArtifactCollector is None:
-                    self.log_message.emit("E01 image analysis is not available on this platform.", True)
+                    self.log_message.emit("Disk image analysis is not available on this platform.", True)
                     return None
                 file_path = device.metadata.get('file_path')
                 if not file_path:
@@ -2691,24 +2964,26 @@ class CollectionWorker(QThread):
 
             # Windows physical disk
             elif device_type == DeviceType.WINDOWS_PHYSICAL_DISK:
+                # Get decrypted reader if BitLocker was unlocked via dialog
+                decrypted_reader = None
+                if self.bitlocker_decryptor:
+                    try:
+                        decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
+                        self.log_message.emit("BitLocker decrypted volume available for MFT collection.", False)
+                    except Exception as e:
+                        self.log_message.emit(f"BitLocker decrypted volume access failed: {e}", True)
+
                 # Use LocalMFTCollector (BitLocker auto-detection + directory fallback)
                 if BASE_MFT_AVAILABLE:
-                    # [2026-02-15] Get volume letter from metadata, fallback to 'C' if None
                     volume = device.metadata.get('volume') or 'C'
                     self.log_message.emit(f"Using volume: {volume}:", False)
-                    collector = LocalMFTCollector(output_dir, volume=volume)
+                    collector = LocalMFTCollector(output_dir, volume=volume, decrypted_reader=decrypted_reader)
                     self.log_message.emit(
                         f"Collection mode: {collector.get_collection_mode()}", False
                     )
                     return collector
                 else:
                     # Use legacy ArtifactCollector if BaseMFTCollector unavailable
-                    decrypted_reader = None
-                    if self.bitlocker_decryptor:
-                        try:
-                            decrypted_reader = self.bitlocker_decryptor.get_decrypted_reader()
-                        except Exception:
-                            pass
                     return ArtifactCollector(output_dir, decrypted_reader=decrypted_reader)
 
             # Android device
@@ -2852,6 +3127,7 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit("Starting artifact collection...", False)
             collected_raw_files = []  # (file_path, artifact_type, metadata)
+            _ios_collectors = []  # Track iOS collectors for cleanup
 
             # If devices are selected, collect per device
             if self.selected_devices:
@@ -2871,6 +3147,10 @@ class CollectionWorker(QThread):
                     if not collector:
                         self.log_message.emit(f"{device_name}: Collector creation failed", True)
                         continue
+
+                    # Track iOS collectors for cleanup (encrypted backup temp files)
+                    if hasattr(collector, 'close'):
+                        _ios_collectors.append(collector)
 
                     for artifact_type in self.artifacts:
                         if self._cancelled:
@@ -3289,6 +3569,14 @@ class CollectionWorker(QThread):
             # [2026-02-22] Stop heartbeat thread
             self._stop_heartbeat()
 
+            # Close iOS collectors BEFORE removing temp directory
+            # (releases decrypted Manifest.db temp files)
+            for _col in locals().get('_ios_collectors', []):
+                try:
+                    _col.close()
+                except Exception:
+                    pass
+
             # Cleanup temporary directory (delete collected files)
             if output_dir and os.path.exists(output_dir):
                 try:
@@ -3301,10 +3589,30 @@ class CollectionWorker(QThread):
             # Clear iOS backup passwords from memory
             self.ios_backup_password = None
 
-            # BitLocker decryptor resource cleanup
+            # BitLocker decryptor resource cleanup (physical disk)
             if self.bitlocker_decryptor:
                 try:
                     self.bitlocker_decryptor.close()
                     self.log_message.emit("BitLocker resources cleaned up", False)
                 except Exception as e:
                     self.log_message.emit(f"Error cleaning up BitLocker: {e}", True)
+
+            # BitLocker decryptor resource cleanup (disk images)
+            for dev_id, bl_dec in self.image_bitlocker_decryptors.items():
+                try:
+                    bl_dec.close()
+                except Exception:
+                    pass
+            if self.image_bitlocker_decryptors:
+                self.log_message.emit("Disk image BitLocker resources cleaned up", False)
+                self.image_bitlocker_decryptors.clear()
+
+            # LUKS decryptor resource cleanup
+            for dev_id, luks_dec in self.luks_decryptors.items():
+                try:
+                    luks_dec.close()
+                except Exception:
+                    pass
+            if self.luks_decryptors:
+                self.log_message.emit("LUKS resources cleaned up", False)
+                self.luks_decryptors.clear()
