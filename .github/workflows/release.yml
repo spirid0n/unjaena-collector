@@ -34,14 +34,24 @@ jobs:
 
       - name: Prepare config with version
         shell: bash
+        env:
+          SERVER_URL: ${{ secrets.PRODUCTION_SERVER_URL }}
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          server_url = os.environ.get('SERVER_URL', 'https://YOUR_SERVER_URL')
+          ws_url = server_url.replace('https://', 'wss://').replace('http://', 'ws://')
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+              if server_url != 'https://YOUR_SERVER_URL':
+                  c['server_url'] = server_url
+                  c['ws_url'] = ws_url
+          else:
+              c = {'server_url':server_url,'ws_url':ws_url,'dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build EXE
@@ -85,14 +95,24 @@ jobs:
           pip install pyinstaller
 
       - name: Prepare config with version
+        env:
+          SERVER_URL: ${{ secrets.PRODUCTION_SERVER_URL }}
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          server_url = os.environ.get('SERVER_URL', 'https://YOUR_SERVER_URL')
+          ws_url = server_url.replace('https://', 'wss://').replace('http://', 'ws://')
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+              if server_url != 'https://YOUR_SERVER_URL':
+                  c['server_url'] = server_url
+                  c['ws_url'] = ws_url
+          else:
+              c = {'server_url':server_url,'ws_url':ws_url,'dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build Linux binary
@@ -132,14 +152,24 @@ jobs:
           pip install pyinstaller
 
       - name: Prepare config with version
+        env:
+          SERVER_URL: ${{ secrets.PRODUCTION_SERVER_URL }}
         run: |
           VERSION="${GITHUB_REF_NAME#collector-v}"
           python3 -c "
-          import json
-          with open('config.example.json', encoding='utf-8') as f: c = json.load(f)
+          import json, os
+          server_url = os.environ.get('SERVER_URL', 'https://YOUR_SERVER_URL')
+          ws_url = server_url.replace('https://', 'wss://').replace('http://', 'ws://')
+          if os.path.exists('config.production.json'):
+              with open('config.production.json', encoding='utf-8') as f: c = json.load(f)
+              if server_url != 'https://YOUR_SERVER_URL':
+                  c['server_url'] = server_url
+                  c['ws_url'] = ws_url
+          else:
+              c = {'server_url':server_url,'ws_url':ws_url,'dev_mode':False,'allow_insecure':False,'app_name':'Digital Intelligence Collector'}
           c['version'] = '${VERSION}'
           with open('config.production.json', 'w', encoding='utf-8') as f: json.dump(c, f, indent=4)
-          print(f'[CONFIG] version set to ${VERSION}')
+          print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
       - name: Build macOS binary

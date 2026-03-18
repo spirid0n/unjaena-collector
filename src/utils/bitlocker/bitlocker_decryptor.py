@@ -162,8 +162,10 @@ class BitLockerDecryptor:
         if not detection_result.is_encrypted:
             raise BitLockerError("Detection result indicates no BitLocker encryption")
 
-        if not detection_result.partition_offset or not detection_result.partition_size:
+        if detection_result.partition_offset is None or detection_result.partition_size is None:
             raise BitLockerError("Detection result missing partition offset/size")
+        if detection_result.partition_size <= 0:
+            raise BitLockerError(f"Invalid partition size: {detection_result.partition_size}")
 
         backend = PhysicalDiskBackend(drive_number)
         return cls(
@@ -532,10 +534,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"Recovery password unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_recovery_password failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.RECOVERY_PASSWORD,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock_with_password(self, password: str) -> BitLockerUnlockResult:
@@ -557,10 +561,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"Password unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_password failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.PASSWORD,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock_with_bek_file(self, bek_path: str) -> BitLockerUnlockResult:
@@ -582,10 +588,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"BEK file unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_bek_file failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.BEK_FILE,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock(

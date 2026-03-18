@@ -450,6 +450,11 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
     # Supported extensions
     E01_EXTENSIONS = {'.e01', '.ex01', '.s01', '.l01'}
     RAW_EXTENSIONS = {'.dd', '.raw', '.img', '.bin'}
+    VMDK_EXTENSIONS = {'.vmdk'}
+    VHD_EXTENSIONS = {'.vhd'}
+    VHDX_EXTENSIONS = {'.vhdx'}
+    QCOW2_EXTENSIONS = {'.qcow2'}
+    VDI_EXTENSIONS = {'.vdi'}
 
     def __init__(self):
         self._registered_images: Dict[str, UnifiedDeviceInfo] = {}
@@ -491,7 +496,12 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
             raise FileNotFoundError(f"File not found: {path}")
 
         ext = path.suffix.lower()
-        all_extensions = self.E01_EXTENSIONS | self.RAW_EXTENSIONS
+        all_extensions = (
+            self.E01_EXTENSIONS | self.RAW_EXTENSIONS |
+            self.VMDK_EXTENSIONS | self.VHD_EXTENSIONS |
+            self.VHDX_EXTENSIONS | self.QCOW2_EXTENSIONS |
+            self.VDI_EXTENSIONS
+        )
 
         if ext not in all_extensions:
             raise ValueError(f"Unsupported file type: {ext}. Supported: {all_extensions}")
@@ -499,6 +509,16 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
         # Determine device type
         if ext in self.E01_EXTENSIONS:
             device_type = DeviceType.E01_IMAGE
+        elif ext in self.VMDK_EXTENSIONS:
+            device_type = DeviceType.VMDK_IMAGE
+        elif ext in self.VHD_EXTENSIONS:
+            device_type = DeviceType.VHD_IMAGE
+        elif ext in self.VHDX_EXTENSIONS:
+            device_type = DeviceType.VHDX_IMAGE
+        elif ext in self.QCOW2_EXTENSIONS:
+            device_type = DeviceType.QCOW2_IMAGE
+        elif ext in self.VDI_EXTENSIONS:
+            device_type = DeviceType.VDI_IMAGE
         else:
             device_type = DeviceType.RAW_IMAGE
 
@@ -558,6 +578,11 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
             # Detect filesystem with ForensicDiskAccessor
             if device_type == DeviceType.E01_IMAGE:
                 accessor = ForensicDiskAccessor.from_e01(str(path))
+            elif device_type in (DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                                 DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                                 DeviceType.VDI_IMAGE):
+                # Virtual disk images — open as raw through dissect backend
+                accessor = ForensicDiskAccessor.from_raw(str(path))
             else:
                 accessor = ForensicDiskAccessor.from_raw(str(path))
 

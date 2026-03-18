@@ -595,5 +595,72 @@ class TestKeyTypePrecedence:
             backend.set_recovery_password("111111-222222-333333-444444-555555-666666-777777-888888")
 
 
+class TestUnknownKeyType:
+    """Unknown key type should raise BitLockerError, not silently return None."""
+
+    @patch('utils.bitlocker.bitlocker_backend._bde_class')
+    @patch('utils.bitlocker.bitlocker_backend._fve_available', True)
+    def test_unknown_key_type_raises(self, mock_bde_cls):
+        mock_bde, _ = _make_mock_bde()
+        mock_bde_cls.return_value = mock_bde
+
+        backend = BitLockerBackend(io.BytesIO(b'\x00' * 512))
+        # Manually set an invalid pending key type
+        backend._pending_key = ('invalid_type', 'value')
+
+        with pytest.raises(BitLockerError, match="Unknown internal key type"):
+            backend.unlock()
+
+        backend.close()
+
+
+class TestBdeOpenNullCheck:
+    """bde.open() returning None should raise BitLockerError."""
+
+    @patch('utils.bitlocker.bitlocker_backend._bde_class')
+    @patch('utils.bitlocker.bitlocker_backend._fve_available', True)
+    def test_bde_open_returns_none_raises(self, mock_bde_cls):
+        mock_bde, _ = _make_mock_bde()
+        mock_bde.open.return_value = None  # Simulate bde.open() returning None
+        mock_bde_cls.return_value = mock_bde
+
+        backend = BitLockerBackend(io.BytesIO(b'\x00' * 512))
+        backend.set_recovery_password("111111-222222-333333-444444-555555-666666-777777-888888")
+
+        with pytest.raises(BitLockerError, match="Failed to open decrypted stream"):
+            backend.unlock()
+
+        backend.close()
+
+
+class TestDecryptorErrorMessageFallback:
+    """Error messages should never be empty."""
+
+    @patch('utils.bitlocker.bitlocker_backend._bde_class')
+    @patch('utils.bitlocker.bitlocker_backend._fve_available', True)
+    def test_empty_exception_message_produces_fallback(self, mock_bde_cls):
+        from utils.bitlocker.bitlocker_decryptor import BitLockerDecryptor, BitLockerUnlockResult
+
+        mock_bde, _ = _make_mock_bde()
+        # Raise an exception with empty message
+        mock_bde.unlock_with_recovery_password.side_effect = ValueError("")
+        mock_bde_cls.return_value = mock_bde
+
+        backend_mock = MagicMock()
+        backend_mock.read.return_value = b'\x00' * 512
+
+        decryptor = BitLockerDecryptor(
+            disk_backend=backend_mock,
+            partition_offset=0,
+            partition_size=1024 * 1024
+        )
+
+        result = decryptor.unlock_with_recovery_password("111111-222222-333333-444444-555555-666666-777777-888888")
+        assert not result.success
+        # Should have a non-empty error message even though ValueError("") has empty str()
+        assert result.error_message
+        assert len(result.error_message) > 0
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])

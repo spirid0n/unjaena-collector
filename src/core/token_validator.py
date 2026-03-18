@@ -5,15 +5,41 @@ Validates session tokens with the forensics server.
 P1 Security Enhancement: One-time token validation and hardware binding
 P2-2: User-friendly error message support
 """
+import os
+import sys
 import requests
 import hashlib
 import time
 import logging
-from typing import Optional, Set
+from typing import Optional, Set, Union
 from dataclasses import dataclass
 
 from utils.hardware_id import get_hardware_id, get_system_info, get_hardware_components
 from utils.error_messages import translate_error
+
+
+def _get_ssl_verify():
+    """Get SSL verification parameter for requests.
+
+    In PyInstaller builds, explicitly use certifi CA bundle
+    to avoid SSL errors on machines without Python installed.
+    """
+    try:
+        import certifi
+        ca_path = certifi.where()
+        if os.path.exists(ca_path):
+            return ca_path
+    except ImportError:
+        pass
+    # Fallback: env var set by main.py
+    for env_key in ('REQUESTS_CA_BUNDLE', 'SSL_CERT_FILE'):
+        ca_path = os.environ.get(env_key)
+        if ca_path and os.path.exists(ca_path):
+            return ca_path
+    return True
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -129,7 +155,7 @@ class TokenValidator:
                     "client_info": system_info,
                 },
                 timeout=self.timeout,
-                verify=True,
+                verify=_get_ssl_verify(),
             )
 
             if response.status_code == 200:
@@ -233,18 +259,29 @@ class TokenValidator:
                 error=f"{friendly.title}\n{friendly.message}\n\nSolution:\n{friendly.solution}",
             )
 
-    def check_server_health(self) -> bool:
-        """Check if the server is reachable."""
+    def check_server_health(self) -> tuple:
+        """Check if the server is reachable.
+
+        Returns:
+            (success: bool, error_detail: str | None)
+        """
+        url = f"{self.server_url}/health"
+        ssl_verify = _get_ssl_verify()
         try:
-            # Enforce SSL certificate verification
-            response = requests.get(
-                f"{self.server_url}/health",
-                timeout=10,
-                verify=True,
-            )
-            return response.status_code == 200
-        except Exception:
-            return False
+            response = requests.get(url, timeout=10, verify=ssl_verify)
+            return response.status_code == 200, None
+        except requests.exceptions.SSLError as e:
+            detail = f"SSL certificate error: {e}"
+            logger.error(f"[Health] {detail} (verify={ssl_verify})")
+            return False, detail
+        except requests.exceptions.ConnectionError as e:
+            detail = f"Connection failed: {e}"
+            logger.error(f"[Health] {detail}")
+            return False, detail
+        except Exception as e:
+            detail = f"{type(e).__name__}: {e}"
+            logger.error(f"[Health] {detail}")
+            return False, detail
 
     def validate_session(self, session_id: str, collection_token: str) -> SessionValidationResult:
         """
@@ -269,7 +306,7 @@ class TokenValidator:
                     "collection_token": collection_token,
                 },
                 timeout=self.timeout,
-                verify=True,
+                verify=_get_ssl_verify(),
             )
             
             if response.status_code == 200:

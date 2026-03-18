@@ -189,6 +189,14 @@ class FileContentExtractor:
         self.mft_record_size = 1024
         self._mft_runs: List[DataRun] = []
 
+        # MFT preload buffer (full $MFT in memory for fast scanning)
+        self._full_mft_buf: Optional[bytes] = None
+
+        # MFT read-ahead buffer (fallback when preload is not used)
+        self._mft_buf: bytes = b''
+        self._mft_buf_offset: int = -1
+        self._mft_readahead_entries: int = 64
+
         # FAT specific
         self.fat_offset = 0
         self.data_area_offset = 0
@@ -660,9 +668,82 @@ class FileContentExtractor:
 
         return bytes(entry)
 
+    # ==========================================================================
+    # MFT Preload — read entire $MFT into memory for bulk scanning
+    # ==========================================================================
+
+    _MFT_PRELOAD_MAX_SIZE = 512 * 1024 * 1024   # 512MB limit
+    _MFT_PRELOAD_CHUNK_SIZE = 4 * 1024 * 1024   # 4MB per I/O
+
+    def preload_mft(self) -> bool:
+        """Read entire $MFT into memory for fast sequential scanning.
+
+        Converts hundreds of thousands of per-entry I/O operations into
+        a handful of large sequential reads. Critical for BitLocker
+        decrypted volumes where each I/O triggers AES decryption.
+
+        Returns True if preloaded successfully.
+        """
+        if self._full_mft_buf is not None:
+            return True
+
+        # Estimate total size
+        total_size = sum(run.length * self.cluster_size for run in self._mft_runs)
+
+        if total_size > self._MFT_PRELOAD_MAX_SIZE:
+            logger.info(
+                f"MFT too large for preload ({total_size / (1024**2):.0f}MB "
+                f"> {self._MFT_PRELOAD_MAX_SIZE / (1024**2):.0f}MB), "
+                f"using readahead buffer"
+            )
+            return False
+
+        try:
+            chunks = []
+            bytes_read = 0
+
+            for run in self._mft_runs:
+                run_bytes = run.length * self.cluster_size
+
+                if run.is_sparse:
+                    chunks.append(b'\x00' * run_bytes)
+                    bytes_read += run_bytes
+                    continue
+
+                run_start = self.partition_offset + (run.lcn * self.cluster_size)
+                offset = 0
+
+                while offset < run_bytes:
+                    chunk_size = min(self._MFT_PRELOAD_CHUNK_SIZE, run_bytes - offset)
+                    data = self.disk.read(run_start + offset, chunk_size)
+                    chunks.append(data)
+                    offset += len(data)
+                    bytes_read += len(data)
+
+            self._full_mft_buf = b''.join(chunks)
+            logger.info(f"MFT preloaded: {len(self._full_mft_buf) / (1024**2):.1f} MB")
+            return True
+
+        except Exception as e:
+            logger.warning(f"MFT preload failed, falling back to per-entry read: {e}")
+            self._full_mft_buf = None
+            return False
+
+    def release_mft_preload(self) -> None:
+        """Release preloaded MFT data to free memory."""
+        if self._full_mft_buf is not None:
+            size_mb = len(self._full_mft_buf) / (1024**2)
+            self._full_mft_buf = None
+            self._mft_buf = b''
+            self._mft_buf_offset = -1
+            logger.info(f"MFT preload released ({size_mb:.1f} MB freed)")
+
     def read_mft_entry(self, entry_number: int) -> bytes:
         """
         Read MFT entry (supports fragmented MFT)
+
+        Fast path: if MFT is preloaded, slices directly from memory buffer.
+        Fallback: uses read-ahead buffer for sequential scan performance.
 
         Args:
             entry_number: MFT entry number
@@ -670,6 +751,17 @@ class FileContentExtractor:
         Returns:
             MFT entry data (fixup applied)
         """
+        # Fast path: preloaded MFT — simple array slice, no I/O
+        if self._full_mft_buf is not None:
+            offset = entry_number * self.mft_record_size
+            end = offset + self.mft_record_size
+            if end <= len(self._full_mft_buf):
+                entry_data = self._full_mft_buf[offset:end]
+                if entry_data[:4] == b'FILE':
+                    entry_data = self._apply_fixup(entry_data)
+                return entry_data
+
+        # Slow path: per-entry read with readahead buffer
         entries_per_cluster = self.cluster_size // self.mft_record_size
         target_entry = entry_number
 
@@ -687,7 +779,21 @@ class FileContentExtractor:
                 disk_offset = self.partition_offset + ((run.lcn + cluster_offset) * self.cluster_size)
                 disk_offset += entry_in_cluster * self.mft_record_size
 
-                entry_data = self.disk.read(disk_offset, self.mft_record_size)
+                # Check read-ahead buffer
+                if (self._mft_buf_offset >= 0 and
+                        disk_offset >= self._mft_buf_offset and
+                        disk_offset + self.mft_record_size <= self._mft_buf_offset + len(self._mft_buf)):
+                    buf_pos = disk_offset - self._mft_buf_offset
+                    entry_data = self._mft_buf[buf_pos:buf_pos + self.mft_record_size]
+                else:
+                    # Read ahead: multiple entries at once within this run
+                    remaining_in_run = entries_in_run - target_entry
+                    readahead_count = min(remaining_in_run, self._mft_readahead_entries)
+                    readahead_bytes = readahead_count * self.mft_record_size
+
+                    self._mft_buf = self.disk.read(disk_offset, readahead_bytes)
+                    self._mft_buf_offset = disk_offset
+                    entry_data = self._mft_buf[:self.mft_record_size]
 
                 # Apply fixup
                 if entry_data[:4] == b'FILE':
@@ -886,18 +992,20 @@ class FileContentExtractor:
 
         yield from self._stream_data_runs(metadata.data_runs, metadata.size, chunk_size)
 
-    def get_file_metadata(self, inode: int) -> FileMetadata:
+    def get_file_metadata(self, inode: int, entry_data: bytes = None) -> FileMetadata:
         """
         Get file metadata
 
         Args:
             inode: MFT entry number
+            entry_data: Pre-read MFT entry bytes (skips re-read if provided)
 
         Returns:
             FileMetadata object
         """
-        entry = self.read_mft_entry(inode)
-        return self._parse_mft_entry_metadata(entry, inode)
+        if entry_data is None:
+            entry_data = self.read_mft_entry(inode)
+        return self._parse_mft_entry_metadata(entry_data, inode)
 
     def list_ads_streams(self, inode: int) -> List[str]:
         """

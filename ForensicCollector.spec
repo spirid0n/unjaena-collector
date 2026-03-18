@@ -175,6 +175,7 @@ extra_hiddenimports = []
 # Packages that require full collection (all submodules + data + binaries)
 # License compatibility verified: all GPL-3.0 / MIT / BSD / Apache-2.0
 collect_packages = [
+    'certifi',             # MPL-2.0 — SSL CA certificates (required for requests in PyInstaller)
     'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
     'construct',           # MIT — binary data parsing (dynamic struct definitions)
     'srptools',            # MIT — SRP authentication protocol
@@ -183,6 +184,10 @@ collect_packages = [
     'pycrashreport',       # GPL-3.0 — iOS crash report parsing
     'pygnuutils',          # GPL-3.0 — GNU utility wrappers
     'adb_shell',           # Apache-2.0 — Android ADB communication
+    'dissect.fve',         # AGPL-3.0 — BitLocker/LUKS decryption (pure Python)
+    'dissect.hypervisor',  # AGPL-3.0 — VMDK/VHD/VHDX/QCOW2/VDI disk images
+    'dissect.cstruct',     # AGPL-3.0 — Binary structure parsing (dissect dependency)
+    'dissect.util',        # AGPL-3.0 — Utility functions (dissect dependency)
 ]
 
 for pkg in collect_packages:
