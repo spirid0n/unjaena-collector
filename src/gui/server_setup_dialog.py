@@ -156,7 +156,8 @@ class ServerSetupDialog(QDialog):
         QApplication.processEvents()
 
         try:
-            resp = requests.get(f"{url}/health", timeout=10, verify=True)
+            from core.token_validator import _get_ssl_verify
+            resp = requests.get(f"{url}/health", timeout=10, verify=_get_ssl_verify())
             if resp.status_code == 200:
                 self.status_label.setText("Connection successful!")
                 self.status_label.setStyleSheet("color: #4cc9f0;")

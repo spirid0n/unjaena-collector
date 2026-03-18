@@ -263,6 +263,7 @@ class BitLockerBackend(UnifiedDiskReader):
 
         try:
             key_type, value = self._pending_key
+            logger.info(f"Attempting unlock with key_type='{key_type}'")
 
             if key_type == 'recovery':
                 self._bde.unlock_with_recovery_password(value)
@@ -271,9 +272,16 @@ class BitLockerBackend(UnifiedDiskReader):
             elif key_type == 'bek':
                 with open(value, 'rb') as f:
                     self._bde.unlock_with_bek(f)
+            else:
+                raise BitLockerError(f"Unknown internal key type: {key_type}")
+
+            logger.info("Key accepted, opening decrypted stream...")
 
             # BDE.open() returns BitlockerStream (AlignedStream with seek/read)
             self._stream = self._bde.open()
+            if not self._stream:
+                raise BitLockerError("Failed to open decrypted stream (bde.open() returned None)")
+
             self._is_unlocked = True
             logger.info(f"BitLocker volume unlocked using {self._key_type_used.value}")
 

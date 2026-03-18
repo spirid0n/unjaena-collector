@@ -33,6 +33,11 @@ class DeviceType(Enum):
     WINDOWS_PARTITION = auto()
     E01_IMAGE = auto()
     RAW_IMAGE = auto()
+    VMDK_IMAGE = auto()
+    VHD_IMAGE = auto()
+    VHDX_IMAGE = auto()
+    QCOW2_IMAGE = auto()
+    VDI_IMAGE = auto()
     ANDROID_DEVICE = auto()
     IOS_BACKUP = auto()
     IOS_DEVICE = auto()  # iOS device via USB direct connection
@@ -100,7 +105,12 @@ class UnifiedDeviceInfo:
     @property
     def is_image(self) -> bool:
         """Check if image file"""
-        return self.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE)
+        return self.device_type in (
+            DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+            DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+            DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+            DeviceType.VDI_IMAGE,
+        )
 
     @property
     def requires_admin(self) -> bool:

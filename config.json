@@ -3,6 +3,6 @@
     "ws_url": "wss://your-server.example.com",
     "dev_mode": false,
     "allow_insecure": false,
-    "version": "2.1.0",
+    "version": "2.4.0",
     "app_name": "Digital Intelligence Collector"
 }

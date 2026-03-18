@@ -43,6 +43,9 @@ class DiskSourceType(Enum):
     RAW_IMAGE = "raw"             # DD/RAW image file
     VHD_IMAGE = "vhd"             # Virtual Hard Disk
     VMDK_IMAGE = "vmdk"           # VMware Disk
+    VHDX_IMAGE = "vhdx"           # Hyper-V VHDX
+    QCOW2_IMAGE = "qcow2"        # KVM/QEMU QCOW2
+    VDI_IMAGE = "vdi"             # VirtualBox VDI
 
 
 @dataclass

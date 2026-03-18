@@ -55,7 +55,7 @@ class DeviceListPanel(QWidget):
         refresh_btn.clicked.connect(self._on_refresh_clicked)
         header.addWidget(refresh_btn)
 
-        add_btn = QPushButton("+ Add E01/RAW")
+        add_btn = QPushButton("+ Add Disk Image")
         add_btn.setFixedHeight(20)
         add_btn.clicked.connect(self._on_add_image_clicked)
         header.addWidget(add_btn)
@@ -278,7 +278,7 @@ class DeviceListPanel(QWidget):
             self,
             "Select Forensic Image",
             "",
-            "Forensic Images (*.E01 *.e01 *.Ex01 *.dd *.raw *.img *.bin)"
+            "Forensic Images (*.E01 *.e01 *.Ex01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi)"
             ";;All Files (*)"
         )
         if file_path:
@@ -315,7 +315,10 @@ class DeviceListPanel(QWidget):
                 volumes_str = ', '.join(f"{v}:" for v in all_volumes)
                 label = f"{label} [{volumes_str}]"
 
-        if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+        if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                                        DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                                        DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                                        DeviceType.VDI_IMAGE):
             detected_os = device.metadata.get('detected_os', 'unknown')
             fs_type = device.metadata.get('filesystem_type', 'Unknown')
             os_labels = {
@@ -337,7 +340,10 @@ class DeviceListPanel(QWidget):
             f"Status: {device.status.name}",
         ]
 
-        if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE):
+        if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
+                                        DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
+                                        DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
+                                        DeviceType.VDI_IMAGE):
             detected_os = device.metadata.get('detected_os', 'unknown')
             fs_type = device.metadata.get('filesystem_type', 'Unknown')
             lines.append(f"Filesystem: {fs_type}")
