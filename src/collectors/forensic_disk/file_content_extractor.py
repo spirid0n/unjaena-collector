@@ -189,6 +189,12 @@ class FileContentExtractor:
         self.mft_record_size = 1024
         self._mft_runs: List[DataRun] = []
 
+        # MFT read-ahead buffer (for sequential scan performance)
+        self._mft_buf: bytes = b''
+        self._mft_buf_offset: int = -1  # disk offset of buffer start
+        _MFT_READAHEAD_ENTRIES = 64     # read 64 entries at once (64KB)
+        self._mft_readahead_entries = _MFT_READAHEAD_ENTRIES
+
         # FAT specific
         self.fat_offset = 0
         self.data_area_offset = 0
@@ -664,6 +670,10 @@ class FileContentExtractor:
         """
         Read MFT entry (supports fragmented MFT)
 
+        Uses read-ahead buffer to amortize I/O cost for sequential scans.
+        Critical for BitLocker decrypted volumes where each read triggers
+        AES decryption.
+
         Args:
             entry_number: MFT entry number
 
@@ -687,7 +697,21 @@ class FileContentExtractor:
                 disk_offset = self.partition_offset + ((run.lcn + cluster_offset) * self.cluster_size)
                 disk_offset += entry_in_cluster * self.mft_record_size
 
-                entry_data = self.disk.read(disk_offset, self.mft_record_size)
+                # Check read-ahead buffer
+                if (self._mft_buf_offset >= 0 and
+                        disk_offset >= self._mft_buf_offset and
+                        disk_offset + self.mft_record_size <= self._mft_buf_offset + len(self._mft_buf)):
+                    buf_pos = disk_offset - self._mft_buf_offset
+                    entry_data = self._mft_buf[buf_pos:buf_pos + self.mft_record_size]
+                else:
+                    # Read ahead: multiple entries at once within this run
+                    remaining_in_run = entries_in_run - target_entry
+                    readahead_count = min(remaining_in_run, self._mft_readahead_entries)
+                    readahead_bytes = readahead_count * self.mft_record_size
+
+                    self._mft_buf = self.disk.read(disk_offset, readahead_bytes)
+                    self._mft_buf_offset = disk_offset
+                    entry_data = self._mft_buf[:self.mft_record_size]
 
                 # Apply fixup
                 if entry_data[:4] == b'FILE':
@@ -886,18 +910,20 @@ class FileContentExtractor:
 
         yield from self._stream_data_runs(metadata.data_runs, metadata.size, chunk_size)
 
-    def get_file_metadata(self, inode: int) -> FileMetadata:
+    def get_file_metadata(self, inode: int, entry_data: bytes = None) -> FileMetadata:
         """
         Get file metadata
 
         Args:
             inode: MFT entry number
+            entry_data: Pre-read MFT entry bytes (skips re-read if provided)
 
         Returns:
             FileMetadata object
         """
-        entry = self.read_mft_entry(inode)
-        return self._parse_mft_entry_metadata(entry, inode)
+        if entry_data is None:
+            entry_data = self.read_mft_entry(inode)
+        return self._parse_mft_entry_metadata(entry_data, inode)
 
     def list_ads_streams(self, inode: int) -> List[str]:
         """

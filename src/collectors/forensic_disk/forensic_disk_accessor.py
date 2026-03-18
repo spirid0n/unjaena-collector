@@ -894,7 +894,7 @@ class ForensicDiskAccessor:
                         continue
 
                     consecutive_errors = 0
-                    metadata = self._extractor.get_file_metadata(entry_num)
+                    metadata = self._extractor.get_file_metadata(entry_num, entry_data=entry_data)
 
                     # Only add non-deleted items to index
                     if not metadata.is_deleted:
@@ -1048,9 +1048,9 @@ class ForensicDiskAccessor:
                     continue
                 result['total_entries'] += 1
 
-                # Extract metadata
+                # Extract metadata (reuse already-read entry to avoid double decrypt)
                 try:
-                    metadata = self._extractor.get_file_metadata(entry_num)
+                    metadata = self._extractor.get_file_metadata(entry_num, entry_data=entry)
                 except Exception as e:
                     result['errors'].append((entry_num, str(e)))
                     entry_num += 1

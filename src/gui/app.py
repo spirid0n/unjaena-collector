@@ -3200,7 +3200,7 @@ class CollectionWorker(QThread):
         else:
             # Prod: WARNING+ log in user home directory
             import sys as _sys
-            _log_dir = os.path.join(os.path.expanduser("~"), ".forensic_collector")
+            _log_dir = os.path.join(os.path.expanduser("~"), ".forensic-collector")
             os.makedirs(_log_dir, exist_ok=True)
             if _sys.platform != 'win32':
                 os.chmod(_log_dir, 0o700)
