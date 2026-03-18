@@ -532,10 +532,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"Recovery password unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_recovery_password failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.RECOVERY_PASSWORD,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock_with_password(self, password: str) -> BitLockerUnlockResult:
@@ -557,10 +559,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"Password unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_password failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.PASSWORD,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock_with_bek_file(self, bek_path: str) -> BitLockerUnlockResult:
@@ -582,10 +586,12 @@ class BitLockerDecryptor:
             )
 
         except Exception as e:
+            error_msg = str(e) or f"BEK file unlock failed ({type(e).__name__})"
+            logger.error(f"unlock_with_bek_file failed: {error_msg}")
             return BitLockerUnlockResult(
                 success=False,
                 key_type=BitLockerKeyType.BEK_FILE,
-                error_message=str(e)
+                error_message=error_msg
             )
 
     def unlock(

@@ -30,6 +30,23 @@ if getattr(sys, 'frozen', False):
 # P1 Security Enhancement: HTTPS/WSS Required
 # =============================================================================
 
+def _get_bundled_version() -> str:
+    """Read version from bundled config.json (set by build pipeline)."""
+    try:
+        if getattr(sys, 'frozen', False):
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        else:
+            src_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = os.path.dirname(os.path.dirname(src_dir))
+        config_path = os.path.join(base_dir, 'config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f).get('version', '0.0.0')
+    except Exception:
+        pass
+    return '0.0.0'
+
+
 def get_secure_config(cli_server_url: str = None) -> dict:
     """
     Return configuration with security settings applied
@@ -38,6 +55,8 @@ def get_secure_config(cli_server_url: str = None) -> dict:
         - ~/.forensic-collector/config.json (saved by ServerSetupDialog)
         - If not found, ServerSetupDialog prompts user on first run
         - CLI --server argument overrides for headless mode only
+    Version source:
+        - Bundled config.json (set by CI/CD build pipeline)
     """
     from gui.server_setup_dialog import load_user_config
     user_config = load_user_config() or {}
@@ -66,7 +85,7 @@ def get_secure_config(cli_server_url: str = None) -> dict:
     config = {
         'server_url': server_url,
         'ws_url': ws_url,
-        'version': user_config.get('version', '2.1.1'),
+        'version': _get_bundled_version(),
         'app_name': 'Digital Forensics Collector',
         'dev_mode': dev_mode,
         'is_release': getattr(sys, 'frozen', False),

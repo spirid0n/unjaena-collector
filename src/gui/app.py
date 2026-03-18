@@ -60,6 +60,7 @@ try:
         is_luks_partition,
         LUKSDecryptor,
     )
+    from utils.bitlocker.bitlocker_decryptor import BitLockerUnlockResult
     BITLOCKER_AVAILABLE = True
 except ImportError:
     BITLOCKER_AVAILABLE = False
@@ -1777,6 +1778,7 @@ class CollectorWindow(QMainWindow):
                                 )
 
                                 # Decrypt based on key type
+                                self._log(f"[DEBUG] BitLocker key_type='{dialog_result.key_type}'")
                                 if dialog_result.key_type == "recovery_password":
                                     unlock_result = decryptor.unlock_with_recovery_password(
                                         dialog_result.key_value
@@ -1790,7 +1792,11 @@ class CollectorWindow(QMainWindow):
                                         dialog_result.bek_path
                                     )
                                 else:
-                                    unlock_result = None
+                                    self._log(f"[ERROR] Unsupported key type: '{dialog_result.key_type}'", error=True)
+                                    unlock_result = BitLockerUnlockResult(
+                                        success=False,
+                                        error_message=f"Unsupported key type: {dialog_result.key_type}"
+                                    )
 
                                 # [Security] Clear key from memory after use
                                 dialog_result.key_value = None
@@ -1801,7 +1807,7 @@ class CollectorWindow(QMainWindow):
                                     self._log("BitLocker decryption successful! Proceeding with collection from encrypted volume.")
                                     break  # Success
                                 else:
-                                    error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                                    error_msg = (unlock_result.error_message if unlock_result else "") or "Decryption failed"
                                     self._log(f"BitLocker decryption failed: {error_msg}", error=True)
                                     decryptor.close()
 
@@ -1933,6 +1939,7 @@ class CollectorWindow(QMainWindow):
                                                 partition_index=p.index
                                             )
 
+                                            self._log(f"[DEBUG] BitLocker key_type='{dialog_result.key_type}'")
                                             if dialog_result.key_type == "recovery_password":
                                                 unlock_result = decryptor.unlock_with_recovery_password(
                                                     dialog_result.key_value
@@ -1946,7 +1953,11 @@ class CollectorWindow(QMainWindow):
                                                     dialog_result.bek_path
                                                 )
                                             else:
-                                                unlock_result = None
+                                                self._log(f"[ERROR] Unsupported key type: '{dialog_result.key_type}'", error=True)
+                                                unlock_result = BitLockerUnlockResult(
+                                                    success=False,
+                                                    error_message=f"Unsupported key type: {dialog_result.key_type}"
+                                                )
 
                                             # [Security] Clear key from memory after use
                                             dialog_result.key_value = None
@@ -1956,7 +1967,7 @@ class CollectorWindow(QMainWindow):
                                                 self._log("BitLocker decryption successful!")
                                                 backend = None  # don't close — owned by decryptor
                                             else:
-                                                error_msg = unlock_result.error_message if unlock_result else "Unknown error"
+                                                error_msg = (unlock_result.error_message if unlock_result else "") or "Decryption failed"
                                                 self._log(f"BitLocker decryption failed: {error_msg}", error=True)
                                                 QMessageBox.warning(
                                                     self, "BitLocker Decryption Failed",
