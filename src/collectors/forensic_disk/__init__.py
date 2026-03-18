@@ -15,7 +15,13 @@ try:
     from .disk_backends import (
         PhysicalDiskBackend,
         E01DiskBackend,
-        RAWImageBackend
+        RAWImageBackend,
+        VMDKDiskBackend,
+        VHDDiskBackend,
+        VHDXDiskBackend,
+        QCOW2DiskBackend,
+        VDIDiskBackend,
+        create_disk_backend,
     )
     from .file_content_extractor import FileContentExtractor
     FORENSIC_DISK_AVAILABLE = True
@@ -59,6 +65,12 @@ __all__ = [
     'PhysicalDiskBackend',
     'E01DiskBackend',
     'RAWImageBackend',
+    'VMDKDiskBackend',
+    'VHDDiskBackend',
+    'VHDXDiskBackend',
+    'QCOW2DiskBackend',
+    'VDIDiskBackend',
+    'create_disk_backend',
     'FileContentExtractor',
     'FORENSIC_DISK_AVAILABLE',
     # EwfImgInfo (pytsk3 bridge)

@@ -1804,38 +1804,39 @@ class AndroidCollector:
             self._adb_shell(f'chmod 644 {shlex.quote(temp_path)}', use_su=True)
             actual_remote_path = temp_path
 
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                device = self._ensure_connection()
-                if device is None:
-                    # System adb fallback mode
-                    output, rc = self._run_system_adb(
-                        ['pull', actual_remote_path, str(local_path)], timeout=120
-                    )
-                    success = rc == 0 and local_path.is_file()
-                    if success and temp_path:
-                        self._adb_shell(f'rm {shlex.quote(temp_path)}', use_su=True)
-                    return success
-                device.pull(actual_remote_path, str(local_path))
+        try:
+            for attempt in range(self.MAX_RETRIES):
+                try:
+                    device = self._ensure_connection()
+                    if device is None:
+                        # System adb fallback mode
+                        output, rc = self._run_system_adb(
+                            ['pull', actual_remote_path, str(local_path)], timeout=120
+                        )
+                        success = rc == 0 and local_path.is_file()
+                        return success
+                    device.pull(actual_remote_path, str(local_path))
 
-                if temp_path:
-                    # Clean up temp file
-                    self._adb_shell(f'rm {shlex.quote(temp_path)}', use_su=True)
+                    return True
 
-                return True
-
-            except (TcpTimeoutException, UsbReadFailedError, UsbWriteFailedError) as e:
-                if attempt < self.MAX_RETRIES - 1:
-                    _debug_print(f"[ADB Pull] Retry {attempt + 1}: {e}")
-                    self._device = None  # Force reconnect
-                else:
-                    _debug_print(f"[ADB Pull] Failed after {self.MAX_RETRIES} attempts: {e}")
+                except (TcpTimeoutException, UsbReadFailedError, UsbWriteFailedError) as e:
+                    if attempt < self.MAX_RETRIES - 1:
+                        _debug_print(f"[ADB Pull] Retry {attempt + 1}: {e}")
+                        self._device = None  # Force reconnect
+                    else:
+                        _debug_print(f"[ADB Pull] Failed after {self.MAX_RETRIES} attempts: {e}")
+                        return False
+                except Exception as e:
+                    _debug_print(f"[ADB Pull] Error: {e}")
                     return False
-            except Exception as e:
-                _debug_print(f"[ADB Pull] Error: {e}")
-                return False
 
-        return False
+            return False
+        finally:
+            if temp_path:
+                try:
+                    self._adb_shell(f'rm {shlex.quote(temp_path)}', use_su=True)
+                except Exception:
+                    pass
 
     # Mapping: collector artifact_type → server-recognized artifact_type
     # Server only has base types (e.g., mobile_android_kakaotalk), not
@@ -2943,10 +2944,14 @@ class AndroidCollector:
             local_path = output_dir / 'runas' / safe_name
             local_path.parent.mkdir(parents=True, exist_ok=True)
 
-            success = self._adb_pull(temp_path, str(local_path))
-
-            # Clean up temp file
-            self._adb_shell(f'rm {shlex.quote(temp_path)}')
+            try:
+                success = self._adb_pull(temp_path, str(local_path))
+            finally:
+                # Clean up temp file
+                try:
+                    self._adb_shell(f'rm {shlex.quote(temp_path)}')
+                except Exception:
+                    pass
 
             if success and local_path.exists() and local_path.stat().st_size > 0:
                 sha256 = hashlib.sha256()

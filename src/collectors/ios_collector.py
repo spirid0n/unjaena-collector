@@ -2132,6 +2132,27 @@ class iOSDeviceConnector:
             }
             return
 
+        # Reuse existing backup from this session (prevents second password prompt
+        # and avoids creating a duplicate ~26-min backup)
+        if self._backup_path and self._backup_path.exists():
+            manifest = self._backup_path / 'Manifest.plist'
+            if manifest.exists():
+                logger.info(f"[iOS] Reusing existing backup at {self._backup_path}")
+                if progress_callback:
+                    progress_callback("Using existing backup (already created)")
+                total_size = sum(
+                    f.stat().st_size for f in self._backup_path.rglob('*') if f.is_file()
+                )
+                yield str(self._backup_path), {
+                    'artifact_type': 'mobile_ios_device_backup',
+                    'backup_path': str(self._backup_path),
+                    'status': 'success',
+                    'message': 'Reused existing backup',
+                    'encrypted': bool(self._forensic_backup_password),
+                    'total_size': total_size,
+                }
+                return
+
         if progress_callback:
             progress_callback("Creating iOS backup (this may take a while)")
 
@@ -2149,7 +2170,10 @@ class iOSDeviceConnector:
             # No auto-generated keys: user always knows the password,
             # so they can recover if the collector crashes mid-collection.
             # =============================================================
-            if not will_encrypt:
+            # Reuse cached password if already verified (prevents re-prompting)
+            if self._forensic_backup_password:
+                logger.info("[iOS] Reusing cached backup password (already verified)")
+            elif not will_encrypt:
                 # Encryption OFF → ask user for a temporary password to enable it.
                 # Encrypted backups contain more forensic data (HealthKit, WiFi, etc.)
                 if progress_callback:
@@ -2294,8 +2318,9 @@ class iOSDeviceConnector:
             logger.warning("[iOS] No password callback set — cannot request user password")
             return None
 
+        max_retries = 3
         error_msg = None
-        while True:
+        for attempt in range(max_retries):
             password = self._password_callback(error_msg)
             if not password:
                 # User cancelled or clicked "I don't know"
@@ -2308,8 +2333,13 @@ class iOSDeviceConnector:
                 logger.info("[iOS] User password verified successfully")
                 return password
 
-            error_msg = "Incorrect password. Please try again."
-            logger.info("[iOS] User password rejected, requesting again")
+            remaining = max_retries - attempt - 1
+            if remaining > 0:
+                error_msg = f"Incorrect password. {remaining} attempt(s) remaining."
+                logger.info(f"[iOS] User password rejected, {remaining} retries left")
+            else:
+                logger.warning("[iOS] User password rejected after all attempts")
+                return None
 
     def _request_encryption_password(
         self,
@@ -2708,6 +2738,15 @@ class iOSCollector:
         else:
             self.parser = iOSBackupParser(path)
         return True
+
+    def close(self):
+        """Clean up parser resources (temp decrypted Manifest.db)."""
+        if self.parser and hasattr(self.parser, 'close'):
+            try:
+                self.parser.close()
+            except Exception:
+                pass
+        self.parser = None
 
     @property
     def is_encrypted(self) -> bool:
