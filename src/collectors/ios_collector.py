@@ -39,7 +39,7 @@ Requirements:
 
 License:
     - This module is open source
-    - pymobiledevice3 is GPL-3.0 licensed
+    - pymobiledevice3 is AGPL-3.0 licensed
     - Decryption logic is NOT included here (server-only)
 """
 import ctypes

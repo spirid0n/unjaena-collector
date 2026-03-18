@@ -27,7 +27,7 @@ pymobiledevice3는 다음 기능을 제공합니다:
 
 ### 라이선스
 
-pymobiledevice3는 **GPL-3.0** 라이선스로 배포됩니다.
+pymobiledevice3는 **AGPL-3.0** 라이선스로 배포됩니다.
 
 - 프로젝트: https://github.com/doronz88/pymobiledevice3
 - 라이선스: https://www.gnu.org/licenses/gpl-3.0.html

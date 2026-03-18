@@ -55,7 +55,7 @@ usb_binaries = find_libusb_dll()
 # =============================================================================
 
 # Common hidden imports (all platforms)
-# License: All listed packages are GPL-3.0 / MIT / BSD / Apache-2.0 compatible
+# License: All listed packages are AGPL-3.0 / MIT / BSD / Apache-2.0 compatible
 common_hidden_imports = [
     # --- Android: adb-shell (Apache-2.0) ---
     'adb_shell',
@@ -173,7 +173,7 @@ extra_binaries = []
 extra_hiddenimports = []
 
 # Packages that require full collection (all submodules + data + binaries)
-# License compatibility verified: all GPL-3.0 / MIT / BSD / Apache-2.0
+# License compatibility verified: all AGPL-3.0 / MIT / BSD / Apache-2.0
 collect_packages = [
     'certifi',             # MPL-2.0 — SSL CA certificates (required for requests in PyInstaller)
     'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
