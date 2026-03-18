@@ -30,134 +30,52 @@ if getattr(sys, 'frozen', False):
 # P1 Security Enhancement: HTTPS/WSS Required
 # =============================================================================
 
-def _get_config_paths() -> list:
-    """
-    Return configuration file search paths (in priority order)
-
-    1. Same directory as executable (for PyInstaller builds)
-    2. collector root directory (development environment)
-    3. src directory
-    """
-    paths = []
-
-    # Location of bundled data when built with PyInstaller --onefile
-    if getattr(sys, 'frozen', False):
-        meipass_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-        paths.append(os.path.join(meipass_dir, 'config.json'))
-    else:
-        # Development environment: prefer config.development.json
-        src_dir = os.path.dirname(os.path.abspath(__file__))
-        collector_dir = os.path.dirname(src_dir)
-        paths.append(os.path.join(collector_dir, 'config.development.json'))
-
-    # Fallback: config.json
-    src_dir = os.path.dirname(os.path.abspath(__file__))
-    collector_dir = os.path.dirname(src_dir)
-    paths.append(os.path.join(collector_dir, 'config.json'))
-    paths.append(os.path.join(src_dir, 'config.json'))
-
-    return paths
-
-
-def _load_config_file() -> dict | None:
-    """
-    Load configuration from config file
-
-    Returns:
-        Configuration dictionary or None (if file not found)
-    """
-    for config_path in _get_config_paths():
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    print(f"[Config] Loaded config file: {config_path}")
-                    return config
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"[Warning] Failed to load config file: {config_path} - {e}")
-                continue
-    return None
-
-
-def _needs_server_setup(server_url: str) -> bool:
-    """Check if the server URL is a placeholder or missing."""
-    if not server_url:
-        return True
-    placeholders = ('YOUR_SERVER', 'your-server', 'example.com', '127.0.0.1:8000')
-    return any(p in server_url for p in placeholders)
-
-
 def get_secure_config(cli_server_url: str = None) -> dict:
     """
     Return configuration with security settings applied
 
-    Priority:
-        1. CLI argument (--server)
-        2. Environment variables
-        3. User home config (~/.forensic-collector/config.json)
-        4. config.json file (included during build)
-        5. Server setup wizard (GUI only)
+    Server URL source (single source of truth):
+        - ~/.forensic-collector/config.json (saved by ServerSetupDialog)
+        - If not found, ServerSetupDialog prompts user on first run
+        - CLI --server argument overrides for headless mode only
     """
-    # Step 1: Load defaults from config file
-    file_config = _load_config_file() or {}
-
-    # Step 2: Load user-level config (higher priority than file config)
     from gui.server_setup_dialog import load_user_config
     user_config = load_user_config() or {}
 
-    # Merge: user config overrides file config
-    merged_config = {**file_config, **user_config}
+    dev_mode = os.environ.get('COLLECTOR_DEV_MODE', 'false').lower() == 'true'
 
-    # Step 3: Override with environment variables (highest priority after CLI)
-    dev_mode_default = str(merged_config.get('dev_mode', 'false')).lower()
-    dev_mode = os.environ.get('COLLECTOR_DEV_MODE', dev_mode_default).lower() == 'true'
-
-    # URL settings: CLI > env > user config > file config > default
-    server_url = cli_server_url or os.environ.get(
-        'COLLECTOR_SERVER_URL',
-        merged_config.get('server_url', 'https://127.0.0.1:8000')
-    )
-    ws_url = os.environ.get(
-        'COLLECTOR_WS_URL',
-        merged_config.get('ws_url', 'wss://127.0.0.1:8000')
-    )
+    # Server URL: CLI arg > user config > empty (triggers wizard in GUI)
+    server_url = cli_server_url or user_config.get('server_url', '')
+    if cli_server_url:
+        ws_url = cli_server_url.replace('https://', 'wss://').replace('http://', 'ws://')
+    else:
+        ws_url = user_config.get('ws_url', '')
 
     # [Security] Enforce HTTPS/WSS — local HTTP allowed in dev_mode only
-    local_patterns = ('127.0.0.1', 'localhost', '::1', '0.0.0.0')
-    is_local_server = any(p in server_url for p in local_patterns)
+    if server_url:
+        local_patterns = ('127.0.0.1', 'localhost', '::1', '0.0.0.0')
+        is_local_server = any(p in server_url for p in local_patterns)
 
-    if server_url.startswith('http://'):
-        if is_local_server and dev_mode:
-            print("[Security] Local development server (HTTP) detected - allowed")
-        elif is_local_server:
-            print("[Security] Local server (HTTP) detected - use dev_mode for explicit opt-in")
-            print("[Security] Continuing with local HTTP connection")
-        else:
-            print("[SECURITY ERROR] HTTP is not allowed for remote servers.")
-            print("[SECURITY ERROR] Use HTTPS URL for production environment.")
+        if server_url.startswith('http://') and not is_local_server:
             raise ValueError(f"Remote server requires HTTPS. Got: {server_url}")
 
-    if ws_url.startswith('ws://') and not ws_url.startswith('wss://'):
-        if is_local_server and dev_mode:
-            print("[Security] Local development server (WS) detected - allowed")
-        elif is_local_server:
-            print("[Security] Local server (WS) detected - use dev_mode for explicit opt-in")
-        else:
-            print("[SECURITY ERROR] WS is not allowed for remote servers.")
-            print("[SECURITY ERROR] Use WSS URL for production environment.")
-            raise ValueError(f"Remote server requires WSS. Got: {ws_url}")
+        if ws_url.startswith('ws://') and not ws_url.startswith('wss://'):
+            if not is_local_server:
+                raise ValueError(f"Remote server requires WSS. Got: {ws_url}")
 
     config = {
         'server_url': server_url,
         'ws_url': ws_url,
-        'version': merged_config.get('version', '2.1.1'),
-        'app_name': merged_config.get('app_name', 'Digital Forensics Collector'),
+        'version': user_config.get('version', '2.1.1'),
+        'app_name': 'Digital Forensics Collector',
         'dev_mode': dev_mode,
         'is_release': getattr(sys, 'frozen', False),
     }
 
-    mode_str = "Development" if dev_mode else "Production"
-    print(f"[Config] Mode: {mode_str}, Server: {server_url}")
+    if server_url:
+        print(f"[Config] Server: {server_url}")
+    else:
+        print("[Config] No server configured - setup wizard will appear")
 
     return config
 
@@ -274,7 +192,7 @@ def main_gui(config: dict):
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtCore import Qt
     from gui.app import CollectorWindow
-    from gui.server_setup_dialog import ServerSetupDialog, load_user_config
+    from gui.server_setup_dialog import ServerSetupDialog
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -284,8 +202,8 @@ def main_gui(config: dict):
     app.setApplicationName(config['app_name'])
     app.setApplicationVersion(config['version'])
 
-    # Check if server setup is needed
-    if _needs_server_setup(config['server_url']):
+    # No server URL configured → show setup wizard
+    if not config['server_url']:
         dialog = ServerSetupDialog()
         if dialog.exec() != ServerSetupDialog.DialogCode.Accepted:
             sys.exit(0)
@@ -315,6 +233,9 @@ def main():
     if args.headless:
         if not args.token:
             print("[ERROR] --token is required in headless mode")
+            sys.exit(1)
+        if not args.server:
+            print("[ERROR] --server is required in headless mode")
             sys.exit(1)
         config = get_secure_config(cli_server_url=args.server)
         main_headless(args, config)
