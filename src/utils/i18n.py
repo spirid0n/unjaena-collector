@@ -24,8 +24,8 @@ STRINGS: Dict[str, str] = {
         '  License: GPL-3.0 (GNU General Public License v3)\n'
         '  Project: https://github.com/doronz88/pymobiledevice3\n'
         '  Authors: Hector Martin, Mathieu Renard, doronz88, matan1008, et al.\n\n'
-        'This software uses pymobiledevice3 under GPL-3.0 license terms.\n'
-        'Source code available at: https://github.com/doronz88/pymobiledevice3'
+        'This software is licensed under AGPL-3.0 due to its dependency on dissect.fve.\n'
+        'Source code available at: https://github.com/spirid0n/unjaena-collector'
     ),
     'pymobiledevice3_available': 'pymobiledevice3 available',
     'pymobiledevice3_not_found': 'pymobiledevice3 not installed',
@@ -45,7 +45,7 @@ STRINGS: Dict[str, str] = {
         '    • Crash reports extraction\n'
         '    • Installed apps listing\n'
         '    • AFC file system access\n\n'
-        'This collector is open source and complies with GPL-3.0 license requirements.\n'
+        'This collector is open source and complies with AGPL-3.0 license requirements.\n'
         'Install: pip install pymobiledevice3'
     ),
 
