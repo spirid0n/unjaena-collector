@@ -51,6 +51,34 @@ def find_libusb_dll():
 usb_binaries = find_libusb_dll()
 
 # =============================================================================
+# ADB Binary Detection (Windows only — fallback when libusb driver conflicts)
+# Downloaded at build time by GitHub Actions (Apache-2.0 license)
+# =============================================================================
+
+def find_adb_binaries():
+    """Find adb.exe + DLLs for bundling (Windows only)"""
+    if current_os != 'windows':
+        return []
+
+    adb_dir = Path('resources/adb')
+    required = ['adb.exe', 'AdbWinApi.dll', 'AdbWinUsbApi.dll']
+    binaries = []
+
+    for name in required:
+        path = adb_dir / name
+        if path.exists():
+            binaries.append((str(path), 'resources/adb'))
+            print(f"[ADB] Bundling: {path}")
+
+    if not binaries:
+        print("[ADB] WARNING: adb binaries not found in resources/adb/. "
+              "Run: python build.py --download-libusb or download manually.")
+
+    return binaries
+
+adb_binaries = find_adb_binaries()
+
+# =============================================================================
 # Platform-Specific Hidden Imports
 # =============================================================================
 
@@ -223,7 +251,7 @@ else:
 a = Analysis(
     ['src/main.py'],
     pathex=[],
-    binaries=usb_binaries + extra_binaries,
+    binaries=usb_binaries + adb_binaries + extra_binaries,
     datas=[
         ('resources', 'resources'),
         ('config.json', '.'),
