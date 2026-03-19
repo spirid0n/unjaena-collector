@@ -52,6 +52,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+# ADB binaries (downloaded at build time, not committed)
+resources/adb/
+
 build/
 develop-eggs/
 dist/
