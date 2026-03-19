@@ -171,24 +171,27 @@ unjaena-collector/
 ├── config.example.json          # Configuration template
 ├── requirements.txt             # Python dependencies
 ├── build.py                     # PyInstaller build script
-└── LICENSE                      # GPL-3.0
+└── LICENSE                      # AGPL-3.0
 ```
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU Affero General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+
+This project depends on [dissect.fve](https://github.com/fox-it/dissect.fve) (AGPL-3.0) for BitLocker decryption, which requires the entire work to be distributed under AGPL-3.0.
 
 ### Key Dependencies & Licenses
 
 | Package | License | Notes |
 |---------|---------|-------|
+| dissect.fve | AGPL-3.0 | BitLocker decryption |
+| dissect.cstruct | AGPL-3.0 | Binary structure parsing (dissect dependency) |
 | pymobiledevice3 | GPL-3.0 | iOS USB communication |
 | PyQt6 | GPL-3.0 / Commercial | GUI framework |
 | pytsk3 | Apache 2.0 | The Sleuth Kit bindings |
 | adb-shell | Apache 2.0 | Android ADB protocol |
 | libusb1 | LGPL 2.1 | USB device access |
 | cryptography | Apache 2.0 / BSD | Cryptographic operations |
-| pybde | LGPL 3.0 | BitLocker decryption |
 
 ## Contributing
 
