@@ -18,13 +18,13 @@ STRINGS: Dict[str, str] = {
     # -------------------------------------------------------------------------
     'license_notice_title': 'Open Source License Notice',
 
-    # pymobiledevice3 (AGPL-3.0)
+    # pymobiledevice3 (GPL-3.0)
     'pymobiledevice3_notice': (
         'iOS USB direct connection uses pymobiledevice3 library.\n\n'
-        '  License: AGPL-3.0 (GNU Affero General Public License v3)\n'
+        '  License: GPL-3.0 (GNU General Public License v3)\n'
         '  Project: https://github.com/doronz88/pymobiledevice3\n'
         '  Authors: Hector Martin, Mathieu Renard, doronz88, matan1008, et al.\n\n'
-        'This software uses pymobiledevice3 under AGPL-3.0 license terms.\n'
+        'This software uses pymobiledevice3 under GPL-3.0 license terms.\n'
         'Source code available at: https://github.com/doronz88/pymobiledevice3'
     ),
     'pymobiledevice3_available': 'pymobiledevice3 available',
@@ -34,7 +34,7 @@ STRINGS: Dict[str, str] = {
     'ios_license_notice': (
         '=== iOS Collection Library ===\n\n'
         'pymobiledevice3\n'
-        '    License: AGPL-3.0 (GNU Affero General Public License v3)\n'
+        '    License: GPL-3.0 (GNU General Public License v3)\n'
         '    Project: https://github.com/doronz88/pymobiledevice3\n'
         '    Authors: Hector Martin, Mathieu Renard, doronz88, matan1008, et al.\n\n'
         'Features:\n'
@@ -45,7 +45,7 @@ STRINGS: Dict[str, str] = {
         '    • Crash reports extraction\n'
         '    • Installed apps listing\n'
         '    • AFC file system access\n\n'
-        'This collector is open source and complies with AGPL-3.0 license requirements.\n'
+        'This collector is open source and complies with GPL-3.0 license requirements.\n'
         'Install: pip install pymobiledevice3'
     ),
 

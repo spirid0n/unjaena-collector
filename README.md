@@ -74,8 +74,7 @@ venv\Scripts\activate  # Windows
 # source venv/bin/activate  # macOS/Linux
 
 # Install dependencies
-pip install -r requirements/base.txt
-pip install -r requirements/windows.txt  # or linux.txt / macos.txt
+pip install -r requirements.txt
 
 # Copy and configure
 cp config.example.json config.json
@@ -127,9 +126,9 @@ python build.py --check-deps
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `FORENSIC_SERVER_URL` | Server endpoint | — |
-| `FORENSIC_WS_URL` | WebSocket endpoint | — |
-| `FORENSIC_DEV_MODE` | Enable development mode | `false` |
+| `COLLECTOR_SERVER_URL` | Server endpoint | — |
+| `COLLECTOR_WS_URL` | WebSocket endpoint | — |
+| `COLLECTOR_DEV_MODE` | Enable development mode | `false` |
 
 ### Config File (`config.json`)
 
@@ -170,14 +169,14 @@ unjaena-collector/
 ├── tools/                       # External tool management
 ├── resources/                   # Runtime resources
 ├── config.example.json          # Configuration template
-├── requirements/                # Python dependencies (per-platform)
+├── requirements.txt             # Python dependencies
 ├── build.py                     # PyInstaller build script
-└── LICENSE                      # AGPL-3.0
+└── LICENSE                      # GPL-3.0
 ```
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
 
 ### Key Dependencies & Licenses
 
@@ -189,8 +188,7 @@ This project is licensed under the **GNU Affero General Public License v3.0** �
 | adb-shell | Apache 2.0 | Android ADB protocol |
 | libusb1 | LGPL 2.1 | USB device access |
 | cryptography | Apache 2.0 / BSD | Cryptographic operations |
-| dissect.fve | AGPL-3.0 | BitLocker/LUKS decryption |
-| dissect.hypervisor | AGPL-3.0 | Virtual disk images (VMDK/VHD/VHDX) |
+| pybde | LGPL 3.0 | BitLocker decryption |
 
 ## Contributing
 

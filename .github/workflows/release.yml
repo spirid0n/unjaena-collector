@@ -25,7 +25,6 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements/base.txt
 
       - name: Install dependencies
         run: |
@@ -55,6 +54,17 @@ jobs:
           print(f'[CONFIG] version={c[\"version\"]}, server_url={c.get(\"server_url\",\"N/A\")}')
           "
 
+      - name: Download ADB platform-tools (Apache-2.0)
+        shell: bash
+        run: |
+          curl -sL -o /tmp/platform-tools.zip https://dl.google.com/android/repository/platform-tools-latest-windows.zip
+          unzip -o /tmp/platform-tools.zip -d /tmp/
+          mkdir -p resources/adb
+          cp /tmp/platform-tools/adb.exe resources/adb/
+          cp /tmp/platform-tools/AdbWinApi.dll resources/adb/
+          cp /tmp/platform-tools/AdbWinUsbApi.dll resources/adb/
+          echo "[ADB] Bundled $(resources/adb/adb.exe version 2>/dev/null | head -1)"
+
       - name: Build EXE
         run: python build.py --production --ci --skip-usb-check
 
@@ -83,7 +93,6 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements/base.txt
 
       - name: Install system dependencies
         run: |
@@ -145,7 +154,6 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements/base.txt
 
       - name: Install dependencies
         run: |

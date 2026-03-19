@@ -51,11 +51,39 @@ def find_libusb_dll():
 usb_binaries = find_libusb_dll()
 
 # =============================================================================
+# ADB Binary Detection (Windows only — fallback when libusb driver conflicts)
+# Downloaded at build time by GitHub Actions (Apache-2.0 license)
+# =============================================================================
+
+def find_adb_binaries():
+    """Find adb.exe + DLLs for bundling (Windows only)"""
+    if current_os != 'windows':
+        return []
+
+    adb_dir = Path('resources/adb')
+    required = ['adb.exe', 'AdbWinApi.dll', 'AdbWinUsbApi.dll']
+    binaries = []
+
+    for name in required:
+        path = adb_dir / name
+        if path.exists():
+            binaries.append((str(path), 'resources/adb'))
+            print(f"[ADB] Bundling: {path}")
+
+    if not binaries:
+        print("[ADB] WARNING: adb binaries not found in resources/adb/. "
+              "Run: python build.py --download-libusb or download manually.")
+
+    return binaries
+
+adb_binaries = find_adb_binaries()
+
+# =============================================================================
 # Platform-Specific Hidden Imports
 # =============================================================================
 
 # Common hidden imports (all platforms)
-# License: All listed packages are AGPL-3.0 / MIT / BSD / Apache-2.0 compatible
+# License: All listed packages are GPL-3.0 / MIT / BSD / Apache-2.0 compatible
 common_hidden_imports = [
     # --- Android: adb-shell (Apache-2.0) ---
     'adb_shell',
@@ -173,7 +201,7 @@ extra_binaries = []
 extra_hiddenimports = []
 
 # Packages that require full collection (all submodules + data + binaries)
-# License compatibility verified: all AGPL-3.0 / MIT / BSD / Apache-2.0
+# License compatibility verified: all GPL-3.0 / MIT / BSD / Apache-2.0
 collect_packages = [
     'certifi',             # MPL-2.0 — SSL CA certificates (required for requests in PyInstaller)
     'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
@@ -223,7 +251,7 @@ else:
 a = Analysis(
     ['src/main.py'],
     pathex=[],
-    binaries=usb_binaries + extra_binaries,
+    binaries=usb_binaries + adb_binaries + extra_binaries,
     datas=[
         ('resources', 'resources'),
         ('config.json', '.'),

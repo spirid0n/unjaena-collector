@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import hashlib
@@ -1633,30 +1634,36 @@ class AndroidCollector:
         Returns:
             True if connected successfully
         """
-        if not USB_AVAILABLE:
-            raise RuntimeError("USB libraries not available. Install adb-shell[usb] and libusb1.")
+        # Try libusb direct connection first
+        if USB_AVAILABLE:
+            try:
+                devices = self.monitor.get_connected_devices()
+                if serial:
+                    matching = [d for d in devices if d.serial == serial]
+                    if matching:
+                        self.device_info = matching[0]
+                elif devices:
+                    self.device_info = devices[0]
 
-        devices = self.monitor.get_connected_devices()
-        if not devices:
-            raise RuntimeError("No Android device connected via USB")
+                if self.device_info:
+                    self.device_serial = self.device_info.serial
+                    try:
+                        self._device = self._connect_device_usb(self.device_serial)
+                        logger.info(f"[Android] Connected via libusb: {self.device_serial}")
+                        return True
+                    except RuntimeError as e:
+                        logger.warning(f"[Android] libusb connection failed: {e}")
+                else:
+                    logger.info(f"[Android] Device not found via libusb, trying system adb")
+            except Exception as e:
+                logger.warning(f"[Android] libusb enumeration failed: {e}")
 
+        # Use provided serial for system adb fallback
         if serial:
-            matching = [d for d in devices if d.serial == serial]
-            if not matching:
-                raise ValueError(f"Device {serial} not found")
-            self.device_info = matching[0]
-        else:
-            self.device_info = devices[0]
+            self.device_serial = serial
 
-        self.device_serial = self.device_info.serial
-
-        # Establish USB connection (libusb direct)
-        try:
-            self._device = self._connect_device_usb(self.device_serial)
-            logger.info(f"[Android] Connected via libusb: {self.device_serial}")
-            return True
-        except RuntimeError as e:
-            logger.warning(f"[Android] libusb connection failed: {e}")
+        if not self.device_serial:
+            raise RuntimeError("No Android device connected via USB and no serial specified")
 
         # Fallback: system adb mode
         adb_path = self._find_system_adb()
@@ -3258,26 +3265,46 @@ class AndroidCollector:
 
     def _find_system_adb(self) -> Optional[str]:
         """
-        Locate a system adb binary for shell/pull fallback operations.
+        Locate adb binary: bundled first, then system fallback.
+
+        Search order:
+        1. Bundled adb (PyInstaller _MEIPASS/resources/adb/)
+        2. Bundled adb (source tree resources/adb/)
+        3. Common system installation paths
+        4. PATH environment variable
 
         Returns:
             Path to adb executable, or None if not found
         """
-        # Check common paths
-        search_paths = [
-            # ASUS GlideX (confirmed present on this machine)
+        search_paths = []
+
+        # Priority 1: Bundled adb (inside PyInstaller EXE or source tree)
+        bundled_dirs = []
+        # PyInstaller runtime temp directory
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            bundled_dirs.append(os.path.join(meipass, 'resources', 'adb'))
+        # Source tree (development mode)
+        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        bundled_dirs.append(os.path.join(src_dir, '..', 'resources', 'adb'))
+        bundled_dirs.append(os.path.join(src_dir, 'resources', 'adb'))
+
+        for d in bundled_dirs:
+            adb_path = os.path.join(d, 'adb.exe' if sys.platform == 'win32' else 'adb')
+            if os.path.isfile(adb_path):
+                search_paths.insert(0, adb_path)
+
+        # Priority 2: Common system paths (Windows)
+        search_paths.extend([
             r'C:\Program Files\ASUS\GlideX\adb.exe',
             r'C:\Program Files (x86)\ASUS\GlideX\adb.exe',
-            # Android SDK platform-tools
             os.path.expandvars(r'%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe'),
             os.path.expandvars(r'%USERPROFILE%\AppData\Local\Android\Sdk\platform-tools\adb.exe'),
             r'C:\Android\platform-tools\adb.exe',
-            # Samsung Smart Switch
             r'C:\Program Files (x86)\Samsung\Smart Switch PC\adb.exe',
-            # Standalone adb
             r'C:\adb\adb.exe',
             r'C:\platform-tools\adb.exe',
-        ]
+        ])
 
         for path in search_paths:
             if os.path.isfile(path):

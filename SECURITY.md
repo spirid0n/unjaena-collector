@@ -27,7 +27,7 @@ If you discover a security vulnerability in this project, please report it respo
 - AES-256-GCM for authenticated encryption (NIST approved)
 - HKDF-SHA256 for key derivation
 - SHA-256 for all integrity verification
-- MD5 is used for artifact metadata hashing only; all security-critical integrity checks use SHA-256
+- MD5 is deprecated and not used for security purposes
 
 ### Network Security
 - HTTPS/WSS enforced in production builds
@@ -49,8 +49,8 @@ If you discover a security vulnerability in this project, please report it respo
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | Yes       |
-
+| 2.x     | Yes       |
+| 1.x     | No        |
 
 ## Scope
 
