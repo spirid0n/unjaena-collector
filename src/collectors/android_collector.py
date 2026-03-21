@@ -232,7 +232,7 @@ ANDROID_ARTIFACT_TYPES = {
                 'services': ['battery', 'wifi', 'netpolicy', 'usagestats', 'activity'],
             },
             'settings': {'name': 'Device Settings'},
-            'notifications': {'name': 'Notification History'},
+            'notification_log': {'name': 'Notification History'},
             'accounts': {'name': 'Registered Accounts'},
             'app_usage': {'name': 'App Usage Statistics'},
             'connectivity': {'name': 'Network Connectivity'},
@@ -2323,9 +2323,9 @@ class AndroidCollector:
                 )
             elif sub_key == 'settings':
                 yield from self._collect_settings(sub_artifact_type, sub_dir, progress_callback)
-            elif sub_key == 'notifications':
+            elif sub_key == 'notification_log':
                 yield from self._collect_notification_log(
-                    'mobile_android_notification_log', sub_dir, progress_callback
+                    sub_artifact_type, sub_dir, progress_callback
                 )
             elif sub_key == 'accounts':
                 yield from self._collect_account_info(
