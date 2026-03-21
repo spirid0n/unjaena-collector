@@ -330,6 +330,14 @@ class DeviceListPanel(QWidget):
             elif detected_os != 'unknown':
                 label = f"{label} [{detected_os}/{fs_type}]"
 
+        if device.device_type == DeviceType.ANDROID_DEVICE:
+            android_ver = device.metadata.get('android_version', '')
+            sdk = device.metadata.get('sdk_version', 0)
+            rooted = device.metadata.get('rooted', False)
+            root_tag = " [ROOT]" if rooted else ""
+            ver_tag = f" [Android {android_ver}/SDK {sdk}]" if android_ver else ""
+            label = f"{label}{ver_tag}{root_tag}"
+
         return f"{icon} {label}"
 
     def _get_device_tooltip(self, device: UnifiedDeviceInfo) -> str:
@@ -348,6 +356,39 @@ class DeviceListPanel(QWidget):
             fs_type = device.metadata.get('filesystem_type', 'Unknown')
             lines.append(f"Filesystem: {fs_type}")
             lines.append(f"Detected OS: {detected_os.upper()}")
+
+        if device.device_type == DeviceType.ANDROID_DEVICE:
+            m = device.metadata
+            android_ver = m.get('android_version', '?')
+            sdk = m.get('sdk_version', 0)
+            patch = m.get('security_patch', '') or 'Unknown'
+            rooted = m.get('rooted', False)
+            usb_dbg = m.get('usb_debugging', False)
+            serial = m.get('serial', '')
+
+            lines.append(f"Android {android_ver} (SDK {sdk})")
+            lines.append(f"Security Patch: {patch}")
+            lines.append(f"Root: {'Yes' if rooted else 'No'}")
+            lines.append(f"USB Debugging: {'Enabled' if usb_dbg else 'Disabled'}")
+            if serial:
+                lines.append(f"Serial: ...{serial[-8:]}")
+            lines.append("─────────────────────")
+
+            phase_cve = (31 <= sdk <= 33) and (not patch or patch < '2024-10-01')
+            available = ["sdcard (Phase 1)", "ADB Backup (Phase 3e)"]
+            if phase_cve:
+                available.append("CVE-2024-0044 (Phase 3a)")
+            if rooted:
+                available.append("Root full access")
+            unavailable = []
+            if not rooted:
+                unavailable.append("App internal DB (root required)")
+            if not phase_cve:
+                unavailable.append("CVE-2024-0044 (SDK 31–33 only)")
+
+            lines.append("Available: " + ", ".join(available))
+            if unavailable:
+                lines.append("Unavailable: " + ", ".join(unavailable))
 
         if not device.is_selectable:
             lines.append(f"⚠ {device.selection_disabled_reason}")
