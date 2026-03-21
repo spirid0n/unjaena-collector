@@ -929,8 +929,9 @@ class R2DirectUploader:
                         f"{MAX_ENCRYPT_SIZE / (1024**2):.0f}MB), uploading without encryption. "
                         f"⚠️ Evidence will be protected by TLS in transit and R2 server-side encryption at rest."
                     )
-                    if self._progress_callback:
-                        self._progress_callback(
+                    _pcb = getattr(self, '_progress_callback', None)
+                    if _pcb:
+                        _pcb(
                             f"⚠️ {file_name}: 대용량 파일({file_size / (1024**2):.0f}MB) — "
                             f"클라이언트 암호화 생략, 서버측 암호화로 보호됨"
                         )
@@ -955,8 +956,7 @@ class R2DirectUploader:
                     except Exception as enc_err:
                         logger.error(f"[R2] Encryption failed — aborting upload for evidence safety: {enc_err}")
                         return UploadResult.from_error(
-                            file_name=file_name,
-                            error=f"Encryption failed: {enc_err}. Upload aborted to prevent plaintext evidence exposure."
+                            f"Encryption failed for {file_name}: {enc_err}. Upload aborted to prevent plaintext evidence exposure."
                         )
                     finally:
                         del encryption_key_hex
