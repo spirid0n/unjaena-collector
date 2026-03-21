@@ -2229,6 +2229,21 @@ class CollectorWindow(QMainWindow):
                 )
                 return
 
+        # Android device info dialog — show before collection starts
+        android_devices = [
+            d for d in selected_devices
+            if d.device_type == DeviceType.ANDROID_DEVICE
+        ]
+        if android_devices:
+            from gui.android_info_dialog import show_android_info_dialog
+            android_result = show_android_info_dialog(
+                device_info=android_devices[0].metadata,
+                parent=self
+            )
+            if not android_result.proceed:
+                self._log("Collection cancelled: Android device info dialog cancelled.")
+                return
+
         self._log(f"Starting collection for: {', '.join(selected)}")
 
         # Disable controls
