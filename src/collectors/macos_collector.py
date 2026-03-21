@@ -145,7 +145,7 @@ MACOS_ARTIFACT_TYPES = {
         'plist_parsing': True,
         'requires_admin': True,
     },
-    'macos_system_launch_agent': {
+    'macos_launch_agents_system': {
         'name': 'System Launch Agents',
         'description': 'System-level LaunchAgent plist files',
         'paths': [
@@ -270,7 +270,7 @@ MACOS_ARTIFACT_TYPES = {
         'kill_chain_phase': 'collection',
         'plist_parsing': True,
     },
-    'macos_chrome_history': {
+    'macos_chrome': {
         'name': 'Chrome History',
         'description': 'Google Chrome browser history',
         'paths': [
@@ -401,7 +401,7 @@ MACOS_ARTIFACT_TYPES = {
         'kill_chain_phase': 'discovery',
         'plist_parsing': True,
     },
-    'macos_security_audit': {
+    'macos_audit_logs': {
         'name': 'Security Audit Logs',
         'description': 'OpenBSM audit logs',
         'paths': [
@@ -417,7 +417,7 @@ MACOS_ARTIFACT_TYPES = {
     # ==========================================================================
     # Cron & Scheduled Tasks (P2)
     # ==========================================================================
-    'macos_crontab': {
+    'macos_cron': {
         'name': 'Crontab Entries',
         'description': 'Scheduled tasks via cron',
         'paths': [
@@ -455,7 +455,7 @@ MACOS_ARTIFACT_TYPES = {
         'kill_chain_phase': 'discovery',
         'plist_parsing': True,
     },
-    'macos_terminal_history': {
+    'macos_terminal': {
         'name': 'Terminal Saved State',
         'description': 'Terminal.app saved window state and history',
         'paths': [

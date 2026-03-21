@@ -180,7 +180,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1543.002',
         'kill_chain_phase': 'persistence',
     },
-    'linux_systemd_timer': {
+    'linux_systemd_timers': {
         'name': 'Systemd Timers',
         'description': 'Systemd timer unit files (scheduled execution)',
         'paths': [
@@ -293,7 +293,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1565.001',
         'kill_chain_phase': 'defense_evasion',
     },
-    'linux_resolv_conf': {
+    'linux_resolv': {
         'name': 'DNS Configuration',
         'description': 'DNS resolver configuration',
         'paths': ['/etc/resolv.conf'],
@@ -418,7 +418,7 @@ LINUX_ARTIFACT_TYPES = {
     # ==========================================================================
     # Application Configuration (P2)
     # ==========================================================================
-    'linux_profile': {
+    'linux_profile_scripts': {
         'name': 'Shell Profile Scripts',
         'description': 'Login shell initialization scripts',
         'paths': [
@@ -446,7 +446,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1037.004',
         'kill_chain_phase': 'persistence',
     },
-    'linux_init_d': {
+    'linux_init_scripts': {
         'name': 'Init Scripts',
         'description': 'SysV init scripts',
         'paths': ['/etc/init.d/*'],
@@ -458,7 +458,7 @@ LINUX_ARTIFACT_TYPES = {
     # ==========================================================================
     # Package & Installation (P2)
     # ==========================================================================
-    'linux_apt_history': {
+    'linux_apt_log': {
         'name': 'APT Package History',
         'description': 'Package installation history (Debian)',
         'paths': [
@@ -470,7 +470,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1072',
         'kill_chain_phase': 'execution',
     },
-    'linux_yum_history': {
+    'linux_yum_log': {
         'name': 'YUM/DNF Package History',
         'description': 'Package installation history (RHEL)',
         'paths': [
@@ -485,7 +485,7 @@ LINUX_ARTIFACT_TYPES = {
     # ==========================================================================
     # Docker/Container Artifacts (P2)
     # ==========================================================================
-    'linux_docker_config': {
+    'linux_docker': {
         'name': 'Docker Configuration',
         'description': 'Docker daemon and client configuration',
         'paths': [

@@ -308,10 +308,10 @@ SERVER_TO_COLLECTOR_MAPPING = {
     'linux_shadow': 'linux_shadow',
     'linux_network_interfaces': 'linux_network_interfaces',
     'linux_hosts': 'linux_hosts',
-    'linux_resolv_conf': 'linux_resolv_conf',
+    'linux_resolv': 'linux_resolv',
     'linux_iptables': 'linux_iptables',
-    'linux_apt_history': 'linux_apt_history',
-    'linux_yum_history': 'linux_yum_history',
+    'linux_apt_log': 'linux_apt_log',
+    'linux_yum_log': 'linux_yum_log',
 
     # === macOS Forensics ===
     'macos_unified_log': 'macos_unified_log',
