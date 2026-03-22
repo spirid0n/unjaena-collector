@@ -444,7 +444,7 @@ MACOS_ARTIFACT_TYPES = {
     # ==========================================================================
     # Application Support Databases (P2)
     # ==========================================================================
-    'macos_dock_plist': {
+    'macos_finder_plist': {
         'name': 'Dock Configuration',
         'description': 'Dock items and recent applications',
         'paths': [

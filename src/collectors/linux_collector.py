@@ -342,7 +342,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1190',
         'kill_chain_phase': 'initial_access',
     },
-    'linux_apache_error': {
+    'linux_apache': {
         'name': 'Apache Error Log',
         'description': 'Apache HTTP server error logs',
         'paths': [
@@ -364,7 +364,7 @@ LINUX_ARTIFACT_TYPES = {
         'mitre_attack': 'T1190',
         'kill_chain_phase': 'initial_access',
     },
-    'linux_nginx_error': {
+    'linux_nginx': {
         'name': 'Nginx Error Log',
         'description': 'Nginx HTTP server error logs',
         'paths': ['/var/log/nginx/error.log'],
