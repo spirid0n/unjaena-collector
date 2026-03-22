@@ -97,7 +97,7 @@ class E01SelectionDialog(QDialog):
     """
 
     # Supported extensions
-    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi"
+    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.s01 *.S01 *.l01 *.L01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -379,12 +379,22 @@ class E01SelectionDialog(QDialog):
 
         # Image type
         ext = path.suffix.lower()
-        if ext in ('.e01', '.ex01'):
+        if ext in ('.e01', '.ex01', '.s01', '.l01'):
             image_type = "E01 (EnCase)"
         elif ext in ('.dd', '.raw', '.img', '.bin'):
             image_type = "RAW/DD"
+        elif ext == '.vmdk':
+            image_type = "VMDK (VMware)"
+        elif ext == '.vhd':
+            image_type = "VHD (Hyper-V)"
+        elif ext == '.vhdx':
+            image_type = "VHDX (Hyper-V)"
+        elif ext == '.qcow2':
+            image_type = "QCOW2 (QEMU)"
+        elif ext == '.vdi':
+            image_type = "VDI (VirtualBox)"
         else:
-            image_type = "Unknown"
+            image_type = "Disk Image"
 
         # File size
         try:
