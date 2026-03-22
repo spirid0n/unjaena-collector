@@ -1537,7 +1537,63 @@ class ForensicDiskAccessor:
         """
         Recursively walk the filesystem tree via pytsk3 and return the
         same dict structure as the NTFS MFT-based scan_all_files().
+
+        MEMORY SAFETY (pytsk3 C-object lifecycle):
+        -------------------------------------------
+        pytsk3 wraps SleuthKit C structures via talloc.  Each call to
+        ``Directory.__next__()`` (i.e. ``tsk_fs_dir_get``) allocates:
+
+          1. A new ``TSK_FS_FILE*``  (tsk_fs_file_alloc)
+          2. A ``TSK_FS_NAME*``     (tsk_fs_name_alloc + tsk_fs_name_copy)
+          3. A ``TSK_FS_META*``     (file_add_meta -> ext2fs_inode_lookup)
+             which reads the full on-disk inode (256 B on ext4) and copies
+             it into a heap-allocated structure.
+          4. The ``File`` constructor (``File_Con``) then calls
+             ``tsk_fs_file_attr_getsize`` which triggers ``load_attrs``
+             -- loading the *entire attribute / data-run list* for that
+             file into heap memory.
+
+        None of this C memory is freed until the Python wrapper object
+        is garbage-collected and its destructor (``File_dest``) calls
+        ``tsk_fs_file_close()``.
+
+        The OLD code kept ``f_entry`` alive across recursive ``_walk()``
+        calls because:
+          a) Python's ``for`` loop holds a reference to the current
+             iteration variable (``f_entry``) on the stack frame.
+          b) When we recurse into a subdirectory, that stack frame is
+             suspended -- ``f_entry`` (and its C memory) stays alive
+             until the recursion returns and the loop advances.
+          c) At *every* recursion level the ``directory`` parameter and
+             its ``dir_iter`` are also alive on the suspended frame.
+
+        On a 60 GB ext4 disk with ~300K files across ~30K directories
+        (average depth ~10, max ~20):
+          - Each ``TSK_FS_FILE`` + loaded attributes ≈ 1-4 KB of C heap
+            for regular files, but up to 64-256 KB for files with many
+            extents or extended attributes.
+          - The ``TSK_FS_DIR`` itself holds a ``names[]`` array with
+            *all* entries pre-loaded (``tsk_fs_dir_open`` reads the
+            full directory block).  ~100-264 bytes per entry.
+          - With recursive retention, *all* ancestor directories and
+            their current ``f_entry`` stay alive simultaneously.
+          - Empirically observed: ~41 GB consumed for a 300K-file scan
+            that should need < 500 MB.
+
+        FIX:
+          1. Collect subdirectory inodes into a list *before* recursing.
+          2. Explicitly ``del f_entry`` after extracting catalog data so
+             the C-level ``TSK_FS_FILE`` is freed immediately.
+          3. After finishing the ``for`` loop, explicitly ``del dir_iter``
+             and ``del directory`` to release the ``TSK_FS_DIR``.
+          4. Recurse into subdirectories *after* the parent directory's
+             iterator is fully consumed and freed.
+          5. Periodically call ``gc.collect()`` to break any reference
+             cycles between pytsk3 C wrapper objects.
         """
+        import gc
+        import time as _time
+
         result: Dict[str, Any] = {
             'total_entries': 0,
             'active_files': [],
@@ -1547,13 +1603,12 @@ class ForensicDiskAccessor:
             'errors': []
         }
 
-        import time as _time
-
         entry_count = 0
         limit = max_entries or float('inf')
         _scan_start = _time.monotonic()
         _SCAN_TIMEOUT = 600  # 10 minutes max for directory walk
         _IO_THROTTLE_INTERVAL = 5000  # yield CPU every N entries
+        _GC_INTERVAL = 10000  # force gc.collect() every N entries
 
         def _walk(directory, parent_path: str, parent_inode: int):
             nonlocal entry_count
@@ -1564,25 +1619,35 @@ class ForensicDiskAccessor:
                 return
 
             try:
-                # Lazy iteration — do NOT materialize list(directory)
-                # list() creates all pytsk3.File C objects at once, preventing GC
                 dir_iter = iter(directory)
             except Exception as e:
                 result['errors'].append((parent_inode, f"readdir: {e}"))
                 return
 
+            # Phase 1: Iterate the directory, extract lightweight catalog
+            # entries, and collect subdirectory metadata for deferred
+            # recursion.  Each f_entry is explicitly deleted after use so
+            # that the underlying TSK_FS_FILE C memory is freed before we
+            # recurse into any child directories.
+            child_dirs = []  # list of (inode, full_path) for deferred recursion
+
             for f_entry in dir_iter:
                 if entry_count >= limit:
-                    return
+                    break
 
                 # Timeout check every 1000 entries
                 if entry_count % 1000 == 0 and _time.monotonic() - _scan_start > _SCAN_TIMEOUT:
                     logger.warning(f"[{self._tsk_fs_type}] Scan timeout ({_SCAN_TIMEOUT}s) at {entry_count:,} entries")
-                    return
+                    break
 
                 catalog = self._tsk_file_entry_to_catalog(
                     f_entry, parent_path, parent_inode
                 )
+
+                # Release the pytsk3 File C object IMMEDIATELY.
+                # This frees TSK_FS_FILE + TSK_FS_META + loaded attributes.
+                del f_entry
+
                 if catalog is None:
                     continue
 
@@ -1591,14 +1656,8 @@ class ForensicDiskAccessor:
 
                 if catalog.is_directory:
                     result['directories'].append(catalog)
-                    # Recurse into subdirectory
-                    try:
-                        sub_dir = f_entry.as_directory()
-                        _walk(sub_dir, catalog.full_path, catalog.inode)
-                    except Exception as e:
-                        result['errors'].append(
-                            (catalog.inode, f"opendir {catalog.full_path}: {e}")
-                        )
+                    # Defer recursion -- just record the inode and path.
+                    child_dirs.append((catalog.inode, catalog.full_path))
                 elif catalog.is_deleted:
                     if include_deleted:
                         result['deleted_files'].append(catalog)
@@ -1609,8 +1668,35 @@ class ForensicDiskAccessor:
                 if entry_count % _IO_THROTTLE_INTERVAL == 0:
                     if progress_callback:
                         progress_callback(entry_count, max_entries or entry_count)
-                    # Brief yield to prevent USB/disk I/O queue saturation
                     _time.sleep(0.01)
+
+                # Periodic GC to reclaim C memory from pytsk3 wrappers
+                # that may have reference cycles (talloc parent chains).
+                if entry_count % _GC_INTERVAL == 0:
+                    gc.collect()
+
+            # Release the directory iterator and directory C objects
+            # (TSK_FS_DIR + names[] array) before recursing into children.
+            del dir_iter
+            del directory
+
+            # Phase 2: Recurse into child directories.  The parent's
+            # TSK_FS_DIR and all its TSK_FS_FILE objects are now freed,
+            # so we don't accumulate C memory up the recursion stack.
+            for child_inode, child_path in child_dirs:
+                if entry_count >= limit:
+                    return
+                if _time.monotonic() - _scan_start > _SCAN_TIMEOUT:
+                    return
+                try:
+                    sub_dir = self._tsk_fs.open_dir(inode=child_inode)
+                    _walk(sub_dir, child_path, child_inode)
+                except Exception as e:
+                    result['errors'].append(
+                        (child_inode, f"opendir {child_path}: {e}")
+                    )
+
+            del child_dirs
 
         # Start walk from root directory
         try:
@@ -1619,6 +1705,9 @@ class ForensicDiskAccessor:
         except Exception as e:
             logger.error(f"pytsk3 root directory open failed: {e}")
             result['errors'].append((0, f"root: {e}"))
+
+        # Final GC pass to reclaim any lingering pytsk3 C objects
+        gc.collect()
 
         # If include_deleted, also try to recover orphan files via inode scan
         # SAFETY: Skip orphan scan for virtual disk backends (VDI/VMDK/VHD/VHDX/QCOW2)
@@ -1750,6 +1839,7 @@ class ForensicDiskAccessor:
             try:
                 f = self._tsk_fs.open_meta(inode=inum)
                 if f.info.meta is None:
+                    del f  # Release TSK_FS_FILE C memory
                     consecutive_errors += 1
                     if consecutive_errors > max_consecutive:
                         break
@@ -1760,6 +1850,7 @@ class ForensicDiskAccessor:
                 is_unalloc = bool(flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
 
                 if not is_unalloc:
+                    del f  # Release TSK_FS_FILE C memory
                     consecutive_errors = 0
                     continue  # Already allocated — was found in walk
 
@@ -1768,6 +1859,7 @@ class ForensicDiskAccessor:
 
                 # Skip zero-size deleted entries and deleted dirs (noise)
                 if size == 0 or is_dir:
+                    del f  # Release TSK_FS_FILE C memory
                     consecutive_errors = 0
                     continue
 
@@ -1784,6 +1876,7 @@ class ForensicDiskAccessor:
                     has_data_runs=(size > 0),
                     ads_streams=[]
                 )
+                del f  # Release TSK_FS_FILE C memory before appending
                 result['deleted_files'].append(entry)
                 orphan_count += 1
                 consecutive_errors = 0
