@@ -116,6 +116,64 @@ class EwfImgInfo(pytsk3.Img_Info if PYTSK3_AVAILABLE else object):
         return False
 
 
+class BackendImgInfo(pytsk3.Img_Info if PYTSK3_AVAILABLE else object):
+    """
+    Bridge any UnifiedDiskReader backend to pytsk3.Img_Info
+
+    Allows pytsk3 to parse filesystems on any disk source (physical disk,
+    E01, RAW, etc.) by wrapping the UnifiedDiskReader.read()/get_size()
+    interface.  This is the key bridge that enables pytsk3-based file
+    extraction for non-NTFS filesystems (FAT32, exFAT, ext2/3/4, HFS+,
+    ISO9660, UFS) regardless of the underlying image format.
+
+    Usage:
+        from forensic_disk.ewf_img_info import BackendImgInfo
+        import pytsk3
+
+        img_info = BackendImgInfo(backend)
+        fs_info = pytsk3.FS_Info(img_info, offset=partition_offset)
+    """
+
+    def __init__(self, backend):
+        """
+        Args:
+            backend: Any object implementing read(offset, size) -> bytes
+                     and get_size() -> int  (e.g. UnifiedDiskReader subclass)
+        """
+        if not PYTSK3_AVAILABLE:
+            raise ImportError("pytsk3 is required for BackendImgInfo")
+
+        self._backend = backend
+        super(BackendImgInfo, self).__init__(url="", type=pytsk3.TSK_IMG_TYPE_EXTERNAL)
+
+    def close(self):
+        """No-op: backend lifecycle is managed by the caller."""
+        pass
+
+    def read(self, offset: int, size: int) -> bytes:
+        """
+        Read data via the backend
+
+        Args:
+            offset: Starting offset (bytes)
+            size: Number of bytes to read
+
+        Returns:
+            Data bytes
+        """
+        return self._backend.read(offset, size)
+
+    def get_size(self) -> int:
+        """Return total image/disk size via the backend"""
+        return self._backend.get_size()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+
 class RawImgInfo(pytsk3.Img_Info if PYTSK3_AVAILABLE else object):
     """
     Wraps RAW/DD image as pytsk3.Img_Info
