@@ -288,11 +288,11 @@ class E01ArtifactCollector(BaseMFTCollector):
             return False
 
         try:
-            self._accessor = ForensicDiskAccessor.from_e01(str(self.e01_path))
-            logger.info(f"E01 image loaded: {self.e01_path}")
+            self._accessor = ForensicDiskAccessor.auto_detect(str(self.e01_path))
+            logger.info(f"Disk image loaded: {self.e01_path}")
             return True
         except Exception as e:
-            logger.error(f"Failed to load E01 image: {e}")
+            logger.error(f"Failed to load disk image: {e}")
             self._accessor = None
             return False
 
