@@ -581,8 +581,8 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
             elif device_type in (DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
                                  DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
                                  DeviceType.VDI_IMAGE):
-                # Virtual disk images — open as raw through dissect backend
-                accessor = ForensicDiskAccessor.from_raw(str(path))
+                # Virtual disk images — auto_detect routes to correct backend (dissect.hypervisor)
+                accessor = ForensicDiskAccessor.auto_detect(str(path))
             else:
                 accessor = ForensicDiskAccessor.from_raw(str(path))
 
