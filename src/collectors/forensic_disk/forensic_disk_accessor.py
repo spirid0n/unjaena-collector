@@ -10,10 +10,11 @@ Features:
 - E01/EWF forensic image access
 - RAW/DD image file access
 - Automatic partition detection (MBR/GPT)
-- Automatic filesystem detection (NTFS, FAT32, exFAT)
-- MFT/FAT based file reading
-- Deleted file recovery
-- ADS (Alternate Data Streams) support
+- Automatic filesystem detection (NTFS, FAT32, exFAT, ext2/3/4, HFS+, APFS)
+- MFT/FAT based file reading (NTFS native)
+- pytsk3-based file extraction for non-NTFS filesystems
+- Deleted file recovery (NTFS via MFT flags, others via pytsk3 TSK_FS_FILE_FLAG_UNALLOC)
+- ADS (Alternate Data Streams) support (NTFS only)
 
 Usage:
     from core.engine.collectors.filesystem.forensic_disk_accessor import ForensicDiskAccessor
@@ -28,6 +29,12 @@ Usage:
         disk.select_partition(0)
         for chunk in disk.stream_file("/pagefile.sys"):
             analyze(chunk)
+
+    # Non-NTFS filesystem (ext4, HFS+, FAT32, etc.)
+    with ForensicDiskAccessor.from_e01("linux.E01") as disk:
+        disk.select_partition(0)  # ext4 partition
+        catalog = disk.scan_all_files(include_deleted=True)
+        data = disk.read_file("/etc/passwd")
 
     # Full scan including deleted files
     catalog = disk.scan_all_files(include_deleted=True)
@@ -58,6 +65,27 @@ from .disk_backends import (
 from .file_content_extractor import FileContentExtractor, FileMetadata, DataRun
 
 logger = logging.getLogger(__name__)
+
+# Check pytsk3 availability (for non-NTFS filesystem support)
+try:
+    import pytsk3
+    from .ewf_img_info import BackendImgInfo
+    PYTSK3_AVAILABLE = True
+except ImportError:
+    PYTSK3_AVAILABLE = False
+    logger.info("pytsk3 not available - non-NTFS file extraction disabled (NTFS still works)")
+
+# Filesystems that use native MFT-based extraction
+_NTFS_FILESYSTEMS = frozenset({'NTFS'})
+
+# Filesystems supported by pytsk3 fallback
+_TSK_SUPPORTED_FILESYSTEMS = frozenset({
+    'FAT12', 'FAT16', 'FAT32', 'exFAT',
+    'ext2', 'ext3', 'ext4',
+    'HFS', 'HFS+', 'HFSX',
+    'APFS',
+    'ISO9660', 'UFS',
+})
 
 
 # ==============================================================================
@@ -178,6 +206,11 @@ class ForensicDiskAccessor:
         self._partition_table_type: str = PartitionTableType.UNKNOWN
         self._selected_partition: Optional[int] = None
         self._extractor: Optional[FileContentExtractor] = None
+
+        # pytsk3 filesystem handle (for non-NTFS filesystems)
+        self._tsk_fs: Optional[Any] = None      # pytsk3.FS_Info
+        self._tsk_img: Optional[Any] = None      # BackendImgInfo
+        self._tsk_fs_type: Optional[str] = None  # Filesystem type string
 
         # MFT index cache (path -> inode)
         self._path_cache: Dict[str, int] = {}
@@ -573,27 +606,68 @@ class ForensicDiskAccessor:
                 f"Use BitLocker unlock key or mount the volume first."
             )
 
-        # Create FileContentExtractor
-        # Supported filesystems: NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+
-        supported_fs = (
-            'NTFS', 'FAT32', 'FAT16', 'FAT12', 'exFAT',  # Windows/Universal
-            'ext2', 'ext3', 'ext4',  # Linux
-            'APFS', 'HFS+', 'HFSX', 'HFS'  # macOS
-        )
+        # Reset pytsk3 state from previous partition selection
+        self._tsk_fs = None
+        self._tsk_img = None
+        self._tsk_fs_type = None
 
-        if partition.filesystem in supported_fs:
+        # Create filesystem accessor based on type
+        if partition.filesystem in _NTFS_FILESYSTEMS:
+            # NTFS: use native MFT-based FileContentExtractor (full feature set)
             self._extractor = FileContentExtractor(
                 disk=self._backend,
                 partition_offset=partition.offset,
                 fs_type=partition.filesystem
             )
-            logger.info(f"Selected partition {index}: {partition.filesystem} at offset {partition.offset}")
+            logger.info(f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} (NTFS native)")
+
+        elif partition.filesystem in _TSK_SUPPORTED_FILESYSTEMS:
+            # Non-NTFS: try pytsk3-based extraction
+            if not PYTSK3_AVAILABLE:
+                # Still create the FileContentExtractor for basic metadata
+                # (it can parse VBR for FAT/ext/HFS but cannot do full file extraction)
+                self._extractor = FileContentExtractor(
+                    disk=self._backend,
+                    partition_offset=partition.offset,
+                    fs_type=partition.filesystem
+                )
+                logger.warning(
+                    f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
+                    f"(pytsk3 not available - file extraction limited)"
+                )
+            else:
+                # Create pytsk3 filesystem handle
+                try:
+                    self._tsk_img = BackendImgInfo(self._backend)
+                    self._tsk_fs = pytsk3.FS_Info(self._tsk_img, offset=partition.offset)
+                    self._tsk_fs_type = partition.filesystem
+                    # No FileContentExtractor needed — pytsk3 handles everything
+                    self._extractor = None
+                    logger.info(
+                        f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
+                        f"(pytsk3 extraction enabled)"
+                    )
+                except Exception as e:
+                    logger.error(f"pytsk3 failed to open filesystem at partition {index}: {e}")
+                    # Fallback to basic FileContentExtractor
+                    self._tsk_fs = None
+                    self._tsk_img = None
+                    self._tsk_fs_type = None
+                    self._extractor = FileContentExtractor(
+                        disk=self._backend,
+                        partition_offset=partition.offset,
+                        fs_type=partition.filesystem
+                    )
+                    logger.warning(f"Falling back to basic extractor for {partition.filesystem}")
         else:
             self._extractor = None
             logger.warning(f"Unsupported filesystem: {partition.filesystem}")
 
         # Initialize cache
         self._path_cache.clear()
+        self._parent_index_built = False
+        self._parent_child_index.clear()
+        self._name_to_inode_map.clear()
 
     def find_windows_partition(self) -> Optional[int]:
         """
@@ -671,6 +745,10 @@ class ForensicDiskAccessor:
         Raises:
             FilesystemError: File not found
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            return self._tsk_read_file_by_path(path, max_size=max_size)
+
         if self._extractor is None:
             raise FilesystemError("No partition selected or unsupported filesystem")
 
@@ -696,16 +774,20 @@ class ForensicDiskAccessor:
         max_size: int = None
     ) -> bytes:
         """
-        Read file by MFT entry number
+        Read file by inode/MFT entry number
 
         Args:
-            inode: MFT entry number
-            stream_name: ADS name (e.g., "Zone.Identifier")
+            inode: MFT entry number (NTFS) or inode number (other filesystems)
+            stream_name: ADS name (e.g., "Zone.Identifier") - NTFS only
             max_size: Maximum read size
 
         Returns:
             File content (bytes)
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            return self._tsk_read_file_by_inode(inode, max_size=max_size)
+
         if self._extractor is None:
             raise FilesystemError("No partition selected or unsupported filesystem")
 
@@ -726,6 +808,11 @@ class ForensicDiskAccessor:
         Yields:
             File data chunks
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            yield from self._tsk_stream_file_by_path(path, chunk_size=chunk_size)
+            return
+
         if self._extractor is None:
             raise FilesystemError("No partition selected")
 
@@ -744,16 +831,21 @@ class ForensicDiskAccessor:
         chunk_size: int = 64 * 1024 * 1024
     ) -> Generator[bytes, None, None]:
         """
-        Stream large file by MFT entry
+        Stream large file by inode/MFT entry
 
         Args:
-            inode: MFT entry number
-            stream_name: ADS name
+            inode: MFT entry number (NTFS) or inode number (other filesystems)
+            stream_name: ADS name - NTFS only
             chunk_size: Chunk size
 
         Yields:
             File data chunks
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            yield from self._tsk_stream_file_by_inode(inode, chunk_size=chunk_size)
+            return
+
         if self._extractor is None:
             raise FilesystemError("No partition selected")
 
@@ -764,11 +856,15 @@ class ForensicDiskAccessor:
         Get file metadata
 
         Args:
-            inode: MFT entry number
+            inode: MFT entry number (NTFS) or inode number (other filesystems)
 
         Returns:
             FileMetadata object
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            return self._tsk_get_file_metadata(inode)
+
         if self._extractor is None:
             raise FilesystemError("No partition selected")
 
@@ -783,7 +879,12 @@ class ForensicDiskAccessor:
 
         Returns:
             List of ADS names (e.g., ["Zone.Identifier", "encryptable"])
+            Returns empty list for non-NTFS filesystems (ADS is NTFS-only)
         """
+        # pytsk3 path (non-NTFS) - ADS does not exist
+        if self._tsk_fs is not None:
+            return []
+
         if self._extractor is None:
             raise FilesystemError("No partition selected")
 
@@ -799,6 +900,15 @@ class ForensicDiskAccessor:
         Returns:
             Existence status
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            try:
+                tsk_path = self._normalize_tsk_path(path)
+                self._tsk_fs.open(tsk_path)
+                return True
+            except Exception:
+                return False
+
         if self._extractor is None:
             return False
 
@@ -819,6 +929,17 @@ class ForensicDiskAccessor:
         Returns:
             Whether it is a directory
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            try:
+                tsk_path = self._normalize_tsk_path(path)
+                f = self._tsk_fs.open(tsk_path)
+                if f.info.meta is not None:
+                    return f.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR
+                return False
+            except Exception:
+                return False
+
         if self._extractor is None:
             return False
 
@@ -931,7 +1052,10 @@ class ForensicDiskAccessor:
 
     def list_directory(self, path: str) -> List[FileCatalogEntry]:
         """
-        List directory contents (index-based O(1) lookup)
+        List directory contents
+
+        NTFS: index-based O(1) lookup via MFT parent-child index.
+        Non-NTFS: pytsk3 directory listing.
 
         Args:
             path: Directory path
@@ -939,6 +1063,10 @@ class ForensicDiskAccessor:
         Returns:
             List of FileCatalogEntry
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            return self._tsk_list_directory(path)
+
         if self._extractor is None:
             return []
 
@@ -993,11 +1121,14 @@ class ForensicDiskAccessor:
         progress_callback=None
     ) -> Dict[str, Any]:
         """
-        Full MFT scan (including deleted files)
+        Full filesystem scan (including deleted files)
+
+        NTFS: MFT-based scan with full metadata.
+        Non-NTFS: pytsk3-based recursive directory walk.
 
         Digital forensics principles:
         - include_deleted=True (default): Include deleted files
-        - max_entries=None (default): No limit, scan entire MFT
+        - max_entries=None (default): No limit, scan entire filesystem
 
         Args:
             include_deleted: Include deleted files (default: True)
@@ -1010,9 +1141,17 @@ class ForensicDiskAccessor:
                 'active_files': List[FileCatalogEntry],
                 'deleted_files': List[FileCatalogEntry],
                 'directories': List[FileCatalogEntry],
-                'special_files': Dict[str, int],  # inode for $MFT, $LogFile, etc.
+                'special_files': Dict[str, int],  # inode for $MFT, $LogFile, etc. (NTFS only)
             }
         """
+        # pytsk3 path (non-NTFS)
+        if self._tsk_fs is not None:
+            return self._tsk_scan_all_files(
+                include_deleted=include_deleted,
+                max_entries=max_entries,
+                progress_callback=progress_callback
+            )
+
         if self._extractor is None:
             raise FilesystemError("No partition selected")
 
@@ -1162,6 +1301,12 @@ class ForensicDiskAccessor:
         Returns:
             List of FileCatalogEntry
         """
+        # pytsk3 path (non-NTFS) — do a full scan and filter
+        if self._tsk_fs is not None:
+            return self._tsk_find_files_by_name(
+                name_pattern, include_deleted, max_results
+            )
+
         results = []
         name_lower = name_pattern.lower()
         entry_num = 0
@@ -1270,25 +1415,589 @@ class ForensicDiskAccessor:
         return None
 
     # ==========================================================================
+    # pytsk3-based Methods (non-NTFS filesystem support)
+    # ==========================================================================
+
+    @staticmethod
+    def _normalize_tsk_path(path: str) -> str:
+        """
+        Normalize a user-supplied path for pytsk3 consumption.
+
+        pytsk3 expects forward-slash paths with a leading slash and no
+        drive letter prefix (e.g. "/etc/passwd").
+        """
+        # Backslash -> forward slash
+        path = path.replace('\\', '/')
+        # Remove drive letter (C:/)
+        if len(path) > 2 and path[1] == ':':
+            path = path[2:]
+        # Ensure leading slash
+        if not path.startswith('/'):
+            path = '/' + path
+        # Remove trailing slash (except root)
+        if len(path) > 1 and path.endswith('/'):
+            path = path.rstrip('/')
+        return path
+
+    @staticmethod
+    def _tsk_timestamp_to_int(ts) -> int:
+        """
+        Convert a pytsk3 timestamp (POSIX epoch seconds) to the integer
+        representation used by FileCatalogEntry / FileMetadata.
+
+        pytsk3 meta timestamps are POSIX seconds since 1970-01-01.
+        We store them as-is (POSIX int).  Returns 0 on failure.
+        """
+        try:
+            if ts is None or ts == 0:
+                return 0
+            return int(ts)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _tsk_entry_is_deleted(f_entry) -> bool:
+        """Check whether a pytsk3 file entry represents a deleted file."""
+        try:
+            flags = int(f_entry.info.meta.flags)
+            return bool(flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
+        except Exception:
+            # If meta is None the entry is orphaned / unallocated
+            return f_entry.info.meta is None
+
+    def _tsk_file_entry_to_catalog(
+        self,
+        f_entry,
+        parent_path: str,
+        parent_inode: int = 0
+    ) -> Optional[FileCatalogEntry]:
+        """
+        Convert a pytsk3 directory entry into a FileCatalogEntry.
+
+        Returns None if the entry should be skipped (e.g. '.' / '..').
+        """
+        try:
+            name_obj = f_entry.info.name
+            if name_obj is None:
+                return None
+
+            filename = name_obj.name
+            if isinstance(filename, bytes):
+                filename = filename.decode('utf-8', errors='replace')
+
+            # Skip . and ..
+            if filename in ('.', '..'):
+                return None
+
+            meta = f_entry.info.meta
+            if meta is not None:
+                inode = int(meta.addr)
+                size = int(meta.size) if meta.size is not None else 0
+                is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
+                is_deleted = self._tsk_entry_is_deleted(f_entry)
+                created = self._tsk_timestamp_to_int(meta.crtime)
+                modified = self._tsk_timestamp_to_int(meta.mtime)
+            else:
+                # Orphaned/corrupt entry — minimal metadata
+                inode = 0
+                size = 0
+                is_dir = (name_obj.type == pytsk3.TSK_FS_NAME_TYPE_DIR
+                          if hasattr(name_obj, 'type') else False)
+                is_deleted = True
+                created = 0
+                modified = 0
+
+            full_path = f"{parent_path}/{filename}" if parent_path else filename
+
+            return FileCatalogEntry(
+                inode=inode,
+                filename=filename,
+                full_path=full_path,
+                size=size,
+                is_directory=is_dir,
+                is_deleted=is_deleted,
+                parent_inode=parent_inode,
+                created_time=created,
+                modified_time=modified,
+                has_data_runs=(not is_dir and size > 0),
+                ads_streams=[]
+            )
+        except Exception as e:
+            logger.debug(f"Failed to convert TSK entry: {e}")
+            return None
+
+    # ---------- scan_all_files (pytsk3) ----------
+
+    def _tsk_scan_all_files(
+        self,
+        include_deleted: bool = True,
+        max_entries: int = None,
+        progress_callback=None
+    ) -> Dict[str, Any]:
+        """
+        Recursively walk the filesystem tree via pytsk3 and return the
+        same dict structure as the NTFS MFT-based scan_all_files().
+        """
+        result: Dict[str, Any] = {
+            'total_entries': 0,
+            'active_files': [],
+            'deleted_files': [],
+            'directories': [],
+            'special_files': {},
+            'errors': []
+        }
+
+        entry_count = 0
+        limit = max_entries or float('inf')
+
+        def _walk(directory, parent_path: str, parent_inode: int):
+            nonlocal entry_count
+
+            try:
+                entries = list(directory)
+            except Exception as e:
+                result['errors'].append((parent_inode, f"readdir: {e}"))
+                return
+
+            for f_entry in entries:
+                if entry_count >= limit:
+                    return
+
+                catalog = self._tsk_file_entry_to_catalog(
+                    f_entry, parent_path, parent_inode
+                )
+                if catalog is None:
+                    continue
+
+                entry_count += 1
+                result['total_entries'] += 1
+
+                if catalog.is_directory:
+                    result['directories'].append(catalog)
+                    # Recurse into subdirectory
+                    try:
+                        sub_dir = f_entry.as_directory()
+                        _walk(sub_dir, catalog.full_path, catalog.inode)
+                    except Exception as e:
+                        result['errors'].append(
+                            (catalog.inode, f"opendir {catalog.full_path}: {e}")
+                        )
+                elif catalog.is_deleted:
+                    if include_deleted:
+                        result['deleted_files'].append(catalog)
+                else:
+                    result['active_files'].append(catalog)
+
+                # Progress callback
+                if progress_callback and entry_count % 1000 == 0:
+                    progress_callback(entry_count, max_entries or entry_count)
+
+        # Start walk from root directory
+        try:
+            root_dir = self._tsk_fs.open_dir(path="/")
+            _walk(root_dir, "", 0)
+        except Exception as e:
+            logger.error(f"pytsk3 root directory open failed: {e}")
+            result['errors'].append((0, f"root: {e}"))
+
+        # If include_deleted, also try to recover orphan files via inode scan
+        if include_deleted:
+            orphans = self._tsk_scan_orphan_files(
+                result, entry_count, max_entries
+            )
+            entry_count += orphans
+
+        logger.info(
+            f"[{self._tsk_fs_type}] pytsk3 scan complete: "
+            f"{len(result['active_files'])} files, "
+            f"{len(result['directories'])} directories, "
+            f"{len(result['deleted_files'])} deleted, "
+            f"{len(result['errors'])} errors"
+        )
+
+        return result
+
+    def _tsk_scan_orphan_files(
+        self,
+        result: Dict[str, Any],
+        current_count: int,
+        max_entries: Optional[int]
+    ) -> int:
+        """
+        Attempt to find deleted/orphan files that are no longer in any
+        directory listing by scanning inodes directly.
+
+        This catches files whose parent directory entry has been removed
+        but whose inode metadata is still intact (unallocated but readable).
+
+        Returns the number of orphan entries found.
+        """
+        # Collect all inodes already seen from the directory walk
+        seen_inodes = set()
+        for lst in (result['active_files'], result['deleted_files'], result['directories']):
+            for entry in lst:
+                seen_inodes.add(entry.inode)
+
+        # Determine inode range to scan
+        try:
+            # pytsk3 FS_Info exposes info.last_inum on some filesystem types
+            last_inum = int(self._tsk_fs.info.last_inum)
+        except Exception:
+            # Conservative default — scan first 100k inodes
+            last_inum = 100_000
+
+        limit = max_entries or float('inf')
+        orphan_count = 0
+        consecutive_errors = 0
+        max_consecutive = 500
+
+        for inum in range(2, min(last_inum + 1, 5_000_000)):
+            if current_count + orphan_count >= limit:
+                break
+            if inum in seen_inodes:
+                continue
+
+            try:
+                f = self._tsk_fs.open_meta(inode=inum)
+                if f.info.meta is None:
+                    consecutive_errors += 1
+                    if consecutive_errors > max_consecutive:
+                        break
+                    continue
+
+                meta = f.info.meta
+                flags = int(meta.flags)
+                is_unalloc = bool(flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
+
+                if not is_unalloc:
+                    consecutive_errors = 0
+                    continue  # Already allocated — was found in walk
+
+                is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
+                size = int(meta.size) if meta.size else 0
+
+                # Skip zero-size deleted entries and deleted dirs (noise)
+                if size == 0 or is_dir:
+                    consecutive_errors = 0
+                    continue
+
+                entry = FileCatalogEntry(
+                    inode=inum,
+                    filename=f"<orphan-{inum}>",
+                    full_path=f"$OrphanFiles/<orphan-{inum}>",
+                    size=size,
+                    is_directory=False,
+                    is_deleted=True,
+                    parent_inode=0,
+                    created_time=self._tsk_timestamp_to_int(meta.crtime),
+                    modified_time=self._tsk_timestamp_to_int(meta.mtime),
+                    has_data_runs=(size > 0),
+                    ads_streams=[]
+                )
+                result['deleted_files'].append(entry)
+                orphan_count += 1
+                consecutive_errors = 0
+
+            except Exception:
+                consecutive_errors += 1
+                if consecutive_errors > max_consecutive:
+                    break
+                continue
+
+        if orphan_count > 0:
+            logger.info(f"[{self._tsk_fs_type}] Found {orphan_count} orphan/deleted inodes")
+
+        return orphan_count
+
+    # ---------- find_files_by_name (pytsk3) ----------
+
+    def _tsk_find_files_by_name(
+        self,
+        name_pattern: str,
+        include_deleted: bool = True,
+        max_results: int = 100
+    ) -> List[FileCatalogEntry]:
+        """
+        Search files by name via pytsk3 recursive walk.
+
+        Less efficient than inode scanning but works on all pytsk3-supported
+        filesystems.
+        """
+        results: List[FileCatalogEntry] = []
+        name_lower = name_pattern.lower()
+
+        def _walk(directory, parent_path: str, parent_inode: int):
+            if len(results) >= max_results:
+                return
+
+            try:
+                entries = list(directory)
+            except Exception:
+                return
+
+            for f_entry in entries:
+                if len(results) >= max_results:
+                    return
+
+                catalog = self._tsk_file_entry_to_catalog(
+                    f_entry, parent_path, parent_inode
+                )
+                if catalog is None:
+                    continue
+
+                # Name match
+                if name_lower in catalog.filename.lower():
+                    if not catalog.is_deleted or include_deleted:
+                        results.append(catalog)
+
+                # Recurse into directories
+                if catalog.is_directory:
+                    try:
+                        sub_dir = f_entry.as_directory()
+                        _walk(sub_dir, catalog.full_path, catalog.inode)
+                    except Exception:
+                        continue
+
+        try:
+            root_dir = self._tsk_fs.open_dir(path="/")
+            _walk(root_dir, "", 0)
+        except Exception as e:
+            logger.debug(f"[{self._tsk_fs_type}] find_files_by_name failed: {e}")
+
+        return results
+
+    # ---------- list_directory (pytsk3) ----------
+
+    def _tsk_list_directory(self, path: str) -> List[FileCatalogEntry]:
+        """List directory contents via pytsk3."""
+        try:
+            tsk_path = self._normalize_tsk_path(path)
+            directory = self._tsk_fs.open_dir(path=tsk_path)
+
+            results = []
+            for f_entry in directory:
+                catalog = self._tsk_file_entry_to_catalog(
+                    f_entry,
+                    parent_path=tsk_path.rstrip('/'),
+                    parent_inode=0
+                )
+                if catalog is not None and not catalog.is_deleted:
+                    results.append(catalog)
+
+            return results
+        except Exception as e:
+            logger.debug(f"[{self._tsk_fs_type}] Failed to list directory '{path}': {e}")
+            return []
+
+    # ---------- read_file (pytsk3) ----------
+
+    def _tsk_read_file_content(self, f_entry, max_size: int = None) -> bytes:
+        """
+        Read file content from a pytsk3 file entry object.
+
+        Handles both small and large files.  For very large files,
+        use _tsk_stream_file_content() instead.
+        """
+        meta = f_entry.info.meta
+        if meta is None:
+            raise FilesystemError("File has no metadata (inode may be corrupt)")
+
+        file_size = int(meta.size) if meta.size else 0
+        if file_size == 0:
+            return b''
+
+        read_size = file_size
+        if max_size is not None and max_size < file_size:
+            read_size = max_size
+
+        try:
+            return f_entry.read_random(0, read_size)
+        except Exception as e:
+            # Some deleted files may have partially overwritten clusters.
+            # Attempt a best-effort chunked read.
+            logger.debug(f"Full read failed ({e}), attempting chunked recovery")
+            return self._tsk_read_file_chunked(f_entry, read_size)
+
+    def _tsk_read_file_chunked(
+        self,
+        f_entry,
+        total_size: int,
+        chunk_size: int = 1024 * 1024
+    ) -> bytes:
+        """Best-effort chunked read for partially damaged files."""
+        data = bytearray()
+        offset = 0
+        while offset < total_size:
+            try:
+                read_len = min(chunk_size, total_size - offset)
+                chunk = f_entry.read_random(offset, read_len)
+                data.extend(chunk)
+                offset += len(chunk)
+                if len(chunk) == 0:
+                    break
+            except Exception:
+                # Fill unreadable region with zeros and keep going
+                fill_len = min(chunk_size, total_size - offset)
+                data.extend(b'\x00' * fill_len)
+                offset += fill_len
+        return bytes(data)
+
+    def _tsk_read_file_by_path(self, path: str, max_size: int = None) -> bytes:
+        """Read file content by path via pytsk3."""
+        tsk_path = self._normalize_tsk_path(path)
+        try:
+            f = self._tsk_fs.open(tsk_path)
+            return self._tsk_read_file_content(f, max_size)
+        except IOError as e:
+            raise FilesystemError(f"File not found: {path} ({e})")
+        except Exception as e:
+            raise FilesystemError(f"Failed to read file {path}: {e}")
+
+    def _tsk_read_file_by_inode(self, inode: int, max_size: int = None) -> bytes:
+        """Read file content by inode via pytsk3."""
+        try:
+            f = self._tsk_fs.open_meta(inode=inode)
+            return self._tsk_read_file_content(f, max_size)
+        except IOError as e:
+            raise FilesystemError(f"Inode not found: {inode} ({e})")
+        except Exception as e:
+            raise FilesystemError(f"Failed to read inode {inode}: {e}")
+
+    # ---------- stream_file (pytsk3) ----------
+
+    def _tsk_stream_file_content(
+        self, f_entry, chunk_size: int = 64 * 1024 * 1024
+    ) -> Generator[bytes, None, None]:
+        """Stream file content in chunks from a pytsk3 file entry."""
+        meta = f_entry.info.meta
+        if meta is None:
+            return
+
+        file_size = int(meta.size) if meta.size else 0
+        if file_size == 0:
+            return
+
+        offset = 0
+        while offset < file_size:
+            read_len = min(chunk_size, file_size - offset)
+            try:
+                chunk = f_entry.read_random(offset, read_len)
+                if len(chunk) == 0:
+                    break
+                yield chunk
+                offset += len(chunk)
+            except Exception as e:
+                logger.debug(f"Stream read error at offset {offset}: {e}")
+                # Yield zeros for unreadable region and continue
+                yield b'\x00' * read_len
+                offset += read_len
+
+    def _tsk_stream_file_by_path(
+        self, path: str, chunk_size: int = 64 * 1024 * 1024
+    ) -> Generator[bytes, None, None]:
+        """Stream file content by path via pytsk3."""
+        tsk_path = self._normalize_tsk_path(path)
+        try:
+            f = self._tsk_fs.open(tsk_path)
+            yield from self._tsk_stream_file_content(f, chunk_size)
+        except IOError as e:
+            raise FilesystemError(f"File not found: {path} ({e})")
+
+    def _tsk_stream_file_by_inode(
+        self, inode: int, chunk_size: int = 64 * 1024 * 1024
+    ) -> Generator[bytes, None, None]:
+        """Stream file content by inode via pytsk3."""
+        try:
+            f = self._tsk_fs.open_meta(inode=inode)
+            yield from self._tsk_stream_file_content(f, chunk_size)
+        except IOError as e:
+            raise FilesystemError(f"Inode not found: {inode} ({e})")
+
+    # ---------- get_file_metadata (pytsk3) ----------
+
+    def _tsk_get_file_metadata(self, inode: int) -> FileMetadata:
+        """
+        Get file metadata from pytsk3 by inode.
+
+        Returns a FileMetadata object matching the same structure as
+        NTFS MFT-based metadata.
+        """
+        try:
+            f = self._tsk_fs.open_meta(inode=inode)
+        except Exception as e:
+            raise FilesystemError(f"Failed to open inode {inode}: {e}")
+
+        meta = f.info.meta
+        if meta is None:
+            raise FilesystemError(f"No metadata for inode {inode}")
+
+        is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
+        is_deleted = self._tsk_entry_is_deleted(f)
+        size = int(meta.size) if meta.size else 0
+
+        # Try to get the filename via name attribute
+        filename = ""
+        try:
+            if f.info.name is not None:
+                fname = f.info.name.name
+                if isinstance(fname, bytes):
+                    fname = fname.decode('utf-8', errors='replace')
+                filename = fname
+        except Exception:
+            pass
+
+        if not filename:
+            filename = f"inode-{inode}"
+
+        return FileMetadata(
+            inode=inode,
+            filename=filename,
+            full_path="",  # Not resolvable from inode alone
+            size=size,
+            allocated_size=size,
+            is_directory=is_dir,
+            is_deleted=is_deleted,
+            is_resident=False,
+            resident_data=b'',
+            data_runs=[],  # pytsk3 handles data runs internally
+            ads_streams=[],  # ADS is NTFS-only
+            created_time=self._tsk_timestamp_to_int(meta.crtime),
+            modified_time=self._tsk_timestamp_to_int(meta.mtime),
+            accessed_time=self._tsk_timestamp_to_int(meta.atime),
+            mft_changed_time=self._tsk_timestamp_to_int(meta.ctime),
+            parent_ref=0,
+            flags=int(meta.flags) if meta.flags else 0
+        )
+
+    # ==========================================================================
     # Special Files
     # ==========================================================================
 
     def read_mft_raw(self, max_size: int = None) -> bytes:
         """
-        Read $MFT file raw data
+        Read $MFT file raw data (NTFS only)
 
         Args:
             max_size: Maximum size (None = all)
 
         Returns:
             MFT raw data
+
+        Raises:
+            FilesystemError: Not an NTFS partition
         """
+        if self._tsk_fs is not None:
+            raise FilesystemError("$MFT is an NTFS-specific structure (current filesystem: "
+                                  f"{self._tsk_fs_type})")
         return self.read_file_by_inode(0, max_size=max_size)
 
     def read_logfile_raw(self, max_size: int = None) -> bytes:
         """
-        Read $LogFile raw data (NTFS transaction log)
+        Read $LogFile raw data (NTFS transaction log, NTFS only)
         """
+        if self._tsk_fs is not None:
+            raise FilesystemError("$LogFile is an NTFS-specific structure (current filesystem: "
+                                  f"{self._tsk_fs_type})")
         return self.read_file_by_inode(2, max_size=max_size)
 
     def read_usnjrnl_raw(self, max_size: int = None, skip_sparse: bool = True) -> bytes:
@@ -1307,6 +2016,9 @@ class ForensicDiskAccessor:
             Logical size can be tens of GB but actual data is only a portion.
             Recommended to use skip_sparse=True to read only actual data.
         """
+        if self._tsk_fs is not None:
+            raise FilesystemError("$UsnJrnl is an NTFS-specific structure (current filesystem: "
+                                  f"{self._tsk_fs_type})")
         # $Extend directory (usually entry 11)
         extend_inode = 11
 
@@ -1407,6 +2119,16 @@ class ForensicDiskAccessor:
 
     def close(self):
         """Release resources"""
+        # Release pytsk3 handles
+        self._tsk_fs = None
+        if self._tsk_img is not None:
+            try:
+                self._tsk_img.close()
+            except Exception:
+                pass
+            self._tsk_img = None
+        self._tsk_fs_type = None
+
         if self._backend:
             self._backend.close()
         self._extractor = None
