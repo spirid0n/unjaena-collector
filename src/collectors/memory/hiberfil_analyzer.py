@@ -676,7 +676,7 @@ def create_hiberfil_analyzer_e01(
     _debug_print(f"[Hiberfil] E01 path: {e01_path}")
 
     try:
-        with ForensicDiskAccessor.from_e01(e01_path) as disk:
+        with ForensicDiskAccessor.auto_detect(e01_path) as disk:
             partitions = disk.list_partitions()
 
             if not partitions:

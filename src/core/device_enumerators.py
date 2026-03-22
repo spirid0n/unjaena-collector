@@ -575,16 +575,8 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
         try:
             from collectors.forensic_disk import ForensicDiskAccessor
 
-            # Detect filesystem with ForensicDiskAccessor
-            if device_type == DeviceType.E01_IMAGE:
-                accessor = ForensicDiskAccessor.from_e01(str(path))
-            elif device_type in (DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
-                                 DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
-                                 DeviceType.VDI_IMAGE):
-                # Virtual disk images — auto_detect routes to correct backend (dissect.hypervisor)
-                accessor = ForensicDiskAccessor.auto_detect(str(path))
-            else:
-                accessor = ForensicDiskAccessor.from_raw(str(path))
+            # Detect filesystem — auto_detect routes to correct backend by extension
+            accessor = ForensicDiskAccessor.auto_detect(str(path))
 
             partitions = accessor.list_partitions()
 
