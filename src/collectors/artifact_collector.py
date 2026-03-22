@@ -4070,7 +4070,7 @@ class ArtifactCollector:
 
     Collection priority:
     1. ForensicDiskAccessor (pure Python, raw sector access) - direct read of locked files
-    2. MFTCollector (pytsk3) - MFT-based collection
+    2. MFTCollector (ForensicDiskAccessor-based) - MFT-based collection
     3. Legacy (shutil) - normal file copy
 
     ForensicDiskAccessor advantages:
@@ -4139,7 +4139,7 @@ class ArtifactCollector:
                     self.forensic_disk_accessor = None
 
         # ==========================================================
-        # Priority 2: MFTCollector (pytsk3) - fallback
+        # Priority 2: MFTCollector (ForensicDiskAccessor) - fallback
         # ==========================================================
         if self.collection_mode != 'forensic_disk_accessor' and use_mft and MFT_AVAILABLE:
             try:
@@ -4153,7 +4153,7 @@ class ArtifactCollector:
                 else:
                     self.mft_collector = MFTCollector(volume, str(output_dir))
                 self.collection_mode = 'mft'
-                _debug_print("[INFO] MFTCollector (pytsk3) initialized")
+                _debug_print("[INFO] MFTCollector initialized")
             except Exception as e:
                 _debug_print(f"[WARNING] MFT collection unavailable: {e}")
                 self.mft_collector = None
@@ -4338,7 +4338,7 @@ class ArtifactCollector:
             # Check if requires MFT
             if info.get('requires_mft', False) and not self.use_mft:
                 available = False
-                unavailable_reason = 'MFT collection required (pytsk3)'
+                unavailable_reason = 'MFT collection required'
 
             # Check if requires ADB
             if info.get('requires_adb', False) and not ADB_AVAILABLE:
@@ -4419,7 +4419,7 @@ class ArtifactCollector:
 
         # Check availability based on category
         if artifact_info.get('requires_mft', False) and not self.use_mft:
-            _debug_print(f"[WARNING] {artifact_type} requires MFT collection (pytsk3)")
+            _debug_print(f"[WARNING] {artifact_type} requires MFT collection")
             return
 
         if artifact_info.get('requires_adb', False) and not ADB_AVAILABLE:
@@ -4470,7 +4470,7 @@ class ArtifactCollector:
                 progress_callback, include_deleted
             )
         elif self.collection_mode == 'mft' and self.mft_collector:
-            # Priority 2: MFTCollector (pytsk3)
+            # Priority 2: MFTCollector (ForensicDiskAccessor)
             yield from self._collect_mft(
                 artifact_type, artifact_info, artifact_dir,
                 progress_callback, include_deleted
@@ -5072,8 +5072,6 @@ class ArtifactCollector:
             exclude_extensions: Extension exclude filter (e.g., ['.png', '.jpg'])
             full_disk_scan: If True, scan entire disk (ignore base_path)
         """
-        import fnmatch
-
         try:
             # MFT scan
             if full_disk_scan:
@@ -6069,7 +6067,6 @@ class ArtifactCollector:
 
     def _sanitize_filename(self, filename: str) -> str:
         """Remove invalid characters from filename"""
-        import re
         sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
         sanitized = re.sub(r'_+', '_', sanitized)
         sanitized = sanitized.strip(' _.')
@@ -6387,7 +6384,6 @@ class ArtifactCollector:
         """
         try:
             import subprocess
-            import re
 
             result = subprocess.run(
                 ['vssadmin', 'list', 'shadows'],
@@ -6455,7 +6451,7 @@ def get_collection_mode() -> str:
                 return 'legacy (no admin)'
         except Exception:
             return 'legacy'
-    return 'legacy (no pytsk3)'
+    return 'legacy (no MFT backend)'
 
 if __name__ == "__main__":
     import sys
