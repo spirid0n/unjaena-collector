@@ -56,7 +56,7 @@ except ImportError:
     FORENSIC_DISK_AVAILABLE = False
     ForensicDiskAccessor = None
 
-# Try to import MFT collector (pytsk3 - fallback)
+# Try to import MFT collector (ForensicDiskAccessor-based fallback)
 try:
     from collectors.mft_collector import (
         MFTCollector, MFT_ARTIFACT_TYPES,
