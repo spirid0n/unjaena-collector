@@ -242,7 +242,7 @@ def test_kakaotalk_android_parser(db_path: Path):
     except ImportError as e:
         print_result("Parser import", False, str(e))
         print("         Server parser module not found.")
-        print("         Please check the migration/backend/services/parsers path.")
+        print("         Please check the server-side parser module path.")
         return False
     except Exception as e:
         print_result("Parser test", False, str(e))
