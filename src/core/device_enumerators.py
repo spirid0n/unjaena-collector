@@ -454,6 +454,7 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
     VHDX_EXTENSIONS = {'.vhdx'}
     QCOW2_EXTENSIONS = {'.qcow2'}
     VDI_EXTENSIONS = {'.vdi'}
+    DMG_EXTENSIONS = {'.dmg'}
 
     def __init__(self):
         self._registered_images: Dict[str, UnifiedDeviceInfo] = {}
@@ -499,7 +500,7 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
             self.E01_EXTENSIONS | self.RAW_EXTENSIONS |
             self.VMDK_EXTENSIONS | self.VHD_EXTENSIONS |
             self.VHDX_EXTENSIONS | self.QCOW2_EXTENSIONS |
-            self.VDI_EXTENSIONS
+            self.VDI_EXTENSIONS | self.DMG_EXTENSIONS
         )
 
         if ext not in all_extensions:
@@ -518,6 +519,8 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
             device_type = DeviceType.QCOW2_IMAGE
         elif ext in self.VDI_EXTENSIONS:
             device_type = DeviceType.VDI_IMAGE
+        elif ext in self.DMG_EXTENSIONS:
+            device_type = DeviceType.DMG_IMAGE
         else:
             device_type = DeviceType.RAW_IMAGE
 

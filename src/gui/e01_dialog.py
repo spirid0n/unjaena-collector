@@ -96,7 +96,7 @@ class E01SelectionDialog(QDialog):
     """
 
     # Supported extensions
-    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.s01 *.S01 *.l01 *.L01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi"
+    SUPPORTED_EXTENSIONS = "*.E01 *.e01 *.Ex01 *.ex01 *.s01 *.S01 *.l01 *.L01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi *.dmg *.DMG"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -392,6 +392,8 @@ class E01SelectionDialog(QDialog):
             image_type = "QCOW2 (QEMU)"
         elif ext == '.vdi':
             image_type = "VDI (VirtualBox)"
+        elif ext == '.dmg':
+            image_type = "DMG (Apple UDIF)"
         else:
             image_type = "Disk Image"
 
