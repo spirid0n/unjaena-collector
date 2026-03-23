@@ -10,10 +10,10 @@ Features:
 - E01/EWF forensic image access
 - RAW/DD image file access
 - Automatic partition detection (MBR/GPT)
-- Automatic filesystem detection (NTFS, FAT32, exFAT, ext2/3/4, HFS+, APFS)
+- Automatic filesystem detection (NTFS, FAT32, exFAT, ext2/3/4, XFS, Btrfs, UFS)
 - MFT/FAT based file reading (NTFS native)
-- pytsk3-based file extraction for non-NTFS filesystems
-- Deleted file recovery (NTFS via MFT flags, others via pytsk3 TSK_FS_FILE_FLAG_UNALLOC)
+- dissect-based file extraction for non-NTFS filesystems
+- Deleted file recovery (NTFS via MFT flags, others via dissect inode scanning)
 - ADS (Alternate Data Streams) support (NTFS only)
 
 Usage:
@@ -30,7 +30,7 @@ Usage:
         for chunk in disk.stream_file("/pagefile.sys"):
             analyze(chunk)
 
-    # Non-NTFS filesystem (ext4, HFS+, FAT32, etc.)
+    # Non-NTFS filesystem (ext4, FAT32, XFS, Btrfs, UFS, etc.)
     with ForensicDiskAccessor.from_e01("linux.E01") as disk:
         disk.select_partition(0)  # ext4 partition
         catalog = disk.scan_all_files(include_deleted=True)
@@ -40,11 +40,14 @@ Usage:
     catalog = disk.scan_all_files(include_deleted=True)
 """
 
+import io
+import stat
 import struct
 import logging
 from typing import Optional, List, Dict, Generator, Any, Union, Tuple
 from pathlib import Path
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from .unified_disk_reader import (
     UnifiedDiskReader,
@@ -66,26 +69,375 @@ from .file_content_extractor import FileContentExtractor, FileMetadata, DataRun
 
 logger = logging.getLogger(__name__)
 
-# Check pytsk3 availability (for non-NTFS filesystem support)
-try:
-    import pytsk3
-    from .ewf_img_info import BackendImgInfo
-    PYTSK3_AVAILABLE = True
-except ImportError:
-    PYTSK3_AVAILABLE = False
-    logger.info("pytsk3 not available - non-NTFS file extraction disabled (NTFS still works)")
+# ==============================================================================
+# dissect filesystem support (replaces pytsk3 for non-NTFS)
+# ==============================================================================
+
+# Map filesystem type strings to (module_path, class_name)
+_DISSECT_FS_MAP = {
+    'ext2':  ('dissect.extfs', 'ExtFS'),
+    'ext3':  ('dissect.extfs', 'ExtFS'),
+    'ext4':  ('dissect.extfs', 'ExtFS'),
+    'FAT12': ('dissect.fat',   'FATFS'),
+    'FAT16': ('dissect.fat',   'FATFS'),
+    'FAT32': ('dissect.fat',   'FATFS'),
+    'exFAT': ('dissect.fat.exfat', 'ExFAT'),
+    'XFS':   ('dissect.xfs',   'XFS'),
+    'Btrfs': ('dissect.btrfs', 'Btrfs'),
+    'UFS':   ('dissect.ffs',   'FFS'),
+}
 
 # Filesystems that use native MFT-based extraction
 _NTFS_FILESYSTEMS = frozenset({'NTFS'})
 
-# Filesystems supported by pytsk3 fallback
-_TSK_SUPPORTED_FILESYSTEMS = frozenset({
-    'FAT12', 'FAT16', 'FAT32', 'exFAT',
-    'ext2', 'ext3', 'ext4',
-    'HFS', 'HFS+', 'HFSX',
-    'APFS',
-    'ISO9660', 'UFS',
-})
+# Filesystems supported by dissect fallback
+_DISSECT_SUPPORTED_FILESYSTEMS = frozenset(_DISSECT_FS_MAP.keys())
+
+
+def _import_dissect_fs(fs_type: str):
+    """
+    Dynamically import and return the dissect filesystem class for the given type.
+
+    Returns:
+        The filesystem class, or None if unavailable.
+    """
+    entry = _DISSECT_FS_MAP.get(fs_type)
+    if entry is None:
+        return None
+
+    module_path, class_name = entry
+    try:
+        import importlib
+        mod = importlib.import_module(module_path)
+        return getattr(mod, class_name)
+    except (ImportError, AttributeError) as e:
+        logger.warning(f"dissect module for {fs_type} not available: {e}")
+        return None
+
+
+# ==============================================================================
+# CachedBackendIO - BinaryIO wrapper around UnifiedDiskReader with caching
+# ==============================================================================
+
+class CachedBackendIO(io.RawIOBase):
+    """
+    Wraps a UnifiedDiskReader as a BinaryIO (seekable, readable) for dissect
+    filesystem constructors.  Provides partition offset/size handling and a
+    1MB-block LRU cache (ported from BackendImgInfo in ewf_img_info.py) to
+    minimize random I/O through virtual-disk translation layers.
+
+    All dissect filesystem classes accept a BinaryIO (file-like object with
+    seek/read/tell) in their constructor.
+    """
+
+    _CACHE_BLOCK_SIZE = 1024 * 1024   # 1 MB per cache block
+    _CACHE_MAX_BLOCKS = 256           # 256 MB max cache
+
+    def __init__(self, backend: UnifiedDiskReader, offset: int = 0, size: int = 0):
+        """
+        Args:
+            backend: UnifiedDiskReader (PhysicalDisk, E01, RAW, VDI, etc.)
+            offset:  Partition start offset in bytes.
+            size:    Partition size in bytes (0 = to end of disk).
+        """
+        super().__init__()
+        self._backend = backend
+        self._offset = offset
+        self._size = size if size else (backend.get_size() - offset)
+        self._pos = 0            # Current position relative to partition start
+        self._cache: Dict[int, bytes] = {}
+        self._cache_order: List[int] = []   # LRU order (oldest first)
+
+    # -- BinaryIO interface --------------------------------------------------
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        if whence == 0:          # SEEK_SET
+            self._pos = offset
+        elif whence == 1:        # SEEK_CUR
+            self._pos += offset
+        elif whence == 2:        # SEEK_END
+            self._pos = self._size + offset
+        else:
+            raise ValueError(f"Invalid whence: {whence}")
+        self._pos = max(0, min(self._pos, self._size))
+        return self._pos
+
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            size = self._size - self._pos
+        if size <= 0 or self._pos >= self._size:
+            return b''
+
+        # Clamp to partition boundary
+        size = min(size, self._size - self._pos)
+
+        # Absolute offset in the disk image
+        abs_offset = self._offset + self._pos
+
+        # For very large reads (>4 MB), bypass cache to avoid thrashing
+        if size > 4 * self._CACHE_BLOCK_SIZE:
+            data = self._backend.read(abs_offset, size)
+            self._pos += len(data)
+            return data
+
+        result = bytearray()
+        remaining = size
+
+        while remaining > 0:
+            block_idx = (self._offset + self._pos) // self._CACHE_BLOCK_SIZE
+            block_offset = (self._offset + self._pos) % self._CACHE_BLOCK_SIZE
+            block_data = self._read_cached_block(block_idx)
+
+            if not block_data:
+                break
+
+            available = len(block_data) - block_offset
+            chunk_size = min(remaining, available)
+            result.extend(block_data[block_offset:block_offset + chunk_size])
+            self._pos += chunk_size
+            remaining -= chunk_size
+
+        return bytes(result)
+
+    def readinto(self, b) -> int:
+        data = self.read(len(b))
+        n = len(data)
+        b[:n] = data
+        return n
+
+    def _read_cached_block(self, block_idx: int) -> bytes:
+        """Read a 1 MB block, using cache if available (LRU eviction)."""
+        if block_idx in self._cache:
+            try:
+                self._cache_order.remove(block_idx)
+            except ValueError:
+                pass
+            self._cache_order.append(block_idx)
+            return self._cache[block_idx]
+
+        offset = block_idx * self._CACHE_BLOCK_SIZE
+        disk_size = self._backend.get_size()
+        read_size = min(self._CACHE_BLOCK_SIZE, disk_size - offset)
+        if read_size <= 0:
+            return b''
+
+        data = self._backend.read(offset, read_size)
+
+        while len(self._cache) >= self._CACHE_MAX_BLOCKS:
+            oldest = self._cache_order.pop(0)
+            self._cache.pop(oldest, None)
+
+        self._cache[block_idx] = data
+        self._cache_order.append(block_idx)
+        return data
+
+    def close(self):
+        """Release cache memory.  Backend lifecycle managed by caller."""
+        self._cache.clear()
+        self._cache_order.clear()
+        super().close()
+
+
+# ==============================================================================
+# dissect node helper functions (cross-filesystem abstraction)
+# ==============================================================================
+
+def _node_filename(node, fs_type: str) -> str:
+    """
+    Extract filename from a dissect filesystem node.
+
+    Different dissect implementations store the name in different attributes:
+    - ExtFS/XFS: node.filename  (str or None)
+    - FATFS: node.name  (str)
+    - Btrfs: node.path (property) or obtained from iterdir tuple
+    - FFS: node.name (str or None)
+    - ExFAT: obtained from dict key during iteration
+    """
+    try:
+        # ExtFS, XFS
+        if hasattr(node, 'filename') and node.filename is not None:
+            return str(node.filename)
+
+        # FAT, FFS
+        if hasattr(node, 'name') and node.name is not None:
+            name = str(node.name)
+            # FAT directories have trailing /
+            return name.rstrip('/')
+
+        # Btrfs
+        if hasattr(node, 'path'):
+            try:
+                p = node.path
+                if '/' in p:
+                    return p.rsplit('/', 1)[-1]
+                return p
+            except Exception:
+                pass
+
+        return ""
+    except Exception:
+        return ""
+
+
+def _node_is_dir(node, fs_type: str) -> bool:
+    """Check whether a dissect node represents a directory."""
+    try:
+        # Btrfs / FFS have explicit is_dir()
+        if hasattr(node, 'is_dir'):
+            return node.is_dir()
+
+        # FAT has is_directory() as a method
+        if hasattr(node, 'is_directory') and callable(node.is_directory):
+            return node.is_directory()
+
+        # ExtFS / XFS use stat-based filetype property
+        if hasattr(node, 'filetype'):
+            return node.filetype == stat.S_IFDIR
+
+        return False
+    except Exception:
+        return False
+
+
+def _node_inum(node, fs_type: str) -> int:
+    """
+    Extract inode number from a dissect node.
+
+    - ExtFS/XFS/FFS/Btrfs: node.inum
+    - FAT: node.cluster (FAT has no inodes; use start cluster as pseudo-inode)
+    - ExFAT: node.cluster if available
+    """
+    try:
+        if hasattr(node, 'inum'):
+            return int(node.inum)
+
+        # FAT uses start cluster as identifier
+        if hasattr(node, 'cluster'):
+            return int(node.cluster)
+
+        return 0
+    except Exception:
+        return 0
+
+
+def _node_size(node) -> int:
+    """Extract file size from a dissect node."""
+    try:
+        if hasattr(node, 'size'):
+            s = node.size
+            if callable(s):
+                return int(s())
+            return int(s)
+        return 0
+    except Exception:
+        return 0
+
+
+def _node_is_deleted(node, fs_type: str) -> bool:
+    """
+    Check whether a dissect node represents a deleted file.
+
+    - ExtFS: dtime > epoch(0) indicates deletion
+    - XFS: inode nlink == 0 or similar
+    - FAT: handled at directory entry level (first byte 0xE5) -- dissect
+      skips deleted entries during iteration, so anything yielded is live.
+    - Btrfs: deleted items are not reachable via tree traversal
+    - FFS: use inode link count
+    """
+    try:
+        fs_lower = fs_type.lower()
+
+        # ext2/3/4: dtime != epoch(0) means deleted
+        if fs_lower.startswith('ext'):
+            if hasattr(node, 'dtime'):
+                dtime = node.dtime
+                if isinstance(dtime, datetime):
+                    # dtime > 1970-01-01 means the file was deleted
+                    return dtime.timestamp() > 0
+            # Also check i_links_count via raw inode
+            if hasattr(node, 'inode') and hasattr(node.inode, 'i_links_count'):
+                return node.inode.i_links_count == 0
+            return False
+
+        # FFS: use mode / link count
+        if fs_lower == 'ufs':
+            if hasattr(node, 'inode') and hasattr(node.inode, 'di_nlink'):
+                return node.inode.di_nlink == 0
+            return False
+
+        # FAT/exFAT/XFS/Btrfs: dissect only yields live entries
+        return False
+    except Exception:
+        return False
+
+
+def _node_timestamps(node, fs_type: str) -> Tuple[int, int, int, int]:
+    """
+    Extract timestamps from a dissect node.
+
+    Returns:
+        (created, modified, accessed, changed) as POSIX int seconds.
+        Returns 0 for unavailable timestamps.
+    """
+    def _dt_to_int(dt_val) -> int:
+        """Convert datetime or timestamp to int."""
+        if dt_val is None:
+            return 0
+        try:
+            if isinstance(dt_val, (int, float)):
+                return int(dt_val)
+            if isinstance(dt_val, datetime):
+                return int(dt_val.timestamp())
+            return 0
+        except (OSError, OverflowError, ValueError):
+            return 0
+
+    created = 0
+    modified = 0
+    accessed = 0
+    changed = 0
+
+    try:
+        # Created time (crtime / btime / ctime for FAT)
+        if hasattr(node, 'crtime'):
+            created = _dt_to_int(node.crtime)
+        elif hasattr(node, 'btime'):
+            created = _dt_to_int(node.btime)
+        elif hasattr(node, 'otime'):  # Btrfs
+            created = _dt_to_int(node.otime)
+        elif hasattr(node, 'ctime') and fs_type in ('FAT12', 'FAT16', 'FAT32', 'exFAT'):
+            # FAT ctime = creation time (not change time like POSIX)
+            created = _dt_to_int(node.ctime)
+
+        # Modified time
+        if hasattr(node, 'mtime'):
+            modified = _dt_to_int(node.mtime)
+
+        # Accessed time
+        if hasattr(node, 'atime'):
+            accessed = _dt_to_int(node.atime)
+
+        # Changed time (metadata change, POSIX ctime -- not FAT)
+        if fs_type not in ('FAT12', 'FAT16', 'FAT32', 'exFAT'):
+            if hasattr(node, 'ctime'):
+                changed = _dt_to_int(node.ctime)
+
+    except Exception as e:
+        logger.debug(f"Timestamp extraction failed for {fs_type}: {e}")
+
+    return (created, modified, accessed, changed)
 
 
 # ==============================================================================
@@ -207,10 +559,10 @@ class ForensicDiskAccessor:
         self._selected_partition: Optional[int] = None
         self._extractor: Optional[FileContentExtractor] = None
 
-        # pytsk3 filesystem handle (for non-NTFS filesystems)
-        self._tsk_fs: Optional[Any] = None      # pytsk3.FS_Info
-        self._tsk_img: Optional[Any] = None      # BackendImgInfo
-        self._tsk_fs_type: Optional[str] = None  # Filesystem type string
+        # dissect filesystem handle (for non-NTFS filesystems)
+        self._dissect_fs: Optional[Any] = None      # dissect filesystem instance
+        self._dissect_fh: Optional[Any] = None       # CachedBackendIO
+        self._dissect_fs_type: Optional[str] = None  # Filesystem type string
 
         # MFT index cache (path -> inode)
         self._path_cache: Dict[str, int] = {}
@@ -606,10 +958,21 @@ class ForensicDiskAccessor:
                 f"Use BitLocker unlock key or mount the volume first."
             )
 
-        # Reset pytsk3 state from previous partition selection
-        self._tsk_fs = None
-        self._tsk_img = None
-        self._tsk_fs_type = None
+        # Reset dissect state from previous partition selection
+        if self._dissect_fs is not None:
+            try:
+                if hasattr(self._dissect_fs, 'close'):
+                    self._dissect_fs.close()
+            except Exception:
+                pass
+        self._dissect_fs = None
+        if self._dissect_fh is not None:
+            try:
+                self._dissect_fh.close()
+            except Exception:
+                pass
+        self._dissect_fh = None
+        self._dissect_fs_type = None
 
         # Create filesystem accessor based on type
         if partition.filesystem in _NTFS_FILESYSTEMS:
@@ -621,11 +984,11 @@ class ForensicDiskAccessor:
             )
             logger.info(f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} (NTFS native)")
 
-        elif partition.filesystem in _TSK_SUPPORTED_FILESYSTEMS:
-            # Non-NTFS: try pytsk3-based extraction
-            if not PYTSK3_AVAILABLE:
-                # Still create the FileContentExtractor for basic metadata
-                # (it can parse VBR for FAT/ext/HFS but cannot do full file extraction)
+        elif partition.filesystem in _DISSECT_SUPPORTED_FILESYSTEMS:
+            # Non-NTFS: try dissect-based extraction
+            fs_class = _import_dissect_fs(partition.filesystem)
+            if fs_class is None:
+                # dissect module not available -- create basic FileContentExtractor
                 self._extractor = FileContentExtractor(
                     disk=self._backend,
                     partition_offset=partition.offset,
@@ -633,26 +996,35 @@ class ForensicDiskAccessor:
                 )
                 logger.warning(
                     f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
-                    f"(pytsk3 not available - file extraction limited)"
+                    f"(dissect module not available - file extraction limited)"
                 )
             else:
-                # Create pytsk3 filesystem handle
+                # Create dissect filesystem handle
                 try:
-                    self._tsk_img = BackendImgInfo(self._backend)
-                    self._tsk_fs = pytsk3.FS_Info(self._tsk_img, offset=partition.offset)
-                    self._tsk_fs_type = partition.filesystem
-                    # No FileContentExtractor needed — pytsk3 handles everything
+                    self._dissect_fh = CachedBackendIO(
+                        self._backend,
+                        offset=partition.offset,
+                        size=partition.size
+                    )
+                    self._dissect_fs = fs_class(self._dissect_fh)
+                    self._dissect_fs_type = partition.filesystem
+                    # No FileContentExtractor needed -- dissect handles everything
                     self._extractor = None
                     logger.info(
                         f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
-                        f"(pytsk3 extraction enabled)"
+                        f"(dissect extraction enabled)"
                     )
                 except Exception as e:
-                    logger.error(f"pytsk3 failed to open filesystem at partition {index}: {e}")
+                    logger.error(f"dissect failed to open filesystem at partition {index}: {e}")
                     # Fallback to basic FileContentExtractor
-                    self._tsk_fs = None
-                    self._tsk_img = None
-                    self._tsk_fs_type = None
+                    if self._dissect_fh is not None:
+                        try:
+                            self._dissect_fh.close()
+                        except Exception:
+                            pass
+                    self._dissect_fs = None
+                    self._dissect_fh = None
+                    self._dissect_fs_type = None
                     self._extractor = FileContentExtractor(
                         disk=self._backend,
                         partition_offset=partition.offset,
@@ -745,9 +1117,9 @@ class ForensicDiskAccessor:
         Raises:
             FilesystemError: File not found
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            return self._tsk_read_file_by_path(path, max_size=max_size)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            return self._dissect_read_file_by_path(path, max_size=max_size)
 
         if self._extractor is None:
             raise FilesystemError("No partition selected or unsupported filesystem")
@@ -784,9 +1156,9 @@ class ForensicDiskAccessor:
         Returns:
             File content (bytes)
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            return self._tsk_read_file_by_inode(inode, max_size=max_size)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            return self._dissect_read_file_by_inode(inode, max_size=max_size)
 
         if self._extractor is None:
             raise FilesystemError("No partition selected or unsupported filesystem")
@@ -808,9 +1180,9 @@ class ForensicDiskAccessor:
         Yields:
             File data chunks
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            yield from self._tsk_stream_file_by_path(path, chunk_size=chunk_size)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            yield from self._dissect_stream_file_by_path(path, chunk_size=chunk_size)
             return
 
         if self._extractor is None:
@@ -841,9 +1213,9 @@ class ForensicDiskAccessor:
         Yields:
             File data chunks
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            yield from self._tsk_stream_file_by_inode(inode, chunk_size=chunk_size)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            yield from self._dissect_stream_file_by_inode(inode, chunk_size=chunk_size)
             return
 
         if self._extractor is None:
@@ -861,9 +1233,9 @@ class ForensicDiskAccessor:
         Returns:
             FileMetadata object
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            return self._tsk_get_file_metadata(inode)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            return self._dissect_get_file_metadata(inode)
 
         if self._extractor is None:
             raise FilesystemError("No partition selected")
@@ -881,8 +1253,8 @@ class ForensicDiskAccessor:
             List of ADS names (e.g., ["Zone.Identifier", "encryptable"])
             Returns empty list for non-NTFS filesystems (ADS is NTFS-only)
         """
-        # pytsk3 path (non-NTFS) - ADS does not exist
-        if self._tsk_fs is not None:
+        # dissect path (non-NTFS) - ADS does not exist
+        if self._dissect_fs is not None:
             return []
 
         if self._extractor is None:
@@ -900,11 +1272,11 @@ class ForensicDiskAccessor:
         Returns:
             Existence status
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
             try:
-                tsk_path = self._normalize_tsk_path(path)
-                self._tsk_fs.open(tsk_path)
+                dissect_path = self._normalize_dissect_path(path)
+                self._dissect_fs.get(dissect_path)
                 return True
             except Exception:
                 return False
@@ -929,14 +1301,12 @@ class ForensicDiskAccessor:
         Returns:
             Whether it is a directory
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
             try:
-                tsk_path = self._normalize_tsk_path(path)
-                f = self._tsk_fs.open(tsk_path)
-                if f.info.meta is not None:
-                    return f.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR
-                return False
+                dissect_path = self._normalize_dissect_path(path)
+                node = self._dissect_fs.get(dissect_path)
+                return _node_is_dir(node, self._dissect_fs_type)
             except Exception:
                 return False
 
@@ -1055,7 +1425,7 @@ class ForensicDiskAccessor:
         List directory contents
 
         NTFS: index-based O(1) lookup via MFT parent-child index.
-        Non-NTFS: pytsk3 directory listing.
+        Non-NTFS: dissect directory listing.
 
         Args:
             path: Directory path
@@ -1063,9 +1433,9 @@ class ForensicDiskAccessor:
         Returns:
             List of FileCatalogEntry
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            return self._tsk_list_directory(path)
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            return self._dissect_list_directory(path)
 
         if self._extractor is None:
             return []
@@ -1124,7 +1494,7 @@ class ForensicDiskAccessor:
         Full filesystem scan (including deleted files)
 
         NTFS: MFT-based scan with full metadata.
-        Non-NTFS: pytsk3-based recursive directory walk.
+        Non-NTFS: dissect-based recursive directory walk.
 
         Digital forensics principles:
         - include_deleted=True (default): Include deleted files
@@ -1144,9 +1514,9 @@ class ForensicDiskAccessor:
                 'special_files': Dict[str, int],  # inode for $MFT, $LogFile, etc. (NTFS only)
             }
         """
-        # pytsk3 path (non-NTFS)
-        if self._tsk_fs is not None:
-            return self._tsk_scan_all_files(
+        # dissect path (non-NTFS)
+        if self._dissect_fs is not None:
+            return self._dissect_scan_all_files(
                 include_deleted=include_deleted,
                 max_entries=max_entries,
                 progress_callback=progress_callback
@@ -1180,7 +1550,7 @@ class ForensicDiskAccessor:
         logger.info(f"Scanning MFT: {total_mft_entries:,} entries (max)")
 
         # Preload entire $MFT into memory for fast scanning
-        # (critical for BitLocker decrypted volumes — avoids per-entry AES decryption)
+        # (critical for BitLocker decrypted volumes -- avoids per-entry AES decryption)
         mft_preloaded = self._extractor.preload_mft()
 
         # Traverse MFT entries
@@ -1301,9 +1671,9 @@ class ForensicDiskAccessor:
         Returns:
             List of FileCatalogEntry
         """
-        # pytsk3 path (non-NTFS) — do a full scan and filter
-        if self._tsk_fs is not None:
-            return self._tsk_find_files_by_name(
+        # dissect path (non-NTFS) -- do a full scan and filter
+        if self._dissect_fs is not None:
+            return self._dissect_find_files_by_name(
                 name_pattern, include_deleted, max_results
             )
 
@@ -1415,16 +1785,18 @@ class ForensicDiskAccessor:
         return None
 
     # ==========================================================================
-    # pytsk3-based Methods (non-NTFS filesystem support)
+    # dissect-based Methods (non-NTFS filesystem support)
     # ==========================================================================
 
     @staticmethod
-    def _normalize_tsk_path(path: str) -> str:
+    def _normalize_dissect_path(path: str) -> str:
         """
-        Normalize a user-supplied path for pytsk3 consumption.
+        Normalize a user-supplied path for dissect consumption.
 
-        pytsk3 expects forward-slash paths with a leading slash and no
-        drive letter prefix (e.g. "/etc/passwd").
+        dissect filesystem .get() expects forward-slash paths with a leading
+        slash and no drive letter prefix (e.g. "/etc/passwd").
+        FAT uses backslash internally but dissect.fat.FATFS.get() converts
+        / to \\ automatically.
         """
         # Backslash -> forward slash
         path = path.replace('\\', '/')
@@ -1439,78 +1811,41 @@ class ForensicDiskAccessor:
             path = path.rstrip('/')
         return path
 
-    @staticmethod
-    def _tsk_timestamp_to_int(ts) -> int:
-        """
-        Convert a pytsk3 timestamp (POSIX epoch seconds) to the integer
-        representation used by FileCatalogEntry / FileMetadata.
-
-        pytsk3 meta timestamps are POSIX seconds since 1970-01-01.
-        We store them as-is (POSIX int).  Returns 0 on failure.
-        """
-        try:
-            if ts is None or ts == 0:
-                return 0
-            return int(ts)
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _tsk_entry_is_deleted(f_entry) -> bool:
-        """Check whether a pytsk3 file entry represents a deleted file."""
-        try:
-            flags = int(f_entry.info.meta.flags)
-            return bool(flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
-        except Exception:
-            # If meta is None the entry is orphaned / unallocated
-            return f_entry.info.meta is None
-
-    def _tsk_file_entry_to_catalog(
+    def _dissect_node_to_catalog(
         self,
-        f_entry,
+        node,
+        filename: str,
         parent_path: str,
         parent_inode: int = 0
     ) -> Optional[FileCatalogEntry]:
         """
-        Convert a pytsk3 directory entry into a FileCatalogEntry.
+        Convert a dissect filesystem node into a FileCatalogEntry.
 
         Returns None if the entry should be skipped (e.g. '.' / '..').
         """
         try:
-            name_obj = f_entry.info.name
-            if name_obj is None:
-                return None
-
-            filename = name_obj.name
-            if isinstance(filename, bytes):
-                filename = filename.decode('utf-8', errors='replace')
+            # Use provided filename or extract from node
+            if not filename:
+                filename = _node_filename(node, self._dissect_fs_type)
+            # Strip trailing slash from directory names
+            filename = filename.rstrip('/')
 
             # Skip . and ..
-            if filename in ('.', '..'):
+            if filename in ('.', '..', '', './', '../'):
                 return None
 
-            meta = f_entry.info.meta
-            if meta is not None:
-                inode = int(meta.addr)
-                size = int(meta.size) if meta.size is not None else 0
-                is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
-                is_deleted = self._tsk_entry_is_deleted(f_entry)
-                created = self._tsk_timestamp_to_int(meta.crtime)
-                modified = self._tsk_timestamp_to_int(meta.mtime)
-            else:
-                # Orphaned/corrupt entry — minimal metadata
-                inode = 0
-                size = 0
-                is_dir = (name_obj.type == pytsk3.TSK_FS_NAME_TYPE_DIR
-                          if hasattr(name_obj, 'type') else False)
-                is_deleted = True
-                created = 0
-                modified = 0
+            inum = _node_inum(node, self._dissect_fs_type)
+            size = _node_size(node)
+            is_dir = _node_is_dir(node, self._dissect_fs_type)
+            is_deleted = _node_is_deleted(node, self._dissect_fs_type)
+            created, modified, accessed, changed = _node_timestamps(
+                node, self._dissect_fs_type
+            )
 
             full_path = f"{parent_path}/{filename}" if parent_path else filename
 
             return FileCatalogEntry(
-                inode=inode,
+                inode=inum,
                 filename=filename,
                 full_path=full_path,
                 size=size,
@@ -1523,21 +1858,88 @@ class ForensicDiskAccessor:
                 ads_streams=[]
             )
         except Exception as e:
-            logger.debug(f"Failed to convert TSK entry: {e}")
+            logger.debug(f"Failed to convert dissect entry: {e}")
             return None
 
-    # ---------- scan_all_files (pytsk3) ----------
+    def _dissect_iter_directory(self, node):
+        """
+        Iterate over directory entries of a dissect node.
 
-    def _tsk_scan_all_files(
+        Yields (filename, child_node) tuples.  Handles the API differences
+        between ExtFS/XFS (iterdir yields INode with .filename), FATFS
+        (iterdir yields DirectoryEntry with .name), Btrfs (iterdir yields
+        (name, INode) tuples), and FFS (iterdir yields INode with .name).
+        """
+        fs_type = self._dissect_fs_type
+
+        # ExFAT has a dict-based structure, not iterdir
+        if fs_type == 'exFAT':
+            yield from self._dissect_iter_exfat_directory(node)
+            return
+
+        try:
+            # Btrfs iterdir yields (name, child_node) tuples
+            if fs_type == 'Btrfs':
+                for name, child_node in node.iterdir():
+                    if name in ('.', '..'):
+                        continue
+                    yield (name, child_node)
+                return
+
+            # ExtFS, XFS, FATFS, FFS -- iterdir yields node objects
+            for child in node.iterdir():
+                fname = _node_filename(child, fs_type)
+                if fname in ('.', '..', '', './', '../'):
+                    continue
+                yield (fname, child)
+
+        except Exception as e:
+            logger.debug(f"[{fs_type}] Failed to iterate directory: {e}")
+
+    def _dissect_iter_exfat_directory(self, node_or_dict):
+        """
+        Iterate over ExFAT directory entries.
+
+        ExFAT stores files in an OrderedDict: { filename: (file_entry, sub_dict_or_None) }
+        Directories have sub_dict != None.
+        """
+        # The ExFAT root is stored as self._dissect_fs.files (an OrderedDict)
+        # For subdirectories, the second element of the tuple is the sub-dict.
+        if isinstance(node_or_dict, dict):
+            entries = node_or_dict
+        elif hasattr(node_or_dict, 'files'):
+            entries = node_or_dict.files
+        else:
+            return
+
+        for filename, value in entries.items():
+            if isinstance(value, tuple) and len(value) == 2:
+                file_entry, sub_dict = value
+                yield (filename.rstrip('/'), (file_entry, sub_dict))
+            else:
+                yield (filename.rstrip('/'), value)
+
+    # ---------- scan_all_files (dissect) ----------
+
+    _ORPHAN_SCAN_MAX_INODES = 100_000
+    _ORPHAN_SCAN_MAX_RESULTS = 5_000
+
+    def _dissect_scan_all_files(
         self,
         include_deleted: bool = True,
         max_entries: int = None,
         progress_callback=None
     ) -> Dict[str, Any]:
         """
-        Recursively walk the filesystem tree via pytsk3 and return the
+        Recursively walk the filesystem tree via dissect and return the
         same dict structure as the NTFS MFT-based scan_all_files().
+
+        Unlike pytsk3, dissect uses pure Python objects and does not have
+        C memory lifecycle issues.  The walk is still done iteratively to
+        control memory and support timeout/progress.
         """
+        import time as _time
+
         result: Dict[str, Any] = {
             'total_entries': 0,
             'active_files': [],
@@ -1549,62 +1951,84 @@ class ForensicDiskAccessor:
 
         entry_count = 0
         limit = max_entries or float('inf')
+        _scan_start = _time.monotonic()
+        _SCAN_TIMEOUT = 600  # 10 minutes max for directory walk
+        _IO_THROTTLE_INTERVAL = 5000
 
-        def _walk(directory, parent_path: str, parent_inode: int):
+        fs_type = self._dissect_fs_type
+
+        # ExFAT requires special handling (dict-based)
+        if fs_type == 'exFAT':
+            self._dissect_scan_exfat(result, limit, _scan_start, _SCAN_TIMEOUT,
+                                      include_deleted, progress_callback)
+            return result
+
+        def _walk(node, parent_path: str, parent_inode: int):
             nonlocal entry_count
 
-            try:
-                entries = list(directory)
-            except Exception as e:
-                result['errors'].append((parent_inode, f"readdir: {e}"))
+            if _time.monotonic() - _scan_start > _SCAN_TIMEOUT:
+                logger.warning(f"[{fs_type}] Scan timeout ({_SCAN_TIMEOUT}s) -- partial results returned")
                 return
 
-            for f_entry in entries:
+            # Collect child directories for deferred recursion
+            child_dirs = []
+
+            try:
+                for fname, child_node in self._dissect_iter_directory(node):
+                    if entry_count >= limit:
+                        break
+                    if entry_count % 1000 == 0 and _time.monotonic() - _scan_start > _SCAN_TIMEOUT:
+                        break
+
+                    catalog = self._dissect_node_to_catalog(
+                        child_node, fname, parent_path, parent_inode
+                    )
+                    if catalog is None:
+                        continue
+
+                    entry_count += 1
+                    result['total_entries'] += 1
+
+                    if catalog.is_directory:
+                        result['directories'].append(catalog)
+                        child_dirs.append((child_node, catalog.inode, catalog.full_path))
+                    elif catalog.is_deleted:
+                        if include_deleted:
+                            result['deleted_files'].append(catalog)
+                    else:
+                        result['active_files'].append(catalog)
+
+                    if entry_count % _IO_THROTTLE_INTERVAL == 0:
+                        if progress_callback:
+                            progress_callback(entry_count, max_entries or entry_count)
+                        _time.sleep(0.01)
+
+            except Exception as e:
+                result['errors'].append((parent_inode, f"readdir: {e}"))
+
+            # Phase 2: Recurse into child directories
+            for child_node, child_inum, child_path in child_dirs:
                 if entry_count >= limit:
                     return
+                if _time.monotonic() - _scan_start > _SCAN_TIMEOUT:
+                    return
+                try:
+                    _walk(child_node, child_path, child_inum)
+                except Exception as e:
+                    result['errors'].append(
+                        (child_inum, f"opendir {child_path}: {e}")
+                    )
 
-                catalog = self._tsk_file_entry_to_catalog(
-                    f_entry, parent_path, parent_inode
-                )
-                if catalog is None:
-                    continue
-
-                entry_count += 1
-                result['total_entries'] += 1
-
-                if catalog.is_directory:
-                    result['directories'].append(catalog)
-                    # Recurse into subdirectory
-                    try:
-                        sub_dir = f_entry.as_directory()
-                        _walk(sub_dir, catalog.full_path, catalog.inode)
-                    except Exception as e:
-                        result['errors'].append(
-                            (catalog.inode, f"opendir {catalog.full_path}: {e}")
-                        )
-                elif catalog.is_deleted:
-                    if include_deleted:
-                        result['deleted_files'].append(catalog)
-                else:
-                    result['active_files'].append(catalog)
-
-                # Progress callback
-                if progress_callback and entry_count % 1000 == 0:
-                    progress_callback(entry_count, max_entries or entry_count)
-
-        # Start walk from root directory
+        # Start walk from root
         try:
-            root_dir = self._tsk_fs.open_dir(path="/")
-            _walk(root_dir, "", 0)
+            root = self._dissect_fs.get("/")
+            _walk(root, "", 0)
         except Exception as e:
-            logger.error(f"pytsk3 root directory open failed: {e}")
+            logger.error(f"[{fs_type}] Root directory open failed: {e}")
             result['errors'].append((0, f"root: {e}"))
 
-        # If include_deleted, also try to recover orphan files via inode scan
-        # SAFETY: Skip orphan scan for virtual disk backends (VDI/VMDK/VHD/VHDX/QCOW2)
-        # because random I/O through the disk translation layer can exhaust Windows
-        # filesystem cache and cause system freeze on large images (17GB+ VDI files).
-        # Deleted files found during the directory walk are still included.
+        # If include_deleted, try to recover orphan files via inode scan
+        # SAFETY: Skip orphan scan for virtual disk backends
         if include_deleted:
             _skip_orphan = False
             try:
@@ -1617,20 +2041,20 @@ class ForensicDiskAccessor:
                 if isinstance(self._backend, _virtual_backends):
                     _skip_orphan = True
                     logger.info(
-                        f"[{self._tsk_fs_type}] Skipping orphan inode scan on virtual disk "
+                        f"[{fs_type}] Skipping orphan inode scan on virtual disk "
                         f"(prevents system freeze from random I/O on large images)"
                     )
             except ImportError:
                 pass
 
             if not _skip_orphan:
-                orphans = self._tsk_scan_orphan_files(
+                orphans = self._dissect_scan_orphan_files(
                     result, entry_count, max_entries
                 )
                 entry_count += orphans
 
         logger.info(
-            f"[{self._tsk_fs_type}] pytsk3 scan complete: "
+            f"[{fs_type}] dissect scan complete: "
             f"{len(result['active_files'])} files, "
             f"{len(result['directories'])} directories, "
             f"{len(result['deleted_files'])} deleted, "
@@ -1639,18 +2063,119 @@ class ForensicDiskAccessor:
 
         return result
 
-    # Maximum inodes to probe during orphan scan.  On filesystems like
-    # ext4, inode tables are pre-allocated for the full virtual disk size
-    # (e.g. ~3.9M inodes for a 60 GB disk).  Scanning all of them through
-    # a virtual-disk translation layer (VDI/VMDK/VHD) produces millions of
-    # small random I/O operations that can saturate the Windows file-system
-    # cache (especially when the image file exceeds available RAM) and
-    # cause a full system freeze or crash.  Cap the scan to a sane upper
-    # bound that still catches most real orphan files.
-    _ORPHAN_SCAN_MAX_INODES = 100_000
-    _ORPHAN_SCAN_MAX_RESULTS = 5_000
+    def _dissect_scan_exfat(
+        self,
+        result: Dict[str, Any],
+        limit: float,
+        scan_start: float,
+        scan_timeout: float,
+        include_deleted: bool,
+        progress_callback
+    ):
+        """
+        Walk the ExFAT dict-based filesystem tree.
 
-    def _tsk_scan_orphan_files(
+        ExFAT files are stored as: { filename: (FILE_entry, sub_dict_or_None) }
+        """
+        import time as _time
+
+        entry_count = 0
+        fs_type = self._dissect_fs_type
+
+        def _walk_dict(entries: dict, parent_path: str, parent_inode: int):
+            nonlocal entry_count
+
+            if _time.monotonic() - scan_start > scan_timeout:
+                return
+
+            child_dirs = []
+
+            for filename, value in entries.items():
+                if entry_count >= limit:
+                    break
+                if _time.monotonic() - scan_start > scan_timeout:
+                    break
+
+                filename = filename.rstrip('/')
+                if filename in ('.', '..', ''):
+                    continue
+
+                # value is (FILE_entry, sub_dict_or_None)
+                if isinstance(value, tuple) and len(value) == 2:
+                    file_entry, sub_dict = value
+                else:
+                    file_entry = value
+                    sub_dict = None
+
+                is_dir = sub_dict is not None
+                size = 0
+                created = 0
+                modified = 0
+                cluster = 0
+
+                try:
+                    if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'data_length'):
+                        size = int(file_entry.stream.data_length)
+                    if hasattr(file_entry, 'metadata'):
+                        md = file_entry.metadata
+                        if hasattr(md, 'create_timestamp'):
+                            created = int(md.create_timestamp) if md.create_timestamp else 0
+                        if hasattr(md, 'modify_timestamp'):
+                            modified = int(md.modify_timestamp) if md.modify_timestamp else 0
+                    if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'first_cluster'):
+                        cluster = int(file_entry.stream.first_cluster)
+                except Exception:
+                    pass
+
+                full_path = f"{parent_path}/{filename}" if parent_path else filename
+
+                catalog_entry = FileCatalogEntry(
+                    inode=cluster,
+                    filename=filename,
+                    full_path=full_path,
+                    size=size,
+                    is_directory=is_dir,
+                    is_deleted=False,
+                    parent_inode=parent_inode,
+                    created_time=created,
+                    modified_time=modified,
+                    has_data_runs=(not is_dir and size > 0),
+                    ads_streams=[]
+                )
+
+                entry_count += 1
+                result['total_entries'] += 1
+
+                if is_dir:
+                    result['directories'].append(catalog_entry)
+                    child_dirs.append((sub_dict, cluster, full_path))
+                else:
+                    result['active_files'].append(catalog_entry)
+
+                if progress_callback and entry_count % 1000 == 0:
+                    progress_callback(entry_count, entry_count)
+
+            # Recurse into subdirectories
+            for sub_dict, child_inum, child_path in child_dirs:
+                if entry_count >= limit:
+                    return
+                if sub_dict:
+                    _walk_dict(sub_dict, child_path, child_inum)
+
+        try:
+            root_files = self._dissect_fs.files
+            # root_files is {"/" : (root_FILE, sub_dict_of_root_contents)}
+            for key, value in root_files.items():
+                if isinstance(value, tuple) and len(value) == 2:
+                    _, root_contents = value
+                    if isinstance(root_contents, dict):
+                        _walk_dict(root_contents, "", 0)
+                        break
+        except Exception as e:
+            logger.error(f"[{fs_type}] ExFAT root scan failed: {e}")
+            result['errors'].append((0, f"exfat root: {e}"))
+
+    def _dissect_scan_orphan_files(
         self,
         result: Dict[str, Any],
         current_count: int,
@@ -1666,43 +2191,49 @@ class ForensicDiskAccessor:
         Safety limits (prevent system crash on large virtual disks):
         - Scans at most _ORPHAN_SCAN_MAX_INODES inodes (default 100K)
         - Collects at most _ORPHAN_SCAN_MAX_RESULTS orphan entries (default 5K)
-        - Uses a total-scanned counter (not just consecutive errors) to
-          guarantee termination even when the inode table is fully populated
 
         Returns the number of orphan entries found.
         """
+        fs_type = self._dissect_fs_type
+        fs_lower = fs_type.lower() if fs_type else ''
+
+        # Only ext2/3/4 and UFS support inode-level access for orphan scanning.
+        # FAT, exFAT, XFS, Btrfs don't expose unlinked inodes via dissect.
+        if fs_lower not in ('ext2', 'ext3', 'ext4', 'ufs'):
+            logger.debug(f"[{fs_type}] Orphan scan not supported for this filesystem type")
+            return 0
+
         # Collect all inodes already seen from the directory walk
         seen_inodes = set()
         for lst in (result['active_files'], result['deleted_files'], result['directories']):
             for entry in lst:
                 seen_inodes.add(entry.inode)
 
-        # Determine inode range to scan
-        try:
-            # pytsk3 FS_Info exposes info.last_inum on some filesystem types
-            last_inum = int(self._tsk_fs.info.last_inum)
-        except Exception:
-            # Conservative default — scan first 100k inodes
-            last_inum = 100_000
-
-        # Hard cap: never scan more than _ORPHAN_SCAN_MAX_INODES unseen
-        # inodes regardless of filesystem size.  This prevents the
-        # pathological case where a 60 GB+ ext4 image has millions of
-        # pre-allocated inode table entries that each trigger a disk read
-        # through the virtual-disk translation layer.
         scan_cap = self._ORPHAN_SCAN_MAX_INODES
         max_orphan_results = self._ORPHAN_SCAN_MAX_RESULTS
-
         limit = max_entries or float('inf')
         orphan_count = 0
-        scanned_count = 0  # total unseen inodes actually probed
+        scanned_count = 0
         consecutive_errors = 0
         max_consecutive = 500
 
-        upper = min(last_inum + 1, 5_000_000)
+        # Determine inode range
+        if fs_lower == 'ufs' and hasattr(self._dissect_fs, 'sb'):
+            try:
+                sb = self._dissect_fs.sb
+                upper = min(sb.fs_ncg * sb.fs_ipg, 5_000_000)
+            except Exception:
+                upper = 100_000
+        elif fs_lower.startswith('ext') and hasattr(self._dissect_fs, 'sb'):
+            try:
+                upper = min(int(self._dissect_fs.sb.s_inodes_count), 5_000_000)
+            except Exception:
+                upper = 100_000
+        else:
+            upper = 100_000
 
         logger.info(
-            f"[{self._tsk_fs_type}] Orphan scan: inode range 2..{upper - 1:,}, "
+            f"[{fs_type}] Orphan scan: inode range 2..{upper - 1:,}, "
             f"seen={len(seen_inodes):,}, scan cap={scan_cap:,}"
         )
 
@@ -1710,46 +2241,39 @@ class ForensicDiskAccessor:
             if current_count + orphan_count >= limit:
                 break
             if orphan_count >= max_orphan_results:
-                logger.info(
-                    f"[{self._tsk_fs_type}] Orphan scan hit result cap "
-                    f"({max_orphan_results:,}), stopping"
-                )
+                logger.info(f"[{fs_type}] Orphan scan hit result cap ({max_orphan_results:,}), stopping")
                 break
             if inum in seen_inodes:
                 continue
 
-            # Count every inode we actually probe (not in seen_inodes)
             scanned_count += 1
             if scanned_count > scan_cap:
-                logger.info(
-                    f"[{self._tsk_fs_type}] Orphan scan hit inode cap "
-                    f"({scan_cap:,} probed), stopping"
-                )
+                logger.info(f"[{fs_type}] Orphan scan hit inode cap ({scan_cap:,} probed), stopping")
                 break
 
             try:
-                f = self._tsk_fs.open_meta(inode=inum)
-                if f.info.meta is None:
-                    consecutive_errors += 1
-                    if consecutive_errors > max_consecutive:
-                        break
+                if fs_lower.startswith('ext'):
+                    node = self._dissect_fs.get_inode(inum)
+                elif fs_lower == 'ufs':
+                    node = self._dissect_fs.inode(inum)
+                else:
                     continue
 
-                meta = f.info.meta
-                flags = int(meta.flags)
-                is_unalloc = bool(flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
-
-                if not is_unalloc:
+                # Check if deleted
+                is_deleted = _node_is_deleted(node, fs_type)
+                if not is_deleted:
                     consecutive_errors = 0
-                    continue  # Already allocated — was found in walk
+                    continue
 
-                is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
-                size = int(meta.size) if meta.size else 0
+                is_dir = _node_is_dir(node, fs_type)
+                size = _node_size(node)
 
                 # Skip zero-size deleted entries and deleted dirs (noise)
                 if size == 0 or is_dir:
                     consecutive_errors = 0
                     continue
+
+                created, modified, accessed, changed = _node_timestamps(node, fs_type)
 
                 entry = FileCatalogEntry(
                     inode=inum,
@@ -1759,8 +2283,8 @@ class ForensicDiskAccessor:
                     is_directory=False,
                     is_deleted=True,
                     parent_inode=0,
-                    created_time=self._tsk_timestamp_to_int(meta.crtime),
-                    modified_time=self._tsk_timestamp_to_int(meta.mtime),
+                    created_time=created,
+                    modified_time=modified,
                     has_data_runs=(size > 0),
                     ads_streams=[]
                 )
@@ -1776,251 +2300,488 @@ class ForensicDiskAccessor:
 
         if orphan_count > 0:
             logger.info(
-                f"[{self._tsk_fs_type}] Found {orphan_count} orphan/deleted inodes "
+                f"[{fs_type}] Found {orphan_count} orphan/deleted inodes "
                 f"(probed {scanned_count:,} of {upper - 2:,} possible)"
             )
 
         return orphan_count
 
-    # ---------- find_files_by_name (pytsk3) ----------
+    # ---------- find_files_by_name (dissect) ----------
 
-    def _tsk_find_files_by_name(
+    def _dissect_find_files_by_name(
         self,
         name_pattern: str,
         include_deleted: bool = True,
         max_results: int = 100
     ) -> List[FileCatalogEntry]:
         """
-        Search files by name via pytsk3 recursive walk.
-
-        Less efficient than inode scanning but works on all pytsk3-supported
-        filesystems.
+        Search files by name via dissect recursive walk.
         """
         results: List[FileCatalogEntry] = []
         name_lower = name_pattern.lower()
+        fs_type = self._dissect_fs_type
 
-        def _walk(directory, parent_path: str, parent_inode: int):
+        # ExFAT special handling
+        if fs_type == 'exFAT':
+            return self._dissect_find_exfat_by_name(name_lower, include_deleted, max_results)
+
+        def _walk(node, parent_path: str, parent_inode: int):
             if len(results) >= max_results:
                 return
 
             try:
-                entries = list(directory)
-            except Exception:
-                return
+                for fname, child_node in self._dissect_iter_directory(node):
+                    if len(results) >= max_results:
+                        return
 
-            for f_entry in entries:
-                if len(results) >= max_results:
-                    return
-
-                catalog = self._tsk_file_entry_to_catalog(
-                    f_entry, parent_path, parent_inode
-                )
-                if catalog is None:
-                    continue
-
-                # Name match
-                if name_lower in catalog.filename.lower():
-                    if not catalog.is_deleted or include_deleted:
-                        results.append(catalog)
-
-                # Recurse into directories
-                if catalog.is_directory:
-                    try:
-                        sub_dir = f_entry.as_directory()
-                        _walk(sub_dir, catalog.full_path, catalog.inode)
-                    except Exception:
+                    catalog = self._dissect_node_to_catalog(
+                        child_node, fname, parent_path, parent_inode
+                    )
+                    if catalog is None:
                         continue
 
+                    # Name match
+                    if name_lower in catalog.filename.lower():
+                        if not catalog.is_deleted or include_deleted:
+                            results.append(catalog)
+
+                    # Recurse into directories
+                    if catalog.is_directory:
+                        try:
+                            _walk(child_node, catalog.full_path, catalog.inode)
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
         try:
-            root_dir = self._tsk_fs.open_dir(path="/")
-            _walk(root_dir, "", 0)
+            root = self._dissect_fs.get("/")
+            _walk(root, "", 0)
         except Exception as e:
-            logger.debug(f"[{self._tsk_fs_type}] find_files_by_name failed: {e}")
+            logger.debug(f"[{fs_type}] find_files_by_name failed: {e}")
 
         return results
 
-    # ---------- list_directory (pytsk3) ----------
+    def _dissect_find_exfat_by_name(
+        self,
+        name_lower: str,
+        include_deleted: bool,
+        max_results: int
+    ) -> List[FileCatalogEntry]:
+        """Search files by name in ExFAT dict-based tree."""
+        results = []
 
-    def _tsk_list_directory(self, path: str) -> List[FileCatalogEntry]:
-        """List directory contents via pytsk3."""
+        def _walk_dict(entries: dict, parent_path: str, parent_inode: int):
+            if len(results) >= max_results:
+                return
+
+            for filename, value in entries.items():
+                if len(results) >= max_results:
+                    return
+
+                filename = filename.rstrip('/')
+                if filename in ('.', '..', ''):
+                    continue
+
+                if isinstance(value, tuple) and len(value) == 2:
+                    file_entry, sub_dict = value
+                else:
+                    file_entry = value
+                    sub_dict = None
+
+                is_dir = sub_dict is not None
+                full_path = f"{parent_path}/{filename}" if parent_path else filename
+
+                if name_lower in filename.lower():
+                    size = 0
+                    cluster = 0
+                    try:
+                        if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'data_length'):
+                            size = int(file_entry.stream.data_length)
+                        if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'first_cluster'):
+                            cluster = int(file_entry.stream.first_cluster)
+                    except Exception:
+                        pass
+
+                    results.append(FileCatalogEntry(
+                        inode=cluster,
+                        filename=filename,
+                        full_path=full_path,
+                        size=size,
+                        is_directory=is_dir,
+                        is_deleted=False,
+                        parent_inode=parent_inode,
+                        has_data_runs=(not is_dir and size > 0),
+                        ads_streams=[]
+                    ))
+
+                if is_dir and sub_dict:
+                    _walk_dict(sub_dict, full_path, cluster if 'cluster' in dir() else 0)
+
         try:
-            tsk_path = self._normalize_tsk_path(path)
-            directory = self._tsk_fs.open_dir(path=tsk_path)
+            root_files = self._dissect_fs.files
+            for key, value in root_files.items():
+                if isinstance(value, tuple) and len(value) == 2:
+                    _, root_contents = value
+                    if isinstance(root_contents, dict):
+                        _walk_dict(root_contents, "", 0)
+                        break
+        except Exception as e:
+            logger.debug(f"[exFAT] find_files_by_name failed: {e}")
+
+        return results
+
+    # ---------- list_directory (dissect) ----------
+
+    def _dissect_list_directory(self, path: str) -> List[FileCatalogEntry]:
+        """List directory contents via dissect."""
+        fs_type = self._dissect_fs_type
+
+        try:
+            dissect_path = self._normalize_dissect_path(path)
+
+            # ExFAT special handling
+            if fs_type == 'exFAT':
+                return self._dissect_list_exfat_directory(dissect_path)
+
+            node = self._dissect_fs.get(dissect_path)
+            parent_inode = _node_inum(node, fs_type)
+            parent_path = dissect_path.rstrip('/')
 
             results = []
-            for f_entry in directory:
-                catalog = self._tsk_file_entry_to_catalog(
-                    f_entry,
-                    parent_path=tsk_path.rstrip('/'),
-                    parent_inode=0
+            for fname, child_node in self._dissect_iter_directory(node):
+                catalog = self._dissect_node_to_catalog(
+                    child_node,
+                    fname,
+                    parent_path=parent_path,
+                    parent_inode=parent_inode
                 )
                 if catalog is not None and not catalog.is_deleted:
                     results.append(catalog)
 
             return results
         except Exception as e:
-            logger.debug(f"[{self._tsk_fs_type}] Failed to list directory '{path}': {e}")
+            logger.debug(f"[{fs_type}] Failed to list directory '{path}': {e}")
             return []
 
-    # ---------- read_file (pytsk3) ----------
+    def _dissect_list_exfat_directory(self, path: str) -> List[FileCatalogEntry]:
+        """List directory contents for ExFAT."""
+        results = []
+        try:
+            # Navigate the dict tree to find the target directory
+            parts = [p for p in path.split('/') if p]
+            current_dict = None
 
-    def _tsk_read_file_content(self, f_entry, max_size: int = None) -> bytes:
+            # Start from root
+            root_files = self._dissect_fs.files
+            for key, value in root_files.items():
+                if isinstance(value, tuple) and len(value) == 2:
+                    _, root_contents = value
+                    if isinstance(root_contents, dict):
+                        current_dict = root_contents
+                        break
+
+            if current_dict is None:
+                return results
+
+            # Navigate to target directory
+            for part in parts:
+                found = False
+                for filename, value in current_dict.items():
+                    if filename.rstrip('/').lower() == part.lower():
+                        if isinstance(value, tuple) and len(value) == 2:
+                            _, sub_dict = value
+                            if isinstance(sub_dict, dict):
+                                current_dict = sub_dict
+                                found = True
+                                break
+                if not found:
+                    return results
+
+            # List entries in current directory
+            for filename, value in current_dict.items():
+                filename = filename.rstrip('/')
+                if filename in ('.', '..', ''):
+                    continue
+
+                if isinstance(value, tuple) and len(value) == 2:
+                    file_entry, sub_dict = value
+                else:
+                    file_entry = value
+                    sub_dict = None
+
+                is_dir = sub_dict is not None
+                size = 0
+                cluster = 0
+                try:
+                    if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'data_length'):
+                        size = int(file_entry.stream.data_length)
+                    if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'first_cluster'):
+                        cluster = int(file_entry.stream.first_cluster)
+                except Exception:
+                    pass
+
+                results.append(FileCatalogEntry(
+                    inode=cluster,
+                    filename=filename,
+                    full_path=f"{path.rstrip('/')}/{filename}",
+                    size=size,
+                    is_directory=is_dir,
+                    is_deleted=False,
+                    parent_inode=0,
+                    has_data_runs=(not is_dir and size > 0),
+                    ads_streams=[]
+                ))
+
+        except Exception as e:
+            logger.debug(f"[exFAT] Failed to list directory '{path}': {e}")
+
+        return results
+
+    # ---------- read_file (dissect) ----------
+
+    def _dissect_read_file_content(self, node, max_size: int = None) -> bytes:
         """
-        Read file content from a pytsk3 file entry object.
+        Read file content from a dissect filesystem node.
 
-        Handles both small and large files.  For very large files,
-        use _tsk_stream_file_content() instead.
+        Uses the node.open() method which returns a BinaryIO (file-like object).
         """
-        meta = f_entry.info.meta
-        if meta is None:
-            raise FilesystemError("File has no metadata (inode may be corrupt)")
-
-        file_size = int(meta.size) if meta.size else 0
-        if file_size == 0:
+        size = _node_size(node)
+        if size == 0:
             return b''
 
-        read_size = file_size
-        if max_size is not None and max_size < file_size:
+        read_size = size
+        if max_size is not None and max_size < size:
             read_size = max_size
 
         try:
-            return f_entry.read_random(0, read_size)
+            fh = node.open()
+            data = fh.read(read_size)
+            return data
         except Exception as e:
-            # Some deleted files may have partially overwritten clusters.
-            # Attempt a best-effort chunked read.
+            # Attempt chunked recovery for partially damaged files
             logger.debug(f"Full read failed ({e}), attempting chunked recovery")
-            return self._tsk_read_file_chunked(f_entry, read_size)
+            return self._dissect_read_file_chunked(node, read_size)
 
-    def _tsk_read_file_chunked(
+    def _dissect_read_file_chunked(
         self,
-        f_entry,
+        node,
         total_size: int,
         chunk_size: int = 1024 * 1024
     ) -> bytes:
         """Best-effort chunked read for partially damaged files."""
         data = bytearray()
-        offset = 0
-        while offset < total_size:
-            try:
-                read_len = min(chunk_size, total_size - offset)
-                chunk = f_entry.read_random(offset, read_len)
-                data.extend(chunk)
-                offset += len(chunk)
-                if len(chunk) == 0:
-                    break
-            except Exception:
-                # Fill unreadable region with zeros and keep going
-                fill_len = min(chunk_size, total_size - offset)
-                data.extend(b'\x00' * fill_len)
-                offset += fill_len
+        try:
+            fh = node.open()
+            offset = 0
+            while offset < total_size:
+                try:
+                    read_len = min(chunk_size, total_size - offset)
+                    chunk = fh.read(read_len)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                    offset += len(chunk)
+                except Exception:
+                    fill_len = min(chunk_size, total_size - offset)
+                    data.extend(b'\x00' * fill_len)
+                    offset += fill_len
+        except Exception as e:
+            logger.debug(f"Chunked read also failed: {e}")
+
         return bytes(data)
 
-    def _tsk_read_file_by_path(self, path: str, max_size: int = None) -> bytes:
-        """Read file content by path via pytsk3."""
-        tsk_path = self._normalize_tsk_path(path)
+    def _dissect_read_file_by_path(self, path: str, max_size: int = None) -> bytes:
+        """Read file content by path via dissect."""
+        dissect_path = self._normalize_dissect_path(path)
+        fs_type = self._dissect_fs_type
+
+        # ExFAT special handling
+        if fs_type == 'exFAT':
+            return self._dissect_read_exfat_by_path(dissect_path, max_size)
+
         try:
-            f = self._tsk_fs.open(tsk_path)
-            return self._tsk_read_file_content(f, max_size)
-        except IOError as e:
-            raise FilesystemError(f"File not found: {path} ({e})")
+            node = self._dissect_fs.get(dissect_path)
+            return self._dissect_read_file_content(node, max_size)
+        except FileNotFoundError:
+            raise FilesystemError(f"File not found: {path}")
         except Exception as e:
             raise FilesystemError(f"Failed to read file {path}: {e}")
 
-    def _tsk_read_file_by_inode(self, inode: int, max_size: int = None) -> bytes:
-        """Read file content by inode via pytsk3."""
+    def _dissect_read_exfat_by_path(self, path: str, max_size: int = None) -> bytes:
+        """Read file content by path from ExFAT filesystem."""
+        parts = [p for p in path.split('/') if p]
+        if not parts:
+            raise FilesystemError(f"Invalid path: {path}")
+
         try:
-            f = self._tsk_fs.open_meta(inode=inode)
-            return self._tsk_read_file_content(f, max_size)
-        except IOError as e:
-            raise FilesystemError(f"Inode not found: {inode} ({e})")
+            # Navigate dict tree
+            current_dict = None
+            root_files = self._dissect_fs.files
+            for key, value in root_files.items():
+                if isinstance(value, tuple) and len(value) == 2:
+                    _, root_contents = value
+                    if isinstance(root_contents, dict):
+                        current_dict = root_contents
+                        break
+
+            if current_dict is None:
+                raise FilesystemError(f"File not found: {path}")
+
+            # Navigate to parent directory
+            for part in parts[:-1]:
+                found = False
+                for filename, value in current_dict.items():
+                    if filename.rstrip('/').lower() == part.lower():
+                        if isinstance(value, tuple) and len(value) == 2:
+                            _, sub_dict = value
+                            if isinstance(sub_dict, dict):
+                                current_dict = sub_dict
+                                found = True
+                                break
+                if not found:
+                    raise FilesystemError(f"File not found: {path}")
+
+            # Find the target file
+            target = parts[-1]
+            for filename, value in current_dict.items():
+                if filename.rstrip('/').lower() == target.lower():
+                    if isinstance(value, tuple) and len(value) == 2:
+                        file_entry, _ = value
+                    else:
+                        file_entry = value
+
+                    # Read via runlist stream
+                    size = 0
+                    if hasattr(file_entry, 'stream') and hasattr(file_entry.stream, 'data_length'):
+                        size = int(file_entry.stream.data_length)
+                    if size == 0:
+                        return b''
+
+                    read_size = min(size, max_size) if max_size else size
+
+                    # Create runlist stream for reading
+                    from dissect.fat.exfat import RunlistStream
+                    runlist = self._dissect_fs.runlist(file_entry)
+                    fh = RunlistStream(
+                        self._dissect_fh, runlist, size,
+                        self._dissect_fs.sector_size
+                    )
+                    return fh.read(read_size)
+
+            raise FilesystemError(f"File not found: {path}")
+
+        except FilesystemError:
+            raise
+        except Exception as e:
+            raise FilesystemError(f"Failed to read file {path}: {e}")
+
+    def _dissect_read_file_by_inode(self, inode: int, max_size: int = None) -> bytes:
+        """Read file content by inode via dissect."""
+        fs_type = self._dissect_fs_type
+
+        # ExFAT does not support inode-based access
+        if fs_type == 'exFAT':
+            raise FilesystemError("ExFAT does not support inode-based file access. Use path-based access.")
+
+        try:
+            node = self._dissect_fs.get(inode)
+            return self._dissect_read_file_content(node, max_size)
+        except FileNotFoundError:
+            raise FilesystemError(f"Inode not found: {inode}")
         except Exception as e:
             raise FilesystemError(f"Failed to read inode {inode}: {e}")
 
-    # ---------- stream_file (pytsk3) ----------
+    # ---------- stream_file (dissect) ----------
 
-    def _tsk_stream_file_content(
-        self, f_entry, chunk_size: int = 64 * 1024 * 1024
+    def _dissect_stream_file_content(
+        self, node, chunk_size: int = 64 * 1024 * 1024
     ) -> Generator[bytes, None, None]:
-        """Stream file content in chunks from a pytsk3 file entry."""
-        meta = f_entry.info.meta
-        if meta is None:
+        """Stream file content in chunks from a dissect filesystem node."""
+        size = _node_size(node)
+        if size == 0:
             return
 
-        file_size = int(meta.size) if meta.size else 0
-        if file_size == 0:
-            return
+        try:
+            fh = node.open()
+            offset = 0
+            while offset < size:
+                read_len = min(chunk_size, size - offset)
+                try:
+                    chunk = fh.read(read_len)
+                    if not chunk:
+                        break
+                    yield chunk
+                    offset += len(chunk)
+                except Exception as e:
+                    logger.debug(f"Stream read error at offset {offset}: {e}")
+                    yield b'\x00' * read_len
+                    offset += read_len
+        except Exception as e:
+            logger.error(f"Failed to open file for streaming: {e}")
 
-        offset = 0
-        while offset < file_size:
-            read_len = min(chunk_size, file_size - offset)
-            try:
-                chunk = f_entry.read_random(offset, read_len)
-                if len(chunk) == 0:
-                    break
-                yield chunk
-                offset += len(chunk)
-            except Exception as e:
-                logger.debug(f"Stream read error at offset {offset}: {e}")
-                # Yield zeros for unreadable region and continue
-                yield b'\x00' * read_len
-                offset += read_len
-
-    def _tsk_stream_file_by_path(
+    def _dissect_stream_file_by_path(
         self, path: str, chunk_size: int = 64 * 1024 * 1024
     ) -> Generator[bytes, None, None]:
-        """Stream file content by path via pytsk3."""
-        tsk_path = self._normalize_tsk_path(path)
-        try:
-            f = self._tsk_fs.open(tsk_path)
-            yield from self._tsk_stream_file_content(f, chunk_size)
-        except IOError as e:
-            raise FilesystemError(f"File not found: {path} ({e})")
+        """Stream file content by path via dissect."""
+        dissect_path = self._normalize_dissect_path(path)
+        fs_type = self._dissect_fs_type
 
-    def _tsk_stream_file_by_inode(
+        if fs_type == 'exFAT':
+            # For ExFAT, read the whole file and yield in chunks
+            data = self._dissect_read_exfat_by_path(dissect_path)
+            for i in range(0, len(data), chunk_size):
+                yield data[i:i + chunk_size]
+            return
+
+        try:
+            node = self._dissect_fs.get(dissect_path)
+            yield from self._dissect_stream_file_content(node, chunk_size)
+        except FileNotFoundError:
+            raise FilesystemError(f"File not found: {path}")
+
+    def _dissect_stream_file_by_inode(
         self, inode: int, chunk_size: int = 64 * 1024 * 1024
     ) -> Generator[bytes, None, None]:
-        """Stream file content by inode via pytsk3."""
+        """Stream file content by inode via dissect."""
+        if self._dissect_fs_type == 'exFAT':
+            raise FilesystemError("ExFAT does not support inode-based file access.")
+
         try:
-            f = self._tsk_fs.open_meta(inode=inode)
-            yield from self._tsk_stream_file_content(f, chunk_size)
-        except IOError as e:
-            raise FilesystemError(f"Inode not found: {inode} ({e})")
+            node = self._dissect_fs.get(inode)
+            yield from self._dissect_stream_file_content(node, chunk_size)
+        except FileNotFoundError:
+            raise FilesystemError(f"Inode not found: {inode}")
 
-    # ---------- get_file_metadata (pytsk3) ----------
+    # ---------- get_file_metadata (dissect) ----------
 
-    def _tsk_get_file_metadata(self, inode: int) -> FileMetadata:
+    def _dissect_get_file_metadata(self, inode: int) -> FileMetadata:
         """
-        Get file metadata from pytsk3 by inode.
+        Get file metadata from dissect by inode.
 
         Returns a FileMetadata object matching the same structure as
         NTFS MFT-based metadata.
         """
+        fs_type = self._dissect_fs_type
+
+        if fs_type == 'exFAT':
+            raise FilesystemError("ExFAT does not support inode-based metadata lookup.")
+
         try:
-            f = self._tsk_fs.open_meta(inode=inode)
+            node = self._dissect_fs.get(inode)
         except Exception as e:
             raise FilesystemError(f"Failed to open inode {inode}: {e}")
 
-        meta = f.info.meta
-        if meta is None:
-            raise FilesystemError(f"No metadata for inode {inode}")
+        is_dir = _node_is_dir(node, fs_type)
+        is_deleted = _node_is_deleted(node, fs_type)
+        size = _node_size(node)
 
-        is_dir = (meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
-        is_deleted = self._tsk_entry_is_deleted(f)
-        size = int(meta.size) if meta.size else 0
-
-        # Try to get the filename via name attribute
-        filename = ""
-        try:
-            if f.info.name is not None:
-                fname = f.info.name.name
-                if isinstance(fname, bytes):
-                    fname = fname.decode('utf-8', errors='replace')
-                filename = fname
-        except Exception:
-            pass
-
+        # Try to get the filename
+        filename = _node_filename(node, fs_type)
         if not filename:
             filename = f"inode-{inode}"
+
+        created, modified, accessed, changed = _node_timestamps(node, fs_type)
 
         return FileMetadata(
             inode=inode,
@@ -2032,14 +2793,14 @@ class ForensicDiskAccessor:
             is_deleted=is_deleted,
             is_resident=False,
             resident_data=b'',
-            data_runs=[],  # pytsk3 handles data runs internally
+            data_runs=[],  # dissect handles data runs internally
             ads_streams=[],  # ADS is NTFS-only
-            created_time=self._tsk_timestamp_to_int(meta.crtime),
-            modified_time=self._tsk_timestamp_to_int(meta.mtime),
-            accessed_time=self._tsk_timestamp_to_int(meta.atime),
-            mft_changed_time=self._tsk_timestamp_to_int(meta.ctime),
+            created_time=created,
+            modified_time=modified,
+            accessed_time=accessed,
+            mft_changed_time=changed,
             parent_ref=0,
-            flags=int(meta.flags) if meta.flags else 0
+            flags=0
         )
 
     # ==========================================================================
@@ -2059,18 +2820,18 @@ class ForensicDiskAccessor:
         Raises:
             FilesystemError: Not an NTFS partition
         """
-        if self._tsk_fs is not None:
+        if self._dissect_fs is not None:
             raise FilesystemError("$MFT is an NTFS-specific structure (current filesystem: "
-                                  f"{self._tsk_fs_type})")
+                                  f"{self._dissect_fs_type})")
         return self.read_file_by_inode(0, max_size=max_size)
 
     def read_logfile_raw(self, max_size: int = None) -> bytes:
         """
         Read $LogFile raw data (NTFS transaction log, NTFS only)
         """
-        if self._tsk_fs is not None:
+        if self._dissect_fs is not None:
             raise FilesystemError("$LogFile is an NTFS-specific structure (current filesystem: "
-                                  f"{self._tsk_fs_type})")
+                                  f"{self._dissect_fs_type})")
         return self.read_file_by_inode(2, max_size=max_size)
 
     def read_usnjrnl_raw(self, max_size: int = None, skip_sparse: bool = True) -> bytes:
@@ -2089,9 +2850,9 @@ class ForensicDiskAccessor:
             Logical size can be tens of GB but actual data is only a portion.
             Recommended to use skip_sparse=True to read only actual data.
         """
-        if self._tsk_fs is not None:
+        if self._dissect_fs is not None:
             raise FilesystemError("$UsnJrnl is an NTFS-specific structure (current filesystem: "
-                                  f"{self._tsk_fs_type})")
+                                  f"{self._dissect_fs_type})")
         # $Extend directory (usually entry 11)
         extend_inode = 11
 
@@ -2192,15 +2953,21 @@ class ForensicDiskAccessor:
 
     def close(self):
         """Release resources"""
-        # Release pytsk3 handles
-        self._tsk_fs = None
-        if self._tsk_img is not None:
+        # Release dissect handles
+        if self._dissect_fs is not None:
             try:
-                self._tsk_img.close()
+                if hasattr(self._dissect_fs, 'close'):
+                    self._dissect_fs.close()
             except Exception:
                 pass
-            self._tsk_img = None
-        self._tsk_fs_type = None
+            self._dissect_fs = None
+        if self._dissect_fh is not None:
+            try:
+                self._dissect_fh.close()
+            except Exception:
+                pass
+            self._dissect_fh = None
+        self._dissect_fs_type = None
 
         if self._backend:
             self._backend.close()

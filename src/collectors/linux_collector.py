@@ -2,13 +2,14 @@
 Linux Forensic Artifact Collector
 
 Linux system forensic artifact collection module.
-Collects artifacts from local system, mounted ext2/3/4 filesystems, or E01 images.
+Collects artifacts from local system or mounted ext2/3/4 filesystems.
 
 Collection Methods:
 1. Local collection: Direct artifact collection from current system (target_root='/')
 2. Mount collection: Collection after mounting ext2/3/4 image (target_root='/mnt/linux')
-3. E01 direct collection: Direct filesystem collection within E01 using pyewf + pytsk3 (e01_path specified)
-4. Remote collection: Collection via SSH connection (future)
+3. Remote collection: Collection via SSH connection (future)
+
+For E01/RAW image analysis, use ForensicDiskAccessor (dissect-based) instead.
 
 Core Artifacts:
 - auth.log, syslog, kern.log (authentication/system logs)
@@ -27,21 +28,12 @@ import os
 import glob
 import hashlib
 import logging
-import fnmatch
 from pathlib import Path
 from datetime import datetime
-from typing import Generator, Dict, Any, Optional, List, Tuple, Union
+from typing import Generator, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
-
-# Check pytsk3 availability (for E01 direct collection)
-try:
-    import pytsk3
-    PYTSK3_AVAILABLE = True
-except ImportError:
-    PYTSK3_AVAILABLE = False
-    logger.debug("pytsk3 not available - E01 direct collection disabled")
 
 # Debug output control
 _DEBUG_OUTPUT = False
@@ -504,11 +496,12 @@ class LinuxCollector:
     """
     Linux Forensic Artifact Collector
 
-    Collects forensic artifacts from local, mounted filesystems, or E01 images.
+    Collects forensic artifacts from local or mounted filesystems.
 
     Collection Modes:
     1. Local/Mount mode: Direct collection from target_root path (default)
-    2. E01 direct collection mode: Direct filesystem collection within image using pyewf + pytsk3
+
+    For E01/RAW image analysis, use ForensicDiskAccessor (dissect-based) instead.
     """
 
     def __init__(
@@ -525,97 +518,28 @@ class LinuxCollector:
             output_dir: Directory to store collected artifacts
             target_root: Root path for collection (default: '/' for local)
                         Use mount point for mounted image analysis
-            e01_path: E01 image path (enables E01 direct collection mode when specified)
-            partition_offset: Partition offset within E01 (auto-detected if None)
+            e01_path: DEPRECATED - use ForensicDiskAccessor.from_e01() instead
+            partition_offset: DEPRECATED - use ForensicDiskAccessor instead
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # E01 direct collection mode
-        self._e01_mode = False
-        self._img_info = None
-        self._fs_info = None
-        self._partition_offset = partition_offset
-
         if e01_path:
-            self._init_e01_mode(e01_path)
-            self.target_root = None  # Not used in E01 mode
-        else:
-            # Local/mount collection mode
-            self.target_root = Path(target_root)
-            if not self.target_root.exists():
-                raise FileNotFoundError(f"Target root not found: {target_root}")
-
-        _debug_print(f"[LinuxCollector] Initialized: e01_mode={self._e01_mode}, target_root={target_root}")
-
-    def _init_e01_mode(self, e01_path: str):
-        """
-        Initialize direct collection mode from E01 image
-
-        Args:
-            e01_path: E01 image file path
-        """
-        if not PYTSK3_AVAILABLE:
-            raise ImportError(
-                "pytsk3 is required for E01 direct collection. "
-                "Install with: pip install pytsk3"
+            raise NotImplementedError(
+                "E01 direct collection via pytsk3 has been removed. "
+                "Use ForensicDiskAccessor.from_e01() with dissect instead."
             )
 
-        try:
-            from .forensic_disk.ewf_img_info import (
-                open_e01_as_pytsk3,
-                detect_partitions_pytsk3,
-                detect_os_from_filesystem
-            )
+        # Local/mount collection mode
+        self.target_root = Path(target_root)
+        if not self.target_root.exists():
+            raise FileNotFoundError(f"Target root not found: {target_root}")
 
-            # Open E01 image
-            self._img_info = open_e01_as_pytsk3(e01_path)
-
-            # Auto-detect partition
-            if self._partition_offset is None:
-                partitions = detect_partitions_pytsk3(self._img_info)
-
-                # Find Linux partition (ext2/3/4)
-                linux_partition = None
-                for part in partitions:
-                    fs_type = part.get('filesystem', '')
-                    if detect_os_from_filesystem(fs_type) == 'linux':
-                        linux_partition = part
-                        break
-
-                if linux_partition:
-                    self._partition_offset = linux_partition['offset']
-                    logger.info(
-                        f"[LinuxCollector] Auto-detected Linux partition: "
-                        f"{linux_partition['filesystem']} at offset {self._partition_offset}"
-                    )
-                else:
-                    # If no Linux partition found, try offset 0
-                    self._partition_offset = 0
-                    logger.warning(
-                        "[LinuxCollector] No Linux partition found, trying offset 0"
-                    )
-
-            # Open pytsk3 filesystem
-            self._fs_info = pytsk3.FS_Info(self._img_info, offset=self._partition_offset)
-            self._e01_mode = True
-
-            logger.info(f"[LinuxCollector] E01 mode initialized: {e01_path}")
-
-        except Exception as e:
-            if self._img_info:
-                self._img_info.close()
-            raise RuntimeError(f"Failed to initialize E01 mode: {e}")
+        _debug_print(f"[LinuxCollector] Initialized: target_root={target_root}")
 
     def close(self):
-        """Release resources"""
-        if self._img_info:
-            try:
-                self._img_info.close()
-            except Exception:
-                pass
-            self._img_info = None
-            self._fs_info = None
+        """Release resources (no-op for local/mount mode)"""
+        pass
 
     def __enter__(self):
         return self
@@ -650,239 +574,17 @@ class LinuxCollector:
 
         _debug_print(f"[LinuxCollector] Collecting {artifact_type} from {len(paths)} path patterns")
 
-        if self._e01_mode:
-            # E01 direct collection mode
-            yield from self._collect_from_e01(artifact_type, config, paths)
-        else:
-            # Local/mount collection mode
-            for pattern in paths:
-                # Combine with target root
-                full_pattern = str(self.target_root) + pattern
+        # Local/mount collection mode
+        for pattern in paths:
+            # Combine with target root
+            full_pattern = str(self.target_root) + pattern
 
-                # Expand glob pattern
-                for file_path in glob.glob(full_pattern, recursive=True):
-                    try:
-                        yield from self._collect_file(file_path, artifact_type, config)
-                    except Exception as e:
-                        logger.warning(f"[LinuxCollector] Failed to collect {file_path}: {e}")
-
-    def _collect_from_e01(
-        self,
-        artifact_type: str,
-        config: Dict[str, Any],
-        patterns: List[str]
-    ) -> Generator[Tuple[str, bytes, Dict[str, Any]], None, None]:
-        """
-        Collect artifacts from E01 image (using pytsk3)
-
-        Args:
-            artifact_type: Artifact type
-            config: Artifact configuration
-            patterns: List of path patterns to collect
-
-        Yields:
-            Tuple of (relative_path, content_bytes, metadata)
-        """
-        for pattern in patterns:
-            # Analyze pattern
-            pattern = pattern.lstrip('/')
-
-            # If wildcard is included
-            if '*' in pattern:
-                # Separate fixed path part and wildcard part
-                parts = pattern.split('/')
-                fixed_parts = []
-                for part in parts:
-                    if '*' in part:
-                        break
-                    fixed_parts.append(part)
-
-                fixed_path = '/'.join(fixed_parts) if fixed_parts else ''
-                wildcard_pattern = '/'.join(parts[len(fixed_parts):])
-
-                # Recursively search for files from fixed path
+            # Expand glob pattern
+            for file_path in glob.glob(full_pattern, recursive=True):
                 try:
-                    yield from self._collect_e01_glob(
-                        fixed_path, wildcard_pattern, artifact_type, config
-                    )
+                    yield from self._collect_file(file_path, artifact_type, config)
                 except Exception as e:
-                    logger.debug(f"[LinuxCollector] E01 glob failed for {pattern}: {e}")
-            else:
-                # Fixed path
-                try:
-                    yield from self._collect_e01_file(pattern, artifact_type, config)
-                except Exception as e:
-                    logger.debug(f"[LinuxCollector] E01 file not found: {pattern}")
-
-    def _collect_e01_glob(
-        self,
-        base_path: str,
-        pattern: str,
-        artifact_type: str,
-        config: Dict[str, Any]
-    ) -> Generator[Tuple[str, bytes, Dict[str, Any]], None, None]:
-        """
-        Collect files by glob pattern within E01
-
-        Args:
-            base_path: Starting path for search
-            pattern: Wildcard pattern (e.g., '*/.bash_history')
-            artifact_type: Artifact type
-            config: Configuration
-
-        Yields:
-            Collected file tuples
-        """
-        # Open base_path directory
-        try:
-            if base_path:
-                directory = self._fs_info.open_dir(path='/' + base_path)
-            else:
-                directory = self._fs_info.open_dir(path='/')
-        except Exception as e:
-            logger.debug(f"[LinuxCollector] Cannot open directory /{base_path}: {e}")
-            return
-
-        # Recursive directory traversal
-        yield from self._walk_e01_directory(directory, base_path, pattern, artifact_type, config)
-
-    def _walk_e01_directory(
-        self,
-        directory,
-        current_path: str,
-        pattern: str,
-        artifact_type: str,
-        config: Dict[str, Any],
-        depth: int = 0,
-        max_depth: int = 10
-    ) -> Generator[Tuple[str, bytes, Dict[str, Any]], None, None]:
-        """
-        Recursive E01 directory traversal
-
-        Args:
-            directory: pytsk3 directory object
-            current_path: Current path
-            pattern: Pattern to match
-            artifact_type: Artifact type
-            config: Configuration
-            depth: Current depth
-            max_depth: Maximum traversal depth
-
-        Yields:
-            Collected file tuples
-        """
-        if depth > max_depth:
-            return
-
-        for entry in directory:
-            try:
-                name = entry.info.name.name.decode('utf-8', errors='replace')
-
-                # Skip . and ..
-                if name in ('.', '..'):
-                    continue
-
-                # Full path of current entry
-                if current_path:
-                    full_path = f"{current_path}/{name}"
-                else:
-                    full_path = name
-
-                # If directory, traverse recursively
-                if entry.info.meta and entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
-                    try:
-                        sub_dir = self._fs_info.open_dir(path='/' + full_path)
-                        yield from self._walk_e01_directory(
-                            sub_dir, full_path, pattern, artifact_type, config, depth + 1, max_depth
-                        )
-                    except Exception:
-                        pass
-                # If file, perform pattern matching
-                elif entry.info.meta and entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_REG:
-                    # Pattern matching with fnmatch
-                    if fnmatch.fnmatch(full_path, pattern) or fnmatch.fnmatch(name, pattern.split('/')[-1]):
-                        try:
-                            yield from self._collect_e01_file(full_path, artifact_type, config)
-                        except Exception as e:
-                            logger.debug(f"[LinuxCollector] Failed to collect {full_path}: {e}")
-
-            except Exception as e:
-                continue
-
-    def _collect_e01_file(
-        self,
-        file_path: str,
-        artifact_type: str,
-        config: Dict[str, Any]
-    ) -> Generator[Tuple[str, bytes, Dict[str, Any]], None, None]:
-        """
-        Collect single file from E01
-
-        Args:
-            file_path: File path (relative to root)
-            artifact_type: Artifact type
-            config: Configuration
-
-        Yields:
-            (relative_path, content, metadata) tuple
-        """
-        try:
-            # Open file
-            file_path_normalized = '/' + file_path.lstrip('/')
-            file_entry = self._fs_info.open(file_path_normalized)
-
-            # Check metadata
-            meta = file_entry.info.meta
-            if not meta:
-                return
-
-            # Check file size (skip files too large - 100MB)
-            file_size = meta.size
-            if file_size > 100 * 1024 * 1024:
-                logger.warning(f"[LinuxCollector] File too large, skipping: {file_path} ({file_size} bytes)")
-                return
-
-            # Read file content
-            content = file_entry.read_random(0, file_size)
-
-            # Calculate hashes
-            hash_md5 = hashlib.md5(content).hexdigest()
-            hash_sha256 = hashlib.sha256(content).hexdigest()
-
-            # Convert timestamps
-            modified_time = datetime.fromtimestamp(meta.mtime).isoformat() if meta.mtime else None
-            accessed_time = datetime.fromtimestamp(meta.atime).isoformat() if meta.atime else None
-            created_time = datetime.fromtimestamp(meta.crtime).isoformat() if meta.crtime else None
-
-            # Build metadata
-            metadata = {
-                'artifact_type': artifact_type,
-                'original_path': file_path_normalized,
-                'file_size': file_size,
-                'modified_time': modified_time,
-                'accessed_time': accessed_time,
-                'created_time': created_time,
-                'permissions': oct(meta.mode)[-3:] if meta.mode else '000',
-                'owner': str(meta.uid) if meta.uid is not None else 'unknown',
-                'hash_md5': hash_md5,
-                'hash_sha256': hash_sha256,
-                'forensic_value': config.get('forensic_value', 'medium'),
-                'mitre_attack': config.get('mitre_attack', ''),
-                'kill_chain_phase': config.get('kill_chain_phase', ''),
-                'collection_mode': 'e01_direct',
-            }
-
-            # Extract username
-            username = self._extract_username(file_path_normalized)
-            if username:
-                metadata['username'] = username
-
-            yield (file_path.lstrip('/'), content, metadata)
-
-            _debug_print(f"[LinuxCollector] E01 collected: {file_path} ({file_size} bytes)")
-
-        except Exception as e:
-            logger.debug(f"[LinuxCollector] E01 file read error {file_path}: {e}")
+                    logger.warning(f"[LinuxCollector] Failed to collect {file_path}: {e}")
 
     def _collect_file(
         self,
@@ -1037,76 +739,42 @@ class LinuxCollector:
             Dictionary with system info
         """
         info = {
-            'target_root': str(self.target_root) if self.target_root else 'E01 Image',
-            'is_local': str(self.target_root) == '/' if self.target_root else False,
-            'is_e01_mode': self._e01_mode,
+            'target_root': str(self.target_root),
+            'is_local': str(self.target_root) == '/',
             'hostname': None,
             'distribution': None,
             'kernel_version': None,
         }
 
-        if self._e01_mode:
-            # Read system info in E01 mode
-            info.update(self._get_system_info_e01())
-        else:
-            # Local/mount mode
-            # Read /etc/hostname
-            hostname_file = self.target_root / 'etc' / 'hostname'
-            if hostname_file.exists():
-                try:
-                    info['hostname'] = hostname_file.read_text().strip()
-                except OSError:
-                    pass
-
-            # Read /etc/os-release for distribution info
-            os_release = self.target_root / 'etc' / 'os-release'
-            if os_release.exists():
-                try:
-                    content = os_release.read_text()
-                    for line in content.splitlines():
-                        if line.startswith('PRETTY_NAME='):
-                            info['distribution'] = line.split('=', 1)[1].strip('"')
-                            break
-                except OSError:
-                    pass
-
-            # Read /proc/version for kernel (local only)
-            if str(self.target_root) == '/':
-                version_file = Path('/proc/version')
-                if version_file.exists():
-                    try:
-                        info['kernel_version'] = version_file.read_text().strip()
-                    except OSError:
-                        pass
-
-        return info
-
-    def _get_system_info_e01(self) -> Dict[str, Any]:
-        """Read system information from E01 image"""
-        info = {}
-
-        try:
-            # Read /etc/hostname
+        # Local/mount mode
+        # Read /etc/hostname
+        hostname_file = self.target_root / 'etc' / 'hostname'
+        if hostname_file.exists():
             try:
-                hostname_file = self._fs_info.open('/etc/hostname')
-                content = hostname_file.read_random(0, hostname_file.info.meta.size)
-                info['hostname'] = content.decode('utf-8', errors='replace').strip()
-            except Exception:
+                info['hostname'] = hostname_file.read_text().strip()
+            except OSError:
                 pass
 
-            # Read /etc/os-release
+        # Read /etc/os-release for distribution info
+        os_release = self.target_root / 'etc' / 'os-release'
+        if os_release.exists():
             try:
-                os_release = self._fs_info.open('/etc/os-release')
-                content = os_release.read_random(0, os_release.info.meta.size)
-                for line in content.decode('utf-8', errors='replace').splitlines():
+                content = os_release.read_text()
+                for line in content.splitlines():
                     if line.startswith('PRETTY_NAME='):
                         info['distribution'] = line.split('=', 1)[1].strip('"')
                         break
-            except Exception:
+            except OSError:
                 pass
 
-        except Exception as e:
-            logger.debug(f"[LinuxCollector] Failed to get E01 system info: {e}")
+        # Read /proc/version for kernel (local only)
+        if str(self.target_root) == '/':
+            version_file = Path('/proc/version')
+            if version_file.exists():
+                try:
+                    info['kernel_version'] = version_file.read_text().strip()
+                except OSError:
+                    pass
 
         return info
 

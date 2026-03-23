@@ -18,7 +18,7 @@ import logging
 import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime
 
 from .device_manager import (
@@ -109,7 +109,6 @@ class WindowsDiskEnumerator(BaseDeviceEnumerator):
             return []
 
         devices = []
-        import re
 
         try:
             # [2026-02-15] Build disk → drive letter mapping via WMI
@@ -609,44 +608,6 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
 
         except Exception as e:
             logger.warning(f"OS detection failed for {path.name}: {e}")
-
-            # Retry with pytsk3 if ForensicDiskAccessor fails
-            try:
-                from collectors.forensic_disk.ewf_img_info import (
-                    open_e01_as_pytsk3,
-                    open_raw_as_pytsk3,
-                    detect_partitions_pytsk3,
-                    detect_os_from_filesystem
-                )
-
-                if device_type == DeviceType.E01_IMAGE:
-                    img_info = open_e01_as_pytsk3(str(path))
-                else:
-                    img_info = open_raw_as_pytsk3(str(path))
-
-                partitions = detect_partitions_pytsk3(img_info)
-                img_info.close()
-
-                # [2026-02-05] FIX: NTFS 우선순위 적용 (pytsk3 fallback)
-                fs_priority = {'NTFS': 10, 'ext4': 9, 'ext3': 8, 'ext2': 7,
-                               'APFS': 9, 'HFS+': 8, 'HFSX': 8, 'HFS': 7,
-                               'exFAT': 5, 'FAT32': 3, 'FAT16': 2, 'FAT12': 1}
-                best_fs = None
-                best_os = 'unknown'
-
-                for part in partitions:
-                    fs = part.get('filesystem', 'Unknown')
-                    priority = fs_priority.get(fs, 0)
-                    if priority > fs_priority.get(best_fs, 0):
-                        best_fs = fs
-                        best_os = detect_os_from_filesystem(fs)
-
-                if best_fs:
-                    detected_os = best_os
-                    filesystem_type = best_fs
-
-            except Exception as e2:
-                logger.debug(f"pytsk3 OS detection also failed: {e2}")
 
         return detected_os, filesystem_type
 

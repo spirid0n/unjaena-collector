@@ -8,13 +8,15 @@ Collection method aligned with digital forensics standards:
 - MFT Entry metadata preservation
 - Chain of Custody established
 
+Now uses ForensicDiskAccessor (dissect/native MFT parser) instead of pytsk3.
+
 Note: Administrator privileges required (Raw Disk Access)
 """
 import os
 import sys
-import struct
 import hashlib
 import logging
+import fnmatch
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Generator, Tuple, Dict, Any, Optional, List
@@ -28,14 +30,21 @@ def _debug_print(message: str):
     logger.debug(message)
 
 
-# Check for pytsk3 availability
+# Check for ForensicDiskAccessor availability
 try:
-    import pytsk3
-    PYTSK3_AVAILABLE = True
+    from collectors.forensic_disk import ForensicDiskAccessor, FORENSIC_DISK_AVAILABLE
+    MFT_BACKEND_AVAILABLE = FORENSIC_DISK_AVAILABLE
 except ImportError:
-    PYTSK3_AVAILABLE = False
-    _debug_print("[WARNING] pytsk3 not installed. MFT collection will be disabled.")
-    _debug_print("[INFO] Install with: pip install pytsk3")
+    try:
+        from .forensic_disk import ForensicDiskAccessor, FORENSIC_DISK_AVAILABLE
+        MFT_BACKEND_AVAILABLE = FORENSIC_DISK_AVAILABLE
+    except ImportError:
+        MFT_BACKEND_AVAILABLE = False
+        ForensicDiskAccessor = None
+        _debug_print("[WARNING] ForensicDiskAccessor not available. MFT collection will be disabled.")
+
+# Legacy compatibility flag
+PYTSK3_AVAILABLE = MFT_BACKEND_AVAILABLE
 
 
 @dataclass
@@ -88,23 +97,16 @@ class MFTCollector:
     """
     MFT (Master File Table) based artifact collector.
 
-    Collects files by directly reading MFT Entries from NTFS file system.
-    Since it does not use regular file APIs:
+    Collects files by directly reading MFT Entries from NTFS file system
+    via ForensicDiskAccessor (native MFT parser + dissect).
+
+    Capabilities:
     - Deleted file recovery capable
     - OS-locked file collection capable
     - Complete metadata preservation
 
     Note: Administrator privileges required
     """
-
-    # NTFS constants
-    FILE_ATTRIBUTE_READONLY = 0x0001
-    FILE_ATTRIBUTE_HIDDEN = 0x0002
-    FILE_ATTRIBUTE_SYSTEM = 0x0004
-    FILE_ATTRIBUTE_DIRECTORY = 0x0010
-    FILE_ATTRIBUTE_ARCHIVE = 0x0020
-    FILE_ATTRIBUTE_ENCRYPTED = 0x4000
-    FILE_ATTRIBUTE_COMPRESSED = 0x0800
 
     # Buffer size for file reading
     CHUNK_SIZE = 1024 * 1024  # 1MB chunks
@@ -117,45 +119,152 @@ class MFTCollector:
             volume: Drive letter (e.g., 'C')
             output_dir: Directory to store collected artifacts
             disk_reader: Optional UnifiedDiskReader for BitLocker decrypted volumes
-                         Note: Currently not directly integrated with pytsk3,
-                         will fall back to standard volume access if provided.
         """
-        if not PYTSK3_AVAILABLE:
-            raise RuntimeError("pytsk3 library is required for MFT collection")
+        if not MFT_BACKEND_AVAILABLE:
+            raise RuntimeError(
+                "ForensicDiskAccessor is required for MFT collection. "
+                "Ensure forensic_disk package is available."
+            )
 
         self.volume = volume.upper().rstrip(':')
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.disk_reader = disk_reader  # BitLocker decrypted reader (for future use)
 
-        self.img = None
-        self.fs = None
+        self._accessor = None
+        self._partition_selected = False
 
-        # If disk_reader is provided (BitLocker decrypted), skip direct pytsk3 access
-        # TODO: Implement custom pytsk3 Img_Info wrapper for decrypted readers
-        if disk_reader:
-            _debug_print("[INFO] BitLocker decrypted reader provided - MFT collection may be limited")
-            _debug_print("[INFO] Will attempt standard volume access after decryption")
+        self._open_volume(disk_reader)
 
-        self._open_volume()
-
-    def _open_volume(self):
-        """Open volume for raw access"""
+    def _open_volume(self, disk_reader=None):
+        """Open volume for raw access using ForensicDiskAccessor"""
         try:
-            # Windows raw disk access
-            device_path = rf"\\.\{self.volume}:"
-            self.img = pytsk3.Img_Info(device_path)
-            self.fs = pytsk3.FS_Info(self.img)
+            if disk_reader:
+                # BitLocker decrypted reader
+                self._accessor = ForensicDiskAccessor(disk_reader)
+                _debug_print("[INFO] MFTCollector using BitLocker decrypted reader")
+            else:
+                # Physical disk access -- find the correct drive and partition
+                drive_number = self._get_physical_drive_number()
+                if drive_number is None:
+                    raise RuntimeError(
+                        f"Cannot determine physical drive for volume {self.volume}:"
+                    )
+                self._accessor = ForensicDiskAccessor.from_physical_disk(drive_number)
+                _debug_print(f"[INFO] MFTCollector opened PhysicalDrive{drive_number}")
+
+            # Find and select the correct partition
+            self._select_volume_partition()
+
         except Exception as e:
+            if self._accessor:
+                try:
+                    self._accessor.close()
+                except Exception:
+                    pass
+                self._accessor = None
             raise RuntimeError(
                 f"Cannot open volume {self.volume}: {e}\n"
                 "Ensure you have administrator privileges."
             )
 
+    def _get_physical_drive_number(self) -> Optional[int]:
+        """Get physical drive number from volume letter (Windows only)"""
+        if sys.platform != 'win32':
+            return 0  # On non-Windows, assume drive 0
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            volume_path = f"\\\\.\\{self.volume}:"
+
+            GENERIC_READ = 0x80000000
+            FILE_SHARE_READ = 0x00000001
+            FILE_SHARE_WRITE = 0x00000002
+            OPEN_EXISTING = 3
+            IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
+
+            handle = ctypes.windll.kernel32.CreateFileW(
+                volume_path, GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None, OPEN_EXISTING, 0, None
+            )
+
+            if handle == -1:
+                return 0  # Default to drive 0
+
+            class DISK_EXTENT(ctypes.Structure):
+                _fields_ = [
+                    ("DiskNumber", wintypes.DWORD),
+                    ("StartingOffset", ctypes.c_longlong),
+                    ("ExtentLength", ctypes.c_longlong),
+                ]
+
+            class VOLUME_DISK_EXTENTS(ctypes.Structure):
+                _fields_ = [
+                    ("NumberOfDiskExtents", wintypes.DWORD),
+                    ("Extents", DISK_EXTENT * 1),
+                ]
+
+            extents = VOLUME_DISK_EXTENTS()
+            bytes_returned = wintypes.DWORD()
+
+            result = ctypes.windll.kernel32.DeviceIoControl(
+                handle, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+                None, 0,
+                ctypes.byref(extents), ctypes.sizeof(extents),
+                ctypes.byref(bytes_returned), None
+            )
+
+            ctypes.windll.kernel32.CloseHandle(handle)
+
+            if result:
+                return extents.Extents[0].DiskNumber
+            return 0
+
+        except Exception:
+            return 0
+
+    def _select_volume_partition(self):
+        """Find and select the partition matching self.volume"""
+        partitions = self._accessor.list_partitions()
+        if not partitions:
+            raise RuntimeError(f"No partitions found on disk for volume {self.volume}:")
+
+        # Try to find NTFS partition
+        ntfs_partitions = [
+            (i, p) for i, p in enumerate(partitions)
+            if p.filesystem in ('NTFS', 'BitLocker')
+        ]
+
+        if len(ntfs_partitions) == 1:
+            idx = ntfs_partitions[0][0]
+            self._accessor.select_partition(idx)
+            self._partition_selected = True
+            return
+
+        # If multiple NTFS partitions, select the first non-system one,
+        # or just the first one
+        if ntfs_partitions:
+            # Default to first NTFS partition
+            idx = ntfs_partitions[0][0]
+            self._accessor.select_partition(idx)
+            self._partition_selected = True
+            return
+
+        # No NTFS found, try first partition
+        self._accessor.select_partition(0)
+        self._partition_selected = True
+
     def close(self):
         """Close volume handles"""
-        self.img = None
-        self.fs = None
+        if self._accessor:
+            try:
+                self._accessor.close()
+            except Exception:
+                pass
+            self._accessor = None
+        self._partition_selected = False
 
     def __enter__(self):
         return self
@@ -163,115 +272,22 @@ class MFTCollector:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _filetime_to_datetime(self, filetime: int) -> Optional[datetime]:
+    def _filetime_to_datetime(self, timestamp_int: int) -> Optional[datetime]:
         """
-        Convert Windows FILETIME to datetime.
+        Convert Unix timestamp (from ForensicDiskAccessor) to datetime.
 
-        FILETIME: 100-nanosecond intervals since January 1, 1601
+        Args:
+            timestamp_int: Unix timestamp (seconds since epoch)
+
+        Returns:
+            datetime object or None
         """
-        if not filetime or filetime <= 0:
+        if not timestamp_int or timestamp_int <= 0:
             return None
 
         try:
-            # FILETIME epoch offset (1601-01-01 to 1970-01-01 in 100ns intervals)
-            EPOCH_DIFF = 116444736000000000
-            timestamp = (filetime - EPOCH_DIFF) / 10000000
-            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            return datetime.fromtimestamp(timestamp_int, tz=timezone.utc)
         except (OSError, ValueError, OverflowError):
-            return None
-
-    def _get_entry_name_bytes(self, name_info) -> Optional[bytes]:
-        """
-        Safely extract filename bytes from entry.info.name.
-
-        Depending on pytsk3 version, name_info can be:
-        - TSK_FS_NAME object (has .name attribute)
-        - bytes object (use directly)
-
-        Args:
-            name_info: entry.info.name value
-
-        Returns:
-            Filename bytes or None
-        """
-        if name_info is None:
-            return None
-
-        # Return directly if bytes
-        if isinstance(name_info, bytes):
-            return name_info
-
-        # Use .name attribute if object
-        if hasattr(name_info, 'name'):
-            return name_info.name
-
-        return None
-
-    def get_mft_entry_info(self, entry) -> Optional[MFTEntryInfo]:
-        """
-        Extract MFT entry information from pytsk3 file object.
-
-        Args:
-            entry: pytsk3.File object
-
-        Returns:
-            MFTEntryInfo object or None if entry is invalid
-        """
-        try:
-            meta = entry.info.meta
-            name_info = entry.info.name
-
-            if meta is None or name_info is None:
-                return None
-
-            # Safely extract filename bytes
-            name_bytes = self._get_entry_name_bytes(name_info)
-            if name_bytes is None:
-                return None
-
-            # Skip special entries
-            if name_bytes in [b'.', b'..']:
-                return None
-
-            # Decode filename
-            filename = name_bytes.decode('utf-8', errors='replace')
-
-            # Determine if deleted
-            is_allocated = bool(meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
-            is_deleted = not is_allocated
-
-            # Get timestamps
-            created = self._filetime_to_datetime(getattr(meta, 'crtime', 0) * 10000000 + 116444736000000000) if hasattr(meta, 'crtime') and meta.crtime else None
-            modified = self._filetime_to_datetime(getattr(meta, 'mtime', 0) * 10000000 + 116444736000000000) if hasattr(meta, 'mtime') and meta.mtime else None
-            accessed = self._filetime_to_datetime(getattr(meta, 'atime', 0) * 10000000 + 116444736000000000) if hasattr(meta, 'atime') and meta.atime else None
-            mft_modified = self._filetime_to_datetime(getattr(meta, 'ctime', 0) * 10000000 + 116444736000000000) if hasattr(meta, 'ctime') and meta.ctime else None
-
-            # Check if directory
-            is_directory = bool(meta.type == pytsk3.TSK_FS_META_TYPE_DIR)
-
-            # Get parent entry number
-            parent_entry = name_info.par_addr if hasattr(name_info, 'par_addr') else 0
-
-            return MFTEntryInfo(
-                entry_number=meta.addr,
-                sequence_number=getattr(meta, 'seq', 0),
-                parent_entry=parent_entry,
-                filename=filename,
-                full_path="",  # Will be set later
-                file_size=meta.size if hasattr(meta, 'size') else 0,
-                is_directory=is_directory,
-                is_deleted=is_deleted,
-                is_allocated=is_allocated,
-                created=created,
-                modified=modified,
-                accessed=accessed,
-                mft_modified=mft_modified,
-                file_attributes=getattr(meta, 'mode', 0),
-                resident_data=meta.size < 700 if hasattr(meta, 'size') else False,
-            )
-
-        except Exception as e:
-            _debug_print(f"[MFT] Error reading entry: {e}")
             return None
 
     def collect_by_path(
@@ -281,7 +297,7 @@ class MFTCollector:
         include_deleted: bool = True
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """
-        Collect file by path using MFT.
+        Collect file by path using ForensicDiskAccessor.
 
         Args:
             path: File path relative to volume root (e.g., "Windows/Prefetch")
@@ -292,24 +308,36 @@ class MFTCollector:
             Tuple of (output_path, metadata)
         """
         try:
-            # Normalize path
             path = path.replace('\\', '/').lstrip('/')
 
-            # Open file through filesystem
-            file_obj = self.fs.open(path)
+            # Try reading as a single file first
+            try:
+                content = self._accessor.read_file(f"/{path}")
+                yield from self._save_file_content(
+                    content, path, artifact_type
+                )
+                return
+            except Exception:
+                pass
 
-            if file_obj.info.meta and file_obj.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
-                # It's a directory - collect all files (use open_dir for proper listing)
-                dir_obj = self.fs.open_dir(f"/{path}")
-                for entry in self._walk_directory(dir_obj, path):
-                    if hasattr(entry.info, 'meta') and entry.info.meta:
-                        if entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_REG:
-                            for result in self._extract_file(entry, f"/{path}", artifact_type):
-                                yield result
-            else:
-                # Single file
-                for result in self._extract_file(file_obj, path, artifact_type):
-                    yield result
+            # If that fails, treat it as a directory
+            try:
+                entries = self._accessor.list_directory(f"/{path}")
+                for entry in entries:
+                    if entry.is_directory:
+                        continue
+                    if not include_deleted and entry.is_deleted:
+                        continue
+                    try:
+                        content = self._accessor.read_file_by_inode(entry.inode)
+                        yield from self._save_file_content(
+                            content, f"{path}/{entry.filename}", artifact_type,
+                            entry=entry
+                        )
+                    except Exception as e:
+                        _debug_print(f"[MFT] Error reading {entry.filename}: {e}")
+            except Exception as e:
+                _debug_print(f"[MFT] Error listing directory {path}: {e}")
 
         except Exception as e:
             _debug_print(f"[MFT] Error collecting {path}: {e}")
@@ -323,7 +351,7 @@ class MFTCollector:
         recursive: bool = True
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """
-        Collect files matching a pattern using MFT scan.
+        Collect files matching a pattern using ForensicDiskAccessor.
 
         Args:
             base_path: Base directory to search (e.g., "Windows/Prefetch")
@@ -335,193 +363,122 @@ class MFTCollector:
         Yields:
             Tuple of (output_path, metadata)
         """
-        import fnmatch
-
         try:
-            # Normalize path
             base_path = base_path.replace('\\', '/').strip('/')
-
-            # Open directory (use open_dir for proper directory listing)
-            dir_obj = self.fs.open_dir(f"/{base_path}")
-
-            for entry in self._walk_directory(dir_obj, base_path, include_deleted, recursive=recursive):
-                # Check meta attribute existence
-                if not hasattr(entry.info, 'meta') or entry.info.meta is None:
-                    continue
-
-                if entry.info.meta.type != pytsk3.TSK_FS_META_TYPE_REG:
-                    continue
-
-                # Safely extract filename bytes
-                name_bytes = self._get_entry_name_bytes(entry.info.name)
-                if name_bytes is None:
-                    continue
-                filename = name_bytes.decode('utf-8', errors='replace')
-
-                # Match pattern
-                if fnmatch.fnmatch(filename.lower(), pattern.lower()):
-                    # Check deleted status
-                    is_allocated = bool(entry.info.meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
-                    if not include_deleted and not is_allocated:
-                        continue
-
-                    for result in self._extract_file(entry, f"/{base_path}", artifact_type):
-                        yield result
-
+            yield from self._walk_and_collect(
+                f"/{base_path}", pattern, artifact_type, include_deleted, recursive
+            )
         except Exception as e:
             _debug_print(f"[MFT] Error scanning {base_path}/{pattern}: {e}")
 
-    def _walk_directory(
+    def _walk_and_collect(
         self,
-        directory,
-        path: str,
-        include_deleted: bool = True,
-        recursive: bool = False
-    ) -> Generator:
-        """
-        Walk through directory entries.
-
-        Args:
-            directory: pytsk3 directory object
-            path: Current path
-            include_deleted: Include deleted entries
-            recursive: Recursively walk subdirectories
-
-        Yields:
-            pytsk3.File objects
-        """
-        try:
-            for entry in directory:
-                # pytsk3.TSK_FS_ATTR objects don't have info.name attribute - skip
-                if not hasattr(entry, 'info') or entry.info is None:
-                    continue
-
-                if not hasattr(entry.info, 'name') or entry.info.name is None:
-                    continue
-
-                # Safely extract filename bytes
-                name_bytes = self._get_entry_name_bytes(entry.info.name)
-                if name_bytes is None:
-                    continue
-
-                name = name_bytes.decode('utf-8', errors='replace')
-
-                # Skip special entries
-                if name in ['.', '..']:
-                    continue
-
-                # Check if deleted (only if meta exists)
-                if hasattr(entry.info, 'meta') and entry.info.meta:
-                    is_allocated = bool(entry.info.meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
-                    if not include_deleted and not is_allocated:
-                        continue
-
-                yield entry
-
-                # Recursive subdirectory walk
-                if recursive and hasattr(entry.info, 'meta') and entry.info.meta:
-                    if entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
-                        subdir_path = f"{path}/{name}"
-                        try:
-                            subdir = self.fs.open_dir(f"/{subdir_path}")
-                            yield from self._walk_directory(subdir, subdir_path, include_deleted, recursive)
-                        except Exception:
-                            continue
-
-        except Exception as e:
-            _debug_print(f"[MFT] Error walking directory {path}: {e}")
-
-    def _extract_file(
-        self,
-        file_obj,
-        parent_path: str,
-        artifact_type: str
+        dir_path: str,
+        pattern: str,
+        artifact_type: str,
+        include_deleted: bool,
+        recursive: bool,
+        depth: int = 0,
+        max_depth: int = 20
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Extract file content to output directory.
+        """Walk directory tree and collect files matching pattern."""
+        if depth > max_depth:
+            return
 
-        Args:
-            file_obj: pytsk3.File object
-            parent_path: Parent directory path
-            artifact_type: Type of artifact
-
-        Yields:
-            Tuple of (output_path, metadata)
-        """
         try:
-            mft_info = self.get_mft_entry_info(file_obj)
-            if mft_info is None:
-                return
+            entries = self._accessor.list_directory(dir_path)
+        except Exception as e:
+            _debug_print(f"[MFT] Cannot list directory {dir_path}: {e}")
+            return
+
+        for entry in entries:
+            if entry.filename in ('.', '..'):
+                continue
+
+            if not include_deleted and entry.is_deleted:
+                continue
+
+            full_path = f"{dir_path.rstrip('/')}/{entry.filename}"
+
+            if entry.is_directory and recursive:
+                yield from self._walk_and_collect(
+                    full_path, pattern, artifact_type,
+                    include_deleted, recursive, depth + 1, max_depth
+                )
+            elif not entry.is_directory:
+                # Match pattern
+                if fnmatch.fnmatch(entry.filename.lower(), pattern.lower()):
+                    try:
+                        content = self._accessor.read_file_by_inode(entry.inode)
+                        rel_path = full_path.lstrip('/')
+                        yield from self._save_file_content(
+                            content, rel_path, artifact_type, entry=entry
+                        )
+                    except Exception as e:
+                        _debug_print(f"[MFT] Error reading {full_path}: {e}")
+
+    def _save_file_content(
+        self,
+        content: bytes,
+        rel_path: str,
+        artifact_type: str,
+        entry=None
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """Save file content and yield (output_path, metadata)."""
+        try:
+            filename = Path(rel_path).name
 
             # Build output path
             artifact_dir = self.output_dir / artifact_type
             artifact_dir.mkdir(exist_ok=True)
 
-            # Add deleted marker to filename if applicable
-            output_filename = mft_info.filename
-            if mft_info.is_deleted:
+            output_filename = filename
+            is_deleted = entry.is_deleted if entry else False
+
+            if is_deleted:
                 output_filename = f"[DELETED]_{output_filename}"
 
-            # Add MFT entry number for uniqueness
-            output_filename = f"{mft_info.entry_number}_{output_filename}"
+            if entry:
+                output_filename = f"{entry.inode}_{output_filename}"
+
             output_path = artifact_dir / output_filename
 
-            # Build full path
-            mft_info.full_path = f"{self.volume}:{parent_path}/{mft_info.filename}"
+            # Calculate hashes
+            sha256 = hashlib.sha256(content).hexdigest()
+            md5 = hashlib.md5(content).hexdigest()
 
-            # Read file content
-            sha256 = hashlib.sha256()
-            md5 = hashlib.md5()
-            bytes_written = 0
-
+            # Write content
             with open(output_path, 'wb') as out_file:
-                offset = 0
-                while offset < mft_info.file_size:
-                    chunk_size = min(self.CHUNK_SIZE, mft_info.file_size - offset)
-                    data = file_obj.read_random(offset, chunk_size)
-
-                    if not data:
-                        break
-
-                    out_file.write(data)
-                    sha256.update(data)
-                    md5.update(data)
-                    bytes_written += len(data)
-                    offset += len(data)
+                out_file.write(content)
 
             # Build metadata
             metadata = {
                 'artifact_type': artifact_type,
-                'original_path': mft_info.full_path,
-                'filename': mft_info.filename,
-                'size': bytes_written,
-                'sha256': sha256.hexdigest(),
-                'md5': md5.hexdigest(),
+                'original_path': f"{self.volume}:/{rel_path}",
+                'filename': filename,
+                'size': len(content),
+                'sha256': sha256,
+                'md5': md5,
                 'collected_at': datetime.utcnow().isoformat(),
                 'collection_method': 'mft_raw_read',
-
-                # MFT-specific metadata
-                'mft_entry_number': mft_info.entry_number,
-                'mft_sequence_number': mft_info.sequence_number,
-                'mft_parent_entry': mft_info.parent_entry,
-                'is_deleted': mft_info.is_deleted,
-                'is_allocated': mft_info.is_allocated,
-                'resident_data': mft_info.resident_data,
-                'file_attributes': mft_info.file_attributes,
-
-                # Timestamps
-                'timestamps': {
-                    'created': mft_info.created.isoformat() if mft_info.created else None,
-                    'modified': mft_info.modified.isoformat() if mft_info.modified else None,
-                    'accessed': mft_info.accessed.isoformat() if mft_info.accessed else None,
-                    'mft_modified': mft_info.mft_modified.isoformat() if mft_info.mft_modified else None,
-                },
+                'is_deleted': is_deleted,
+                'is_allocated': not is_deleted,
             }
+
+            if entry:
+                metadata['mft_entry_number'] = entry.inode
+                metadata['mft_parent_entry'] = entry.parent_inode
+                metadata['timestamps'] = {
+                    'created': self._filetime_to_datetime(entry.created_time).isoformat()
+                              if self._filetime_to_datetime(entry.created_time) else None,
+                    'modified': self._filetime_to_datetime(entry.modified_time).isoformat()
+                               if self._filetime_to_datetime(entry.modified_time) else None,
+                }
 
             yield str(output_path), metadata
 
         except Exception as e:
-            _debug_print(f"[MFT] Error extracting file: {e}")
+            _debug_print(f"[MFT] Error saving file {rel_path}: {e}")
 
     def collect_mft_raw(self, output_path: Optional[str] = None) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
@@ -537,30 +494,19 @@ class MFTCollector:
             Tuple of (output_path, metadata) or None on failure
         """
         try:
-            mft_file = self.fs.open("/$MFT")
-
             if output_path is None:
                 output_path = str(self.output_dir / "$MFT")
 
             sha256 = hashlib.sha256()
             md5 = hashlib.md5()
-            total_size = mft_file.info.meta.size
             bytes_written = 0
 
             with open(output_path, 'wb') as out_file:
-                offset = 0
-                while offset < total_size:
-                    chunk_size = min(self.CHUNK_SIZE, total_size - offset)
-                    data = mft_file.read_random(offset, chunk_size)
-
-                    if not data:
-                        break
-
-                    out_file.write(data)
-                    sha256.update(data)
-                    md5.update(data)
-                    bytes_written += len(data)
-                    offset += len(data)
+                for chunk in self._accessor.stream_file("/$MFT"):
+                    out_file.write(chunk)
+                    sha256.update(chunk)
+                    md5.update(chunk)
+                    bytes_written += len(chunk)
 
             metadata = {
                 'artifact_type': 'mft',
@@ -594,40 +540,35 @@ class MFTCollector:
             Tuple of (output_path, metadata) or None on failure
         """
         try:
-            # USN Journal is stored in $Extend/$UsnJrnl:$J
-            usn_file = self.fs.open("/$Extend/$UsnJrnl")
-
             if output_path is None:
                 output_path = str(self.output_dir / "$UsnJrnl_J")
 
-            # Get the $J data stream
+            # Read the $J ADS via ForensicDiskAccessor
+            # The USN Journal inode is typically at MFT entry for $Extend/$UsnJrnl
             sha256 = hashlib.sha256()
             md5 = hashlib.md5()
             bytes_written = 0
 
-            # Find the $J attribute (ADS)
-            for attr in usn_file:
-                if hasattr(attr, 'info') and hasattr(attr.info, 'name'):
-                    if attr.info.name and b'$J' in attr.info.name:
-                        size = attr.info.size
-
-                        with open(output_path, 'wb') as out_file:
-                            offset = 0
-                            while offset < size:
-                                chunk_size = min(self.CHUNK_SIZE, size - offset)
-                                try:
-                                    data = attr.read_random(offset, chunk_size)
-                                    if not data:
-                                        break
-                                    out_file.write(data)
-                                    sha256.update(data)
-                                    md5.update(data)
-                                    bytes_written += len(data)
-                                except Exception:
-                                    pass
-                                offset += chunk_size
-
-                        break
+            try:
+                # Try reading via ADS stream name
+                content = self._accessor.read_file("/$Extend/$UsnJrnl:$J")
+                sha256.update(content)
+                md5.update(content)
+                bytes_written = len(content)
+                with open(output_path, 'wb') as out_file:
+                    out_file.write(content)
+            except Exception:
+                # Fallback: try streaming the main file
+                try:
+                    with open(output_path, 'wb') as out_file:
+                        for chunk in self._accessor.stream_file("/$Extend/$UsnJrnl"):
+                            out_file.write(chunk)
+                            sha256.update(chunk)
+                            md5.update(chunk)
+                            bytes_written += len(chunk)
+                except Exception as e2:
+                    _debug_print(f"[MFT] USN Journal read failed: {e2}")
+                    return None
 
             if bytes_written == 0:
                 _debug_print("[MFT] USN Journal is empty or sparse")
@@ -669,30 +610,19 @@ class MFTCollector:
             Tuple of (output_path, metadata) or None on failure
         """
         try:
-            logfile = self.fs.open("/$LogFile")
-
             if output_path is None:
                 output_path = str(self.output_dir / "$LogFile")
 
             sha256 = hashlib.sha256()
             md5 = hashlib.md5()
-            total_size = logfile.info.meta.size
             bytes_written = 0
 
             with open(output_path, 'wb') as out_file:
-                offset = 0
-                while offset < total_size:
-                    chunk_size = min(self.CHUNK_SIZE, total_size - offset)
-                    data = logfile.read_random(offset, chunk_size)
-
-                    if not data:
-                        break
-
-                    out_file.write(data)
-                    sha256.update(data)
-                    md5.update(data)
-                    bytes_written += len(data)
-                    offset += len(data)
+                for chunk in self._accessor.stream_file("/$LogFile"):
+                    out_file.write(chunk)
+                    sha256.update(chunk)
+                    md5.update(chunk)
+                    bytes_written += len(chunk)
 
             metadata = {
                 'artifact_type': 'logfile',
@@ -740,40 +670,33 @@ class MFTCollector:
             MFTEntryInfo for each deleted file found
         """
         try:
-            # Walk entire filesystem
-            root = self.fs.open("/")
+            catalog = self._accessor.scan_all_files(include_deleted=True)
 
-            for entry in self._walk_directory(root, "", include_deleted=True, recursive=True):
-                if entry.info.meta is None:
-                    continue
-
-                # Check if deleted
-                is_allocated = bool(entry.info.meta.flags & pytsk3.TSK_FS_META_FLAG_ALLOC)
-                if is_allocated:
-                    continue
-
-                # Check if regular file
-                if entry.info.meta.type != pytsk3.TSK_FS_META_TYPE_REG:
-                    continue
-
-                # Check size
-                size = entry.info.meta.size if hasattr(entry.info.meta, 'size') else 0
+            for entry in catalog.get('deleted_files', []):
+                size = entry.size
                 if size < min_size or size > max_size:
                     continue
 
                 # Check extension
                 if extensions:
-                    name_bytes = self._get_entry_name_bytes(entry.info.name)
-                    if name_bytes is None:
-                        continue
-                    filename = name_bytes.decode('utf-8', errors='replace')
-                    ext = Path(filename).suffix.lower()
+                    ext = Path(entry.filename).suffix.lower()
                     if ext not in [e.lower() for e in extensions]:
                         continue
 
-                mft_info = self.get_mft_entry_info(entry)
-                if mft_info:
-                    yield mft_info
+                yield MFTEntryInfo(
+                    entry_number=entry.inode,
+                    sequence_number=0,
+                    parent_entry=entry.parent_inode,
+                    filename=entry.filename,
+                    full_path=entry.full_path,
+                    file_size=size,
+                    is_directory=entry.is_directory,
+                    is_deleted=True,
+                    is_allocated=False,
+                    created=self._filetime_to_datetime(entry.created_time),
+                    modified=self._filetime_to_datetime(entry.modified_time),
+                    resident_data=size < 700,
+                )
 
         except Exception as e:
             _debug_print(f"[MFT] Error scanning deleted files: {e}")
@@ -855,7 +778,7 @@ MFT_ARTIFACT_TYPES = {
 
 def is_mft_available() -> bool:
     """Check if MFT collection is available"""
-    return PYTSK3_AVAILABLE
+    return MFT_BACKEND_AVAILABLE
 
 
 def check_admin_privileges() -> bool:
@@ -872,8 +795,8 @@ def check_admin_privileges() -> bool:
 
 if __name__ == "__main__":
     # Test MFT collection
-    if not PYTSK3_AVAILABLE:
-        print("pytsk3 not available")
+    if not MFT_BACKEND_AVAILABLE:
+        print("ForensicDiskAccessor not available")
         sys.exit(1)
 
     if not check_admin_privileges():
@@ -891,7 +814,7 @@ if __name__ == "__main__":
             for path, metadata in collector.collect_by_pattern(
                 "Windows/Prefetch", "*.pf", "prefetch"
             ):
-                print(f"  Collected: {metadata['filename']} (MFT#{metadata['mft_entry_number']})")
+                print(f"  Collected: {metadata['filename']} (inode#{metadata.get('mft_entry_number', '?')})")
 
             # Test $MFT collection
             print("\nCollecting $MFT...")

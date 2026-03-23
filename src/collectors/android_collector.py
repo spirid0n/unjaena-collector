@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,7 @@ import logging
 import shlex
 from pathlib import Path
 from datetime import datetime
-from typing import Generator, Tuple, Dict, Any, Optional, List, Callable, Union, TYPE_CHECKING
+from typing import Generator, Tuple, Dict, Any, Optional, List, Callable
 from dataclasses import dataclass
 
 # USB direct connection imports
@@ -1430,7 +1431,6 @@ class ADBDeviceMonitor:
         Returns:
             DeviceInfo if device connected, None if timeout
         """
-        import time
         start_time = time.time()
 
         while True:
@@ -1649,7 +1649,7 @@ class AndroidCollector:
                     self.device_serial = self.device_info.serial
                     try:
                         self._device = self._connect_device_usb(self.device_serial)
-                        logger.info(f"[Android] Connected via libusb: {self.device_serial}")
+                        logger.info(f"[Android] Connected via libusb: {_mask_serial(self.device_serial)}")
                         return True
                     except RuntimeError as e:
                         logger.warning(f"[Android] libusb connection failed: {e}")
@@ -1719,7 +1719,7 @@ class AndroidCollector:
                     self.device_info = self._build_device_info_from_adb(adb_path)
 
                 logger.info(
-                    f"[Android] Connected via system adb fallback: {self.device_serial} "
+                    f"[Android] Connected via system adb fallback: {_mask_serial(self.device_serial)} "
                     f"(adb={adb_path})"
                 )
                 return True
@@ -2082,7 +2082,6 @@ class AndroidCollector:
         if package:
             chatroom_metadata = self._extract_chatroom_metadata(package)
             if chatroom_metadata and chatroom_metadata.get('chatroom_count', 0) > 0:
-                import json
                 meta_path = output_dir / 'chatroom_metadata.json'
                 with open(meta_path, 'w', encoding='utf-8') as f:
                     json.dump(chatroom_metadata, f, ensure_ascii=False, indent=2)
@@ -2790,159 +2789,6 @@ class AndroidCollector:
     # ==========================================================================
     # [2026-02-22] Non-Root Advanced Collection Methods
     # ==========================================================================
-
-    def _collect_nonroot_app_data(
-        self,
-        artifact_type: str,
-        artifact_info: Dict[str, Any],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]]
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Non-root messenger/app data collection.
-
-        Strategy (executed in order):
-        1. Pull external storage data (/sdcard/ paths) — always accessible
-        2. Try run-as for debuggable apps — accesses private /data/data/
-        3. Report what was collected
-
-        Args:
-            artifact_type: Artifact type identifier
-            artifact_info: Artifact configuration dict
-            output_dir: Local output directory
-            progress_callback: Progress callback
-        """
-        package = artifact_info.get('package', '')
-        sdcard_paths = artifact_info.get('sdcard_paths', [])
-        db_paths = artifact_info.get('db_paths', [])
-        collected_count = 0
-        total_size = 0
-
-        if progress_callback:
-            progress_callback(f"[Non-Root] Checking {package}...")
-
-        # Check if package is installed
-        check_cmd = f'pm list packages {shlex.quote(package)}'
-        check_output, rc = self._adb_shell(check_cmd)
-        if rc != 0 or package not in (check_output or ''):
-            yield '', {
-                'artifact_type': artifact_type,
-                'status': 'skipped',
-                'error': f'Package {package} not installed on device',
-                'collection_method': 'nonroot_app_data',
-            }
-            return
-
-        # ----- Phase 1: External storage (sdcard) data -----
-        for sdcard_path in sdcard_paths:
-            if progress_callback:
-                progress_callback(f"[Non-Root] Scanning {sdcard_path}")
-
-            # Check if path exists and list files recursively
-            find_cmd = f'find {shlex.quote(sdcard_path)} -type f 2>/dev/null'
-            file_list, rc = self._adb_shell(find_cmd)
-
-            if rc != 0 or not file_list or not file_list.strip():
-                # Try simple ls as fallback (find may not be available)
-                ls_cmd = f'ls -R {shlex.quote(sdcard_path)} 2>/dev/null'
-                ls_output, rc = self._adb_shell(ls_cmd)
-                if rc != 0 or not ls_output or not ls_output.strip():
-                    continue
-                # Parse ls -R output to get file paths
-                file_list = self._parse_ls_recursive(sdcard_path, ls_output)
-                if not file_list:
-                    continue
-
-            files = [f.strip() for f in file_list.strip().split('\n') if f.strip()]
-
-            # Limit per-path file count to prevent excessive collection
-            MAX_FILES_PER_PATH = 500
-            if len(files) > MAX_FILES_PER_PATH:
-                logger.warning(f"[Non-Root] Truncating {len(files)} files to {MAX_FILES_PER_PATH} in {sdcard_path}")
-                files = files[:MAX_FILES_PER_PATH]
-
-            for remote_file in files:
-                if not remote_file or remote_file.startswith('find:'):
-                    continue
-
-                # [SECURITY] Validate path — must be under sdcard_path
-                if not remote_file.startswith(sdcard_path.rstrip('/')):
-                    continue
-
-                # Compute relative path for local storage
-                rel_path = remote_file[len(sdcard_path):].lstrip('/')
-                if not rel_path:
-                    continue
-
-                # [SECURITY] Sanitize filename
-                safe_rel = re.sub(r'[<>:"|?*\x00-\x1f]', '_', rel_path)
-                if '..' in safe_rel:
-                    continue
-
-                local_path = output_dir / 'sdcard' / safe_rel
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # [SECURITY] Verify local_path stays within output_dir
-                try:
-                    local_path.resolve().relative_to(output_dir.resolve())
-                except ValueError:
-                    continue
-
-                if progress_callback:
-                    progress_callback(f"[Non-Root] Pulling {rel_path}")
-
-                success = self._adb_pull(remote_file, str(local_path))
-                if success and local_path.exists():
-                    file_size = local_path.stat().st_size
-                    sha256 = hashlib.sha256()
-                    with open(local_path, 'rb') as f:
-                        for chunk in iter(lambda: f.read(65536), b''):
-                            sha256.update(chunk)
-
-                    collected_count += 1
-                    total_size += file_size
-
-                    yield str(local_path), {
-                        'artifact_type': artifact_type,
-                        'original_path': remote_file,
-                        'filename': Path(rel_path).name,
-                        'size': file_size,
-                        'sha256': sha256.hexdigest(),
-                        'device_serial': self.device_info.serial,
-                        'device_model': self.device_info.model,
-                        'android_version': self.device_info.android_version,
-                        'collected_at': datetime.utcnow().isoformat(),
-                        'collection_method': 'nonroot_sdcard',
-                        'root_used': False,
-                        'package': package,
-                        'source': 'external_storage',
-                    }
-
-        # ----- Phase 2: run-as for debuggable apps -----
-        phase2_collected = False
-        if db_paths:
-            for item in self._collect_runas_app_data(
-                artifact_type, package, db_paths, output_dir, progress_callback
-            ):
-                phase2_collected = True
-                yield item
-
-        # ----- Phase 3: PM-RUNAS-044 elevated access (Android 12-13) -----
-        # Only attempt if Phase 2 (run-as) failed and device is applicable
-        if not phase2_collected and package:
-            sdk = self.device_info.sdk_version if self.device_info else 0
-            patch = self.device_info.security_patch if self.device_info else ''
-            if 31 <= sdk <= 33 and (not patch or patch < '2024-10-01'):
-                yield from self._collect_via_elevated_access(
-                    artifact_type, package, db_paths, output_dir, progress_callback
-                )
-
-        # Summary log
-        if progress_callback:
-            progress_callback(
-                f"[Non-Root] {package}: {collected_count} files collected "
-                f"({total_size / 1024 / 1024:.1f} MB)"
-            )
 
     def _collect_runas_app_data(
         self,
@@ -3760,227 +3606,6 @@ class AndroidCollector:
         except Exception:
             return False
 
-    def _collect_messenger_external(
-        self,
-        artifact_type: str,
-        artifact_info: Dict[str, Any],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]] = None,
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Collect messenger external storage data (media, downloads, metadata).
-
-        This method works WITHOUT root and collects:
-        - Chatroom media files (images, videos, voice, documents)
-        - Downloaded files shared via messenger
-        - Chatroom structure metadata (IDs, timestamps)
-        - Search history, cookies, cached data
-        - Profile pictures and saved photos
-
-        The chatroom IDs in directory names can be cross-referenced with
-        chat databases (if obtained via PC version or other means) to
-        identify conversation participants.
-
-        Args:
-            artifact_type: Artifact type string
-            artifact_info: Dict with package, external_paths
-            output_dir: Local output directory
-            progress_callback: Optional progress callback
-
-        Yields:
-            Tuples of (local_file_path, metadata_dict)
-        """
-        package = artifact_info.get('package', '')
-        external_paths = artifact_info.get('external_paths', [])
-        app_name = artifact_info.get('name', package)
-
-        if not external_paths:
-            logger.warning(f"[External] No external paths configured for {package}")
-            return
-
-        if progress_callback:
-            progress_callback(f"[External] {app_name}: Scanning external storage...")
-
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        total_files = 0
-        total_size = 0
-
-        # --- Phase 1: Collect chatroom structure metadata ---
-        chatroom_metadata = self._extract_chatroom_metadata(package)
-        if chatroom_metadata and chatroom_metadata.get('chatroom_count', 0) > 0:
-            meta_path = output_dir / 'chatroom_metadata.json'
-            import json
-            with open(meta_path, 'w', encoding='utf-8') as f:
-                json.dump(chatroom_metadata, f, ensure_ascii=False, indent=2)
-
-            yield str(meta_path), {
-                'artifact_type': artifact_type,
-                'filename': 'chatroom_metadata.json',
-                'size': meta_path.stat().st_size,
-                'device_serial': self.device_info.serial if self.device_info else '',
-                'device_model': self.device_info.model if self.device_info else '',
-                'collected_at': datetime.utcnow().isoformat(),
-                'collection_method': 'messenger_external',
-                'root_used': False,
-                'package': package,
-                'content_type': 'chatroom_structure',
-                'chatroom_count': chatroom_metadata.get('chatroom_count', 0),
-                'note': 'Chatroom IDs and activity dates from directory structure',
-            }
-            total_files += 1
-
-        # --- Phase 2: Enumerate and pull files from each external path ---
-        for ext_path in external_paths:
-            if progress_callback:
-                progress_callback(
-                    f"[External] {app_name}: Scanning {ext_path}..."
-                )
-
-            # Check if path exists on device
-            result = self._shell_cmd(f'ls -d {shlex.quote(ext_path)} 2>/dev/null')
-            if not result or 'No such file' in result:
-                logger.debug(f"[External] Path not found: {ext_path}")
-                continue
-
-            # Get file listing
-            file_list = self._shell_cmd(
-                f'find {ext_path} -type f 2>/dev/null'
-            )
-            if not file_list:
-                continue
-
-            files = [f.strip() for f in file_list.strip().split('\n') if f.strip()]
-
-            if progress_callback:
-                progress_callback(
-                    f"[External] {app_name}: Found {len(files)} files in {ext_path}"
-                )
-
-            # Create subdirectory matching the external path structure
-            path_suffix = ext_path.replace('/sdcard/', '').replace('/', '_').rstrip('_')
-            path_output = output_dir / path_suffix
-            path_output.mkdir(parents=True, exist_ok=True)
-
-            for idx, remote_file in enumerate(files):
-                try:
-                    # Get file info (size + timestamp)
-                    stat_output = self._shell_cmd(
-                        f'stat -c "%s %Y" {shlex.quote(remote_file)} 2>/dev/null'
-                    )
-                    file_size = 0
-                    file_mtime = ''
-                    if stat_output and stat_output.strip():
-                        parts = stat_output.strip().split()
-                        if len(parts) >= 2:
-                            try:
-                                file_size = int(parts[0])
-                            except ValueError:
-                                pass
-                            try:
-                                ts = int(parts[1])
-                                file_mtime = datetime.utcfromtimestamp(ts).isoformat()
-                            except (ValueError, OSError):
-                                pass
-
-                    # Skip very large files (>50MB) to avoid long transfer times
-                    # but still record metadata
-                    if file_size > 50 * 1024 * 1024:
-                        yield '', {
-                            'artifact_type': artifact_type,
-                            'original_path': remote_file,
-                            'filename': Path(remote_file).name,
-                            'size': file_size,
-                            'modified_at': file_mtime,
-                            'device_serial': self.device_info.serial if self.device_info else '',
-                            'collected_at': datetime.utcnow().isoformat(),
-                            'collection_method': 'messenger_external',
-                            'root_used': False,
-                            'package': package,
-                            'note': f'Large file (>{file_size // (1024*1024)}MB) — metadata only',
-                            'skipped': True,
-                        }
-                        continue
-
-                    # Preserve subdirectory structure relative to ext_path
-                    rel = remote_file[len(ext_path):].lstrip('/')
-                    local_file = path_output / rel.replace('/', os.sep)
-                    local_file.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Pull file
-                    success = self._pull_file(remote_file, str(local_file))
-                    if not success or not local_file.is_file():
-                        continue
-
-                    # Calculate hash
-                    sha256 = hashlib.sha256()
-                    with open(local_file, 'rb') as f:
-                        for chunk in iter(lambda: f.read(65536), b''):
-                            sha256.update(chunk)
-
-                    # Detect content type from extension
-                    ext = local_file.suffix.lower()
-                    content_type = 'unknown'
-                    if ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'):
-                        content_type = 'image'
-                    elif ext in ('.mp4', '.avi', '.mov', '.3gp', '.mkv', '.webm'):
-                        content_type = 'video'
-                    elif ext in ('.mp3', '.aac', '.ogg', '.wav', '.m4a', '.opus'):
-                        content_type = 'audio'
-                    elif ext in ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.hwp'):
-                        content_type = 'document'
-                    elif ext in ('.db', '.sqlite', '.sqlite3'):
-                        content_type = 'database'
-                    elif ext in ('.xml', '.json', '.log', '.txt'):
-                        content_type = 'config'
-                    elif ext == '' and file_size > 1000:
-                        # Hash-named files in KakaoTalk contents are usually images
-                        content_type = 'media_cache'
-
-                    # Extract chatroom ID if present in path
-                    chatroom_id = self._extract_chatroom_id(remote_file, package)
-
-                    metadata = {
-                        'artifact_type': artifact_type,
-                        'original_path': remote_file,
-                        'filename': local_file.name,
-                        'size': local_file.stat().st_size,
-                        'sha256': sha256.hexdigest(),
-                        'modified_at': file_mtime,
-                        'device_serial': self.device_info.serial if self.device_info else '',
-                        'device_model': self.device_info.model if self.device_info else '',
-                        'android_version': self.device_info.android_version if self.device_info else '',
-                        'collected_at': datetime.utcnow().isoformat(),
-                        'collection_method': 'messenger_external',
-                        'root_used': False,
-                        'package': package,
-                        'content_type': content_type,
-                    }
-                    if chatroom_id:
-                        metadata['chatroom_id'] = chatroom_id
-
-                    yield str(local_file), metadata
-
-                    total_files += 1
-                    total_size += local_file.stat().st_size
-
-                    if progress_callback and (idx + 1) % 50 == 0:
-                        progress_callback(
-                            f"[External] {app_name}: {total_files} files "
-                            f"({total_size // (1024*1024)}MB) collected..."
-                        )
-
-                except Exception as e:
-                    logger.error(f"[External] Error pulling {remote_file}: {e}")
-                    continue
-
-        if progress_callback:
-            progress_callback(
-                f"[External] {app_name}: Complete - {total_files} files, "
-                f"{total_size // (1024*1024)}MB total"
-            )
-
     def _extract_chatroom_metadata(self, package: str) -> Dict[str, Any]:
         """
         Extract chatroom structure from external storage directory listing.
@@ -4465,7 +4090,6 @@ class AndroidCollector:
         # [보안] APK 무결성 검증 (SHA256)
         hash_file = self.AGENT_APK_PATH.with_suffix('.apk.sha256')
         if hash_file.exists():
-            import hashlib
             expected = hash_file.read_text().strip().split()[0].lower()
             sha256 = hashlib.sha256()
             with open(self.AGENT_APK_PATH, 'rb') as f:
@@ -4614,7 +4238,6 @@ class AndroidCollector:
     def _get_supported_packages(self) -> List[str]:
         """서버에서 지원 앱 패키지 목록 동적 조회 (역공학 시 지원 범위 노출 방지)"""
         try:
-            import json
             import urllib.request
             import urllib.error
 
@@ -4648,8 +4271,6 @@ class AndroidCollector:
         Returns session info with scraping_token and available_apps.
         """
         try:
-            import hashlib
-            import json
             import urllib.request
             import urllib.error
 
@@ -4735,8 +4356,7 @@ class AndroidCollector:
                 f'-n {self.AGENT_RECEIVER}'
             )
             self._adb_shell(cmd)
-            import time as _time
-            _time.sleep(1)  # Wait for Agent to write file
+            time.sleep(1)  # Wait for Agent to write file
 
             # Read fingerprint file
             output, rc = self._adb_shell(f'cat {shlex.quote(AGENT_FP_PATH)}')
@@ -4829,7 +4449,6 @@ class AndroidCollector:
                 manifest_content = manifest_out.strip()
 
                 if manifest_content and manifest_content != '':
-                    import json
                     try:
                         manifest = json.loads(manifest_content)
                         status = manifest.get('status', '')
