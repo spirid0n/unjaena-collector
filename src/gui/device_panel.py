@@ -306,6 +306,7 @@ class DeviceListPanel(QWidget):
             DeviceType.VHDX_IMAGE: "📀",
             DeviceType.QCOW2_IMAGE: "📀",
             DeviceType.VDI_IMAGE: "📀",
+            DeviceType.DMG_IMAGE: "🍎",
             DeviceType.ANDROID_DEVICE: "📱",
             DeviceType.IOS_BACKUP: "🍎",
             DeviceType.IOS_DEVICE: "📲",

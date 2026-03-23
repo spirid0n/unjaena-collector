@@ -21,6 +21,7 @@ try:
         VHDXDiskBackend,
         QCOW2DiskBackend,
         VDIDiskBackend,
+        DMGDiskBackend,
         create_disk_backend,
     )
     from .file_content_extractor import FileContentExtractor
@@ -59,6 +60,7 @@ __all__ = [
     'VHDXDiskBackend',
     'QCOW2DiskBackend',
     'VDIDiskBackend',
+    'DMGDiskBackend',
     'create_disk_backend',
     'FileContentExtractor',
     'FORENSIC_DISK_AVAILABLE',

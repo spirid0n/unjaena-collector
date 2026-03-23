@@ -37,6 +37,7 @@ class DeviceType(Enum):
     VHDX_IMAGE = auto()
     QCOW2_IMAGE = auto()
     VDI_IMAGE = auto()
+    DMG_IMAGE = auto()
     ANDROID_DEVICE = auto()
     IOS_BACKUP = auto()
     IOS_DEVICE = auto()  # iOS device via USB direct connection
