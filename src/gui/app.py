@@ -8,7 +8,7 @@ import logging
 import requests
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
-from core.token_validator import TokenValidator, ValidationResult
+from core.token_validator import TokenValidator
 from core.encryptor import FileHashCalculator
 from core.uploader import R2DirectUploader
 from core.request_signer import RequestSigner
@@ -42,9 +42,6 @@ from gui.styles import get_platform_stylesheet, COLORS
 from core.device_manager import UnifiedDeviceManager, DeviceType
 from core.device_enumerators import create_default_enumerators
 from gui.device_panel import DeviceListPanel
-from gui.e01_dialog import E01SelectionDialog
-from core.multi_device_collector import MultiDeviceCollector, TaskStatus
-from gui.multi_progress_panel import MultiProgressPanel
 from utils.error_messages import translate_error
 
 # BitLocker support
