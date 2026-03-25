@@ -277,7 +277,7 @@ class DeviceListPanel(QWidget):
             self,
             "Select Forensic Image",
             "",
-            "Forensic Images (*.E01 *.e01 *.Ex01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi)"
+            "Forensic Images (*.E01 *.e01 *.Ex01 *.ex01 *.s01 *.S01 *.l01 *.L01 *.dd *.raw *.img *.bin *.vmdk *.vhd *.vhdx *.qcow2 *.vdi *.dmg *.DMG)"
             ";;All Files (*)"
         )
         if file_path:
