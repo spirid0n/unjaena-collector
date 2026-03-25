@@ -929,7 +929,7 @@ class ForensicDiskAccessor:
         return f"{part1:08X}-{part2:04X}-{part3:04X}-{part4}-{part5}"
 
     def _detect_filesystem(self, partition_offset: int) -> str:
-        """Detect filesystem type (supports NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+)"""
+        """Detect filesystem type (NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+, XFS, Btrfs, UFS)"""
         try:
             vbr = self._backend.read(partition_offset, 512)
 
@@ -994,6 +994,29 @@ class ForensicDiskAccessor:
                     else:
                         return 'ext2'
                 return 'ext4'  # Default
+
+            # XFS (superblock magic 'XFSB' at offset 0)
+            if vbr[0:4] == b'XFSB':
+                return 'XFS'
+
+            # Btrfs (superblock magic '_BHRfS_M' at offset 0x10040)
+            try:
+                btrfs_sb = self._backend.read(partition_offset + 0x10040, 8)
+                if btrfs_sb == b'_BHRfS_M':
+                    return 'Btrfs'
+            except Exception:
+                pass
+
+            # UFS2 (superblock magic 0x19540119 at offset 8192+1372)
+            try:
+                ufs_sb = self._backend.read(partition_offset + 8192 + 1372, 4)
+                if struct.unpack('>I', ufs_sb)[0] == 0x19540119:
+                    return 'UFS'
+                # UFS1 (magic 0x00011954 at offset 8192+1372)
+                if struct.unpack('<I', ufs_sb)[0] == 0x00011954:
+                    return 'UFS'
+            except Exception:
+                pass
 
         except Exception as e:
             logger.debug(f"Filesystem detection failed: {e}")
