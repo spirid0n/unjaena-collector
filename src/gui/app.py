@@ -3523,7 +3523,11 @@ class CollectionWorker(QThread):
 
                 return result
 
-            max_workers = min(5, total_upload)
+            max_workers = min(5, max(total_upload, 1))
+            if total_upload == 0:
+                self.log_message.emit("No files to upload.", False)
+            else:
+                pass  # proceed to upload
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {}
                 for k, (file_path, artifact_type, metadata) in enumerate(encrypted_files):
