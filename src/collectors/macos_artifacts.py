@@ -933,6 +933,20 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
         'os_type': 'macos',
         'path_optional': True,
     },
+
+    # --- Device UUID (for encryption key derivation) ---
+
+    'macos_device_uuid': {
+        'paths': [
+            '/private/var/db/SystemIdentity.plist',
+            '/Library/Preferences/SystemConfiguration/com.apple.Boot.plist',
+            '/private/var/db/dslocal/nodes/Default/config/KernelCoreDumpConfig.plist',
+        ],
+        'description': 'Device UUID (IOPlatformUUID) for encryption key derivation',
+        'forensic_value': 'critical',
+        'category': 'system_info',
+        'os_type': 'macos',
+    },
 }
 
 
