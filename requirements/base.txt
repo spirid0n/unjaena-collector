@@ -1,0 +1,29 @@
+# Forensic Collector - Cross-platform base dependencies
+# License: GPL-3.0 (due to pymobiledevice3 dependency)
+
+# GUI
+PyQt6>=6.6.0
+
+# HTTP Client
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# WebSocket
+websockets>=12.0
+
+# System monitoring
+psutil>=5.9.0
+
+# Utilities
+python-dateutil>=2.8.0
+
+# Disk encryption (BitLocker + LUKS)
+dissect.fve>=3.9
+dissect.hypervisor>=3.14
+
+# Filesystem parsing (pytsk3 replacement — pure Python)
+dissect.extfs>=3.12       # ext2/ext3/ext4
+dissect.fat>=3.12         # FAT12/FAT16/FAT32/exFAT
+dissect.xfs>=3.12         # XFS
+dissect.btrfs>=3.12       # Btrfs
+dissect.ffs>=3.12         # UFS/FFS

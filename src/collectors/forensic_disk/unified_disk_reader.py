@@ -46,6 +46,7 @@ class DiskSourceType(Enum):
     VHDX_IMAGE = "vhdx"           # Hyper-V VHDX
     QCOW2_IMAGE = "qcow2"        # KVM/QEMU QCOW2
     VDI_IMAGE = "vdi"             # VirtualBox VDI
+    DMG_IMAGE = "dmg"             # Apple DMG (UDIF)
 
 
 @dataclass

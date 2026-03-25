@@ -29,6 +29,7 @@ Usage:
 
 import re
 import hashlib
+import itertools
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -329,7 +330,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # User Files - Server-parseable extensions only (based on server_parsing_service.py)
+    # User Files - Server-parseable extensions only (based on server parser config)
     # =========================================================================
     'document': {
         'extensions': {
@@ -689,6 +690,8 @@ class BaseMFTCollector(ABC):
     - Includes system folders
     """
 
+    _DEFAULT_MAX_SCAN_ENTRIES = 2_000_000  # 2M files max to prevent OOM
+
     def __init__(self, output_dir: str):
         """
         Args:
@@ -740,6 +743,13 @@ class BaseMFTCollector(ABC):
         self._mft_cache = {'active_files': [], 'deleted_files': [], 'directories': []}
         self._extension_index = {}
 
+    def release_scan_cache(self):
+        """Release memory held by scan cache after collection is complete."""
+        self._mft_cache = {'active_files': [], 'deleted_files': [], 'directories': []}
+        self._extension_index.clear()
+        self._mft_indexed = False
+        logger.info("Scan cache released")
+
     def __enter__(self):
         return self
 
@@ -766,10 +776,10 @@ class BaseMFTCollector(ABC):
         logger.info(f"[{source}] Building MFT index (Digital Forensics: Complete collection)...")
 
         try:
-            # Full MFT scan - no limits, includes deleted files
+            # Full MFT scan - capped to prevent OOM, includes deleted files
             scan_result = self._accessor.scan_all_files(
                 include_deleted=True,
-                max_entries=None,
+                max_entries=self._DEFAULT_MAX_SCAN_ENTRIES,
             )
 
             self._mft_cache['active_files'] = scan_result.get('active_files', [])
@@ -794,7 +804,7 @@ class BaseMFTCollector(ABC):
         """Build extension-based index (for fast lookup)"""
         self._extension_index = {}
 
-        all_files = self._mft_cache['active_files'] + self._mft_cache['deleted_files']
+        all_files = itertools.chain(self._mft_cache['active_files'], self._mft_cache['deleted_files'])
 
         for entry in all_files:
             filename = entry.filename if hasattr(entry, 'filename') else str(entry)
@@ -903,10 +913,10 @@ class BaseMFTCollector(ABC):
         full_disk_scan = mft_filter.get('full_disk_scan', False)
         max_file_size = mft_filter.get('max_file_size', 0)  # 0 = unlimited
 
-        # Files to collect
-        files_to_check = list(self._mft_cache['active_files'])
+        # Files to collect — iterate cache directly, no copy
+        files_to_check = self._mft_cache['active_files']
         if include_deleted:
-            files_to_check.extend(self._mft_cache['deleted_files'])
+            files_to_check = itertools.chain(files_to_check, self._mft_cache['deleted_files'])
 
         # Filter conditions
         extensions = mft_filter.get('extensions', set())
@@ -1206,21 +1216,37 @@ class BaseMFTCollector(ABC):
 
         try:
             if special_method == 'collect_mft_raw':
-                # $MFT (inode 0)
+                # $MFT (inode 0) — streaming to avoid loading entire MFT into memory
                 logger.info(f"[{source}] Collecting $MFT (inode 0)...")
-                data = self._accessor.read_file_by_inode(0)
+                output_file = artifact_dir / '$MFT'
+                md5_hash = hashlib.md5()
+                sha256_hash = hashlib.sha256()
+                total_size = 0
 
-                if data:
-                    output_file = artifact_dir / '$MFT'
-                    output_file.write_bytes(data)
+                if hasattr(self._accessor, 'stream_file_by_inode'):
+                    with open(output_file, 'wb') as f:
+                        for chunk in self._accessor.stream_file_by_inode(0):
+                            if chunk:
+                                f.write(chunk)
+                                md5_hash.update(chunk)
+                                sha256_hash.update(chunk)
+                                total_size += len(chunk)
+                else:
+                    data = self._accessor.read_file_by_inode(0)
+                    if data:
+                        output_file.write_bytes(data)
+                        md5_hash.update(data)
+                        sha256_hash.update(data)
+                        total_size = len(data)
 
+                if total_size > 0:
                     metadata = {
                         'artifact_type': artifact_type,
                         'name': '$MFT',
                         'original_path': '$MFT',
-                        'size': len(data),
-                        'hash_md5': hashlib.md5(data).hexdigest(),
-                        'hash_sha256': hashlib.sha256(data).hexdigest(),
+                        'size': total_size,
+                        'hash_md5': md5_hash.hexdigest(),
+                        'hash_sha256': sha256_hash.hexdigest(),
                         'collection_method': 'mft_based',
                         'source': source,
                         'mft_inode': 0,
@@ -1230,23 +1256,43 @@ class BaseMFTCollector(ABC):
                     yield str(output_file), metadata
                     if progress_callback:
                         progress_callback(str(output_file))
+                else:
+                    # Clean up empty file if created
+                    if output_file.exists():
+                        output_file.unlink()
 
             elif special_method == 'collect_logfile':
-                # $LogFile (inode 2)
+                # $LogFile (inode 2) — streaming to avoid loading entire LogFile into memory
                 logger.info(f"[{source}] Collecting $LogFile (inode 2)...")
-                data = self._accessor.read_file_by_inode(2)
+                output_file = artifact_dir / '$LogFile'
+                md5_hash = hashlib.md5()
+                sha256_hash = hashlib.sha256()
+                total_size = 0
 
-                if data:
-                    output_file = artifact_dir / '$LogFile'
-                    output_file.write_bytes(data)
+                if hasattr(self._accessor, 'stream_file_by_inode'):
+                    with open(output_file, 'wb') as f:
+                        for chunk in self._accessor.stream_file_by_inode(2):
+                            if chunk:
+                                f.write(chunk)
+                                md5_hash.update(chunk)
+                                sha256_hash.update(chunk)
+                                total_size += len(chunk)
+                else:
+                    data = self._accessor.read_file_by_inode(2)
+                    if data:
+                        output_file.write_bytes(data)
+                        md5_hash.update(data)
+                        sha256_hash.update(data)
+                        total_size = len(data)
 
+                if total_size > 0:
                     metadata = {
                         'artifact_type': artifact_type,
                         'name': '$LogFile',
                         'original_path': '$LogFile',
-                        'size': len(data),
-                        'hash_md5': hashlib.md5(data).hexdigest(),
-                        'hash_sha256': hashlib.sha256(data).hexdigest(),
+                        'size': total_size,
+                        'hash_md5': md5_hash.hexdigest(),
+                        'hash_sha256': sha256_hash.hexdigest(),
                         'collection_method': 'mft_based',
                         'source': source,
                         'mft_inode': 2,
@@ -1256,6 +1302,10 @@ class BaseMFTCollector(ABC):
                     yield str(output_file), metadata
                     if progress_callback:
                         progress_callback(str(output_file))
+                else:
+                    # Clean up empty file if created
+                    if output_file.exists():
+                        output_file.unlink()
 
             elif special_method == 'collect_usn_journal':
                 # $UsnJrnl:$J

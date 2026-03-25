@@ -1220,7 +1220,7 @@ class CollectorWindow(QMainWindow):
             elif device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
                                         DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
                                         DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
-                                        DeviceType.VDI_IMAGE):
+                                        DeviceType.VDI_IMAGE, DeviceType.DMG_IMAGE):
                 detected_os = device.metadata.get('detected_os', 'unknown')
                 if detected_os == 'windows':
                     target_tab = tab_map['windows']
@@ -1260,7 +1260,7 @@ class CollectorWindow(QMainWindow):
             if device.device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
                                         DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
                                         DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
-                                        DeviceType.VDI_IMAGE):
+                                        DeviceType.VDI_IMAGE, DeviceType.DMG_IMAGE):
                 detected_os = device.metadata.get('detected_os', 'unknown')
                 fs_type = device.metadata.get('filesystem_type', 'Unknown')
 
@@ -1811,7 +1811,7 @@ class CollectorWindow(QMainWindow):
                 DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
                 DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
                 DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
-                DeviceType.VDI_IMAGE,
+                DeviceType.VDI_IMAGE, DeviceType.DMG_IMAGE,
             )
             for device in selected_devices:
                 if device.device_type not in disk_image_types:
@@ -2925,7 +2925,7 @@ class CollectionWorker(QThread):
             if device_type in (DeviceType.E01_IMAGE, DeviceType.RAW_IMAGE,
                                DeviceType.VMDK_IMAGE, DeviceType.VHD_IMAGE,
                                DeviceType.VHDX_IMAGE, DeviceType.QCOW2_IMAGE,
-                               DeviceType.VDI_IMAGE):
+                               DeviceType.VDI_IMAGE, DeviceType.DMG_IMAGE):
                 # BitLocker-decrypted partition in disk image
                 bl_dec = self.image_bitlocker_decryptors.get(device.device_id)
                 if bl_dec:
@@ -3309,6 +3309,10 @@ class CollectionWorker(QThread):
                                 self.log_message.emit(f"Collection failed [{device_name}] ({artifact_type}): {e}", True)
                                 logging.debug(f"Collection error for {artifact_type} on {device_name}: {e}")
 
+                    # Release scan cache before closing collector
+                    if hasattr(collector, 'release_scan_cache'):
+                        collector.release_scan_cache()
+
                     # Cleanup collector
                     if hasattr(collector, 'close'):
                         collector.close()
@@ -3397,6 +3401,10 @@ class CollectionWorker(QThread):
                         import logging
                         self.log_message.emit(f"Collection failed ({artifact_type}): {e}", True)
                         logging.debug(f"Collection error for {artifact_type}: {e}")
+
+                # Release scan cache after all artifact types collected
+                if hasattr(collector, 'release_scan_cache'):
+                    collector.release_scan_cache()
 
             if self._cancelled:
                 self.finished.emit(False, "Collection cancelled")
