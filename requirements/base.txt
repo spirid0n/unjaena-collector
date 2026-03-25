@@ -25,5 +25,5 @@ dissect.hypervisor>=3.14
 dissect.extfs>=3.12       # ext2/ext3/ext4
 dissect.fat>=3.12         # FAT12/FAT16/FAT32/exFAT
 dissect.xfs>=3.12         # XFS
-dissect.btrfs>=3.12       # Btrfs
+dissect.btrfs>=1.8        # Btrfs (1.x series)
 dissect.ffs>=3.12         # UFS/FFS
