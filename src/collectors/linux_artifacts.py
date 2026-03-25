@@ -746,6 +746,546 @@ LINUX_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
         'category': 'system_config',
         'os_type': 'linux',
     },
+
+    'linux_sysctl': {
+        'paths': [
+            '/etc/sysctl.conf',
+            '/etc/sysctl.d/*.conf',
+        ],
+        'description': 'Kernel parameter configuration (network forwarding, ASLR)',
+        'forensic_value': 'high',
+        'category': 'system_config',
+        'os_type': 'linux',
+    },
+
+    'linux_login_defs': {
+        'paths': [
+            '/etc/login.defs',
+        ],
+        'description': 'Login policy (password aging, UID ranges)',
+        'forensic_value': 'medium',
+        'category': 'authentication',
+        'os_type': 'linux',
+    },
+
+    'linux_selinux': {
+        'paths': [
+            '/etc/selinux/config',
+        ],
+        'description': 'SELinux security configuration',
+        'forensic_value': 'high',
+        'category': 'security',
+        'os_type': 'linux',
+    },
+
+    'linux_apparmor': {
+        'paths': [
+            '/etc/apparmor.d/*',
+            '/etc/apparmor/parser.conf',
+        ],
+        'description': 'AppArmor mandatory access control profiles',
+        'forensic_value': 'high',
+        'category': 'security',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional User Activity
+    # ==========================================================================
+
+    'linux_python_history': {
+        'paths': [
+            '/home/*/.python_history',
+            '/root/.python_history',
+        ],
+        'description': 'Python interactive shell history',
+        'forensic_value': 'high',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_mysql_history': {
+        'paths': [
+            '/home/*/.mysql_history',
+            '/root/.mysql_history',
+        ],
+        'description': 'MySQL CLI command history',
+        'forensic_value': 'high',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_psql_history': {
+        'paths': [
+            '/home/*/.psql_history',
+            '/root/.psql_history',
+        ],
+        'description': 'PostgreSQL CLI command history',
+        'forensic_value': 'high',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_lesshst': {
+        'paths': [
+            '/home/*/.lesshst',
+            '/root/.lesshst',
+        ],
+        'description': 'Less pager search and command history',
+        'forensic_value': 'medium',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_nano_history': {
+        'paths': [
+            '/home/*/.nano/search_history',
+            '/root/.nano/search_history',
+        ],
+        'description': 'Nano editor search history',
+        'forensic_value': 'medium',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_wget_hsts': {
+        'paths': [
+            '/home/*/.wget-hsts',
+            '/root/.wget-hsts',
+        ],
+        'description': 'Wget HSTS cache (evidence of file downloads)',
+        'forensic_value': 'high',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_xsession_errors': {
+        'paths': [
+            '/home/*/.xsession-errors',
+            '/home/*/.xsession-errors.old',
+        ],
+        'description': 'X11 session errors (GUI application crashes, execution evidence)',
+        'forensic_value': 'medium',
+        'category': 'user_activity',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    # ==========================================================================
+    # Additional Authentication & Security
+    # ==========================================================================
+
+    'linux_pam_config': {
+        'paths': [
+            '/etc/pam.d/common-auth',
+            '/etc/pam.d/common-password',
+            '/etc/pam.d/sshd',
+            '/etc/pam.d/sudo',
+            '/etc/pam.d/login',
+            '/etc/pam.d/su',
+        ],
+        'description': 'PAM authentication module configuration',
+        'forensic_value': 'critical',
+        'category': 'authentication',
+        'os_type': 'linux',
+    },
+
+    'linux_security_limits': {
+        'paths': [
+            '/etc/security/limits.conf',
+            '/etc/security/limits.d/*',
+            '/etc/security/access.conf',
+        ],
+        'description': 'Security limits and access control configuration',
+        'forensic_value': 'medium',
+        'category': 'security',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional System Logs
+    # ==========================================================================
+
+    'linux_journald': {
+        'paths': [
+            '/var/log/journal/*/*.journal',
+            '/var/log/journal/*/*.journal~',
+        ],
+        'description': 'Systemd journal binary logs (persistent journald)',
+        'forensic_value': 'critical',
+        'category': 'system_logs',
+        'os_type': 'linux',
+    },
+
+    'linux_ufw_log': {
+        'paths': [
+            '/var/log/ufw.log',
+            '/var/log/ufw.log.*',
+        ],
+        'description': 'UFW firewall log (Debian/Ubuntu)',
+        'forensic_value': 'high',
+        'category': 'network',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional Network
+    # ==========================================================================
+
+    'linux_networkmanager': {
+        'paths': [
+            '/etc/NetworkManager/NetworkManager.conf',
+            '/etc/NetworkManager/system-connections/*',
+        ],
+        'description': 'NetworkManager configuration and saved connections (may contain WiFi PSK)',
+        'forensic_value': 'high',
+        'category': 'network',
+        'os_type': 'linux',
+    },
+
+    'linux_wifi_config': {
+        'paths': [
+            '/etc/wpa_supplicant/wpa_supplicant.conf',
+            '/etc/wpa_supplicant/*.conf',
+        ],
+        'description': 'WPA supplicant WiFi configuration (SSID, PSK)',
+        'forensic_value': 'high',
+        'category': 'network',
+        'os_type': 'linux',
+    },
+
+    'linux_nftables': {
+        'paths': [
+            '/etc/nftables.conf',
+            '/etc/nftables.d/*.nft',
+        ],
+        'description': 'nftables firewall rules',
+        'forensic_value': 'high',
+        'category': 'network',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional Persistence Mechanisms
+    # ==========================================================================
+
+    'linux_systemd_generators': {
+        'paths': [
+            '/etc/systemd/system-generators/*',
+            '/usr/lib/systemd/system-generators/*',
+        ],
+        'description': 'Systemd generators (run at boot before services)',
+        'forensic_value': 'critical',
+        'category': 'persistence',
+        'os_type': 'linux',
+    },
+
+    'linux_udev_rules': {
+        'paths': [
+            '/etc/udev/rules.d/*.rules',
+            '/usr/lib/udev/rules.d/*.rules',
+        ],
+        'description': 'Udev device event rules (triggers on device insertion)',
+        'forensic_value': 'high',
+        'category': 'persistence',
+        'os_type': 'linux',
+    },
+
+    'linux_motd': {
+        'paths': [
+            '/etc/motd',
+            '/etc/update-motd.d/*',
+        ],
+        'description': 'Message of the day scripts (executed at login)',
+        'forensic_value': 'medium',
+        'category': 'persistence',
+        'os_type': 'linux',
+    },
+
+    'linux_xprofile': {
+        'paths': [
+            '/home/*/.xprofile',
+            '/home/*/.xinitrc',
+            '/home/*/.xsessionrc',
+            '/etc/X11/Xsession.d/*',
+        ],
+        'description': 'X11 login scripts (persistence via GUI session)',
+        'forensic_value': 'high',
+        'category': 'persistence',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    # ==========================================================================
+    # Additional Web Server / Application Logs
+    # ==========================================================================
+
+    'linux_apache_config': {
+        'paths': [
+            '/etc/apache2/apache2.conf',
+            '/etc/apache2/sites-enabled/*',
+            '/etc/httpd/conf/httpd.conf',
+            '/etc/httpd/conf.d/*',
+        ],
+        'description': 'Apache web server configuration',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    'linux_nginx_config': {
+        'paths': [
+            '/etc/nginx/nginx.conf',
+            '/etc/nginx/sites-enabled/*',
+            '/etc/nginx/conf.d/*',
+        ],
+        'description': 'Nginx web server configuration',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    'linux_php_log': {
+        'paths': [
+            '/var/log/php*.log',
+            '/var/log/php-fpm/*.log',
+        ],
+        'description': 'PHP error and FPM logs',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional Container / Virtualization
+    # ==========================================================================
+
+    'linux_docker_containers': {
+        'paths': [
+            '/var/lib/docker/containers/*/*-json.log',
+        ],
+        'description': 'Docker container stdout/stderr logs',
+        'forensic_value': 'high',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    'linux_podman': {
+        'paths': [
+            '/home/*/.config/containers/containers.conf',
+            '/etc/containers/containers.conf',
+            '/etc/containers/registries.conf',
+        ],
+        'description': 'Podman container engine configuration',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    'linux_libvirt': {
+        'paths': [
+            '/etc/libvirt/qemu/*.xml',
+            '/var/log/libvirt/qemu/*.log',
+        ],
+        'description': 'KVM/QEMU virtual machine definitions and logs',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional Database Artifacts
+    # ==========================================================================
+
+    'linux_redis': {
+        'paths': [
+            '/etc/redis/redis.conf',
+            '/etc/redis.conf',
+            '/var/log/redis/redis-server.log',
+        ],
+        'description': 'Redis configuration and server log',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    'linux_mongodb': {
+        'paths': [
+            '/etc/mongod.conf',
+            '/var/log/mongodb/mongod.log',
+        ],
+        'description': 'MongoDB configuration and server log',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+    },
+
+    # ==========================================================================
+    # Additional Application Artifacts
+    # ==========================================================================
+
+    'linux_thunderbird': {
+        'paths': [
+            '/home/*/.thunderbird/*.default*/prefs.js',
+            '/home/*/.thunderbird/*.default*/global-messages-db.sqlite',
+            '/home/*/.thunderbird/*.default*/places.sqlite',
+        ],
+        'description': 'Thunderbird email client data',
+        'forensic_value': 'high',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_aws_credentials': {
+        'paths': [
+            '/home/*/.aws/credentials',
+            '/home/*/.aws/config',
+            '/root/.aws/credentials',
+        ],
+        'description': 'AWS CLI credentials and configuration',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_gcloud_config': {
+        'paths': [
+            '/home/*/.config/gcloud/properties',
+            '/home/*/.config/gcloud/credentials.db',
+            '/home/*/.config/gcloud/access_tokens.db',
+        ],
+        'description': 'Google Cloud SDK configuration and credentials',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_azure_config': {
+        'paths': [
+            '/home/*/.azure/azureProfile.json',
+            '/home/*/.azure/accessTokens.json',
+            '/home/*/.azure/msal_token_cache.json',
+        ],
+        'description': 'Azure CLI configuration and token cache',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_kubectl_config': {
+        'paths': [
+            '/home/*/.kube/config',
+            '/root/.kube/config',
+        ],
+        'description': 'Kubernetes kubectl configuration (cluster credentials)',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_screen_tmux': {
+        'paths': [
+            '/home/*/.screenrc',
+            '/home/*/.tmux.conf',
+            '/tmp/tmux-*/default',
+        ],
+        'description': 'Screen/tmux configuration and socket files',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_npm_config': {
+        'paths': [
+            '/home/*/.npmrc',
+            '/root/.npmrc',
+        ],
+        'description': 'NPM configuration (may contain auth tokens)',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_pip_config': {
+        'paths': [
+            '/home/*/.pip/pip.conf',
+            '/home/*/.config/pip/pip.conf',
+            '/etc/pip.conf',
+        ],
+        'description': 'Python pip configuration (may contain index URLs, credentials)',
+        'forensic_value': 'medium',
+        'category': 'applications',
+        'os_type': 'linux',
+        'path_optional': True,
+    },
+
+    'linux_env_files': {
+        'paths': [
+            '/etc/environment',
+            '/etc/default/locale',
+        ],
+        'description': 'System-wide environment variables',
+        'forensic_value': 'medium',
+        'category': 'system_config',
+        'os_type': 'linux',
+    },
+
+    'linux_crypttab': {
+        'paths': [
+            '/etc/crypttab',
+        ],
+        'description': 'Encrypted device mapping (LUKS volumes)',
+        'forensic_value': 'high',
+        'category': 'system_config',
+        'os_type': 'linux',
+    },
+
+    'linux_cups_log': {
+        'paths': [
+            '/var/log/cups/access_log',
+            '/var/log/cups/error_log',
+        ],
+        'description': 'CUPS printing system log (document exfiltration evidence)',
+        'forensic_value': 'medium',
+        'category': 'system_logs',
+        'os_type': 'linux',
+    },
+
+    'linux_snap_log': {
+        'paths': [
+            '/var/log/syslog',          # snap logs via syslog
+            '/var/snap/*/common/*.log',
+        ],
+        'description': 'Snap package application logs',
+        'forensic_value': 'low',
+        'category': 'package_manager',
+        'os_type': 'linux',
+    },
+
+    'linux_dmesg': {
+        'paths': [
+            '/var/log/dmesg',
+            '/var/log/dmesg.0',
+            '/var/log/dmesg.1.gz',
+        ],
+        'description': 'Kernel ring buffer dump (USB insertions, hardware changes)',
+        'forensic_value': 'high',
+        'category': 'system_logs',
+        'os_type': 'linux',
+    },
 }
 
 
