@@ -88,6 +88,14 @@ _DISSECT_FS_MAP = {
     'APFS':  ('dissect.apfs',  'APFS'),
 }
 
+# APFS is a container-based filesystem (Container → Volumes → Files).
+# dissect.apfs.APFS() opens the container; individual volumes must be
+# selected before filesystem operations.  We store the selected APFS
+# Volume object in self._dissect_fs (it exposes .root, .get(), same as
+# other dissect FS objects) and keep a reference to the container in
+# self._apfs_container so we can list volumes.
+_APFS_FILESYSTEMS = frozenset({'APFS'})
+
 # HFS+ uses pyfshfs (libfshfs) — separate from dissect
 _HFS_FILESYSTEMS = frozenset({'HFS', 'HFS+', 'HFSX'})
 
@@ -322,6 +330,20 @@ def _node_is_dir(node, fs_type: str) -> bool:
             # Fallback: directories have sub_file_entries
             if hasattr(node, 'number_of_sub_file_entries'):
                 return node.number_of_sub_file_entries > 0
+            return False
+
+        # APFS INode: check type attribute or mode
+        if fs_type in _APFS_FILESYSTEMS:
+            # dissect.apfs INode exposes .type (int, S_IFMT value)
+            if hasattr(node, 'type'):
+                return node.type == stat.S_IFDIR
+            # Fallback: check if listdir() is available and works
+            if hasattr(node, 'listdir'):
+                try:
+                    node.listdir()
+                    return True
+                except Exception:
+                    return False
             return False
 
         # Btrfs / FFS have explicit is_dir()
@@ -615,6 +637,10 @@ class ForensicDiskAccessor:
         self._dissect_fh: Optional[Any] = None       # CachedBackendIO
         self._dissect_fs_type: Optional[str] = None  # Filesystem type string
 
+        # APFS container reference (Container holds Volumes; _dissect_fs
+        # stores the selected Volume, _apfs_container keeps the parent)
+        self._apfs_container: Optional[Any] = None
+
         # MFT index cache (path -> inode)
         self._path_cache: Dict[str, int] = {}
 
@@ -903,7 +929,7 @@ class ForensicDiskAccessor:
         return f"{part1:08X}-{part2:04X}-{part3:04X}-{part4}-{part5}"
 
     def _detect_filesystem(self, partition_offset: int) -> str:
-        """Detect filesystem type (supports NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+)"""
+        """Detect filesystem type (NTFS, FAT, exFAT, ext2/3/4, APFS, HFS+, XFS, Btrfs, UFS)"""
         try:
             vbr = self._backend.read(partition_offset, 512)
 
@@ -969,6 +995,29 @@ class ForensicDiskAccessor:
                         return 'ext2'
                 return 'ext4'  # Default
 
+            # XFS (superblock magic 'XFSB' at offset 0)
+            if vbr[0:4] == b'XFSB':
+                return 'XFS'
+
+            # Btrfs (superblock magic '_BHRfS_M' at offset 0x10040)
+            try:
+                btrfs_sb = self._backend.read(partition_offset + 0x10040, 8)
+                if btrfs_sb == b'_BHRfS_M':
+                    return 'Btrfs'
+            except Exception:
+                pass
+
+            # UFS2 (superblock magic 0x19540119 at offset 8192+1372)
+            try:
+                ufs_sb = self._backend.read(partition_offset + 8192 + 1372, 4)
+                if struct.unpack('>I', ufs_sb)[0] == 0x19540119:
+                    return 'UFS'
+                # UFS1 (magic 0x00011954 at offset 8192+1372)
+                if struct.unpack('<I', ufs_sb)[0] == 0x00011954:
+                    return 'UFS'
+            except Exception:
+                pass
+
         except Exception as e:
             logger.debug(f"Filesystem detection failed: {e}")
 
@@ -1017,6 +1066,13 @@ class ForensicDiskAccessor:
             except Exception:
                 pass
         self._dissect_fs = None
+        if self._apfs_container is not None:
+            try:
+                if hasattr(self._apfs_container, 'close'):
+                    self._apfs_container.close()
+            except Exception:
+                pass
+        self._apfs_container = None
         if self._dissect_fh is not None:
             try:
                 self._dissect_fh.close()
@@ -1057,14 +1113,29 @@ class ForensicDiskAccessor:
                         offset=partition.offset,
                         size=partition.size
                     )
-                    self._dissect_fs = fs_class(self._dissect_fh)
-                    self._dissect_fs_type = partition.filesystem
-                    # No FileContentExtractor needed -- dissect handles everything
-                    self._extractor = None
-                    logger.info(
-                        f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
-                        f"(dissect extraction enabled)"
-                    )
+
+                    if partition.filesystem in _APFS_FILESYSTEMS:
+                        # APFS: Container → Volumes → Files
+                        # fs_class is dissect.apfs.APFS which opens the container
+                        container = fs_class(self._dissect_fh)
+                        volume = self._apfs_select_data_volume(container)
+                        self._apfs_container = container
+                        self._dissect_fs = volume  # Volume has .root, .get(), .name
+                        self._dissect_fs_type = 'APFS'
+                        self._extractor = None
+                        logger.info(
+                            f"Selected partition {index}: APFS at offset {partition.offset} "
+                            f"(volume: '{volume.name}', {len(container.volumes)} volumes in container)"
+                        )
+                    else:
+                        self._dissect_fs = fs_class(self._dissect_fh)
+                        self._dissect_fs_type = partition.filesystem
+                        # No FileContentExtractor needed -- dissect handles everything
+                        self._extractor = None
+                        logger.info(
+                            f"Selected partition {index}: {partition.filesystem} at offset {partition.offset} "
+                            f"(dissect extraction enabled)"
+                        )
                 except Exception as e:
                     logger.error(f"dissect failed to open filesystem at partition {index}: {e}")
                     # Fallback to basic FileContentExtractor
@@ -1076,6 +1147,7 @@ class ForensicDiskAccessor:
                     self._dissect_fs = None
                     self._dissect_fh = None
                     self._dissect_fs_type = None
+                    self._apfs_container = None
                     self._extractor = FileContentExtractor(
                         disk=self._backend,
                         partition_offset=partition.offset,
@@ -1872,6 +1944,124 @@ class ForensicDiskAccessor:
         return None
 
     # ==========================================================================
+    # APFS Container → Volume Helpers
+    # ==========================================================================
+
+    @staticmethod
+    def _apfs_select_data_volume(container):
+        """
+        Select the most forensically relevant APFS volume from a container.
+
+        APFS containers typically hold multiple volumes:
+          - "Macintosh HD - Data"  (user data — most valuable for forensics)
+          - "Macintosh HD"         (system volume — /usr, /bin, /sbin)
+          - "Preboot", "Recovery", "VM", "Update"  (infrastructure)
+
+        Selection priority:
+          1. Volume whose name contains "Data" (case-insensitive)
+          2. Volume with a /Users directory (data volume indicator)
+          3. Largest non-infrastructure volume
+          4. First volume (fallback)
+
+        Args:
+            container: dissect.apfs.APFS container object
+
+        Returns:
+            An APFS Volume object whose .root / .get() / .name are usable.
+
+        Raises:
+            FilesystemError: No volumes found in the container.
+        """
+        volumes = container.volumes
+        if not volumes:
+            raise FilesystemError("APFS container has no volumes")
+
+        if len(volumes) == 1:
+            logger.info(f"APFS: single volume '{volumes[0].name}'")
+            return volumes[0]
+
+        vol_names = [v.name for v in volumes]
+        logger.info(f"APFS: {len(volumes)} volumes: {vol_names}")
+
+        # 1) Name contains "Data" (e.g. "Macintosh HD - Data", "Macintosh HD - データ")
+        for vol in volumes:
+            name_lower = (vol.name or '').lower()
+            if 'data' in name_lower or '\u30c7\u30fc\u30bf' in (vol.name or ''):
+                logger.info(f"APFS: selected data volume by name: '{vol.name}'")
+                return vol
+
+        # 2) Volume that has /Users directory
+        _INFRA_NAMES = frozenset({'preboot', 'recovery', 'vm', 'update'})
+        for vol in volumes:
+            name_lower = (vol.name or '').lower()
+            if name_lower in _INFRA_NAMES:
+                continue
+            try:
+                root = vol.root
+                children = root.listdir()
+                child_names = {name.lower() for name, _inode in children}
+                if 'users' in child_names:
+                    logger.info(f"APFS: selected volume with /Users: '{vol.name}'")
+                    return vol
+            except Exception:
+                continue
+
+        # 3) Largest non-infrastructure volume
+        best_vol = None
+        best_size = -1
+        for vol in volumes:
+            name_lower = (vol.name or '').lower()
+            if name_lower in _INFRA_NAMES:
+                continue
+            try:
+                # Estimate volume size from block count if available
+                vol_size = 0
+                if hasattr(vol, 'block_count') and hasattr(container, 'block_size'):
+                    vol_size = vol.block_count * container.block_size
+                elif hasattr(vol, 'size'):
+                    vol_size = vol.size
+                if vol_size > best_size:
+                    best_size = vol_size
+                    best_vol = vol
+            except Exception:
+                if best_vol is None:
+                    best_vol = vol
+
+        if best_vol is not None:
+            logger.info(f"APFS: selected largest volume: '{best_vol.name}'")
+            return best_vol
+
+        # 4) Fallback to first volume
+        logger.info(f"APFS: fallback to first volume: '{volumes[0].name}'")
+        return volumes[0]
+
+    def _apfs_list_volumes(self) -> List[Dict[str, Any]]:
+        """
+        List all APFS volumes in the current container.
+
+        Returns a list of dicts with volume info for display in
+        list_partitions() or diagnostic output.
+        """
+        container = self._apfs_container
+        if container is None:
+            return []
+
+        result = []
+        for i, vol in enumerate(container.volumes):
+            info = {
+                'index': i,
+                'name': vol.name or f'<unnamed-{i}>',
+            }
+            # Estimate size if possible
+            try:
+                if hasattr(vol, 'block_count') and hasattr(container, 'block_size'):
+                    info['size'] = vol.block_count * container.block_size
+            except Exception:
+                pass
+            result.append(info)
+        return result
+
+    # ==========================================================================
     # dissect-based Methods (non-NTFS filesystem support)
     # ==========================================================================
 
@@ -1955,7 +2145,8 @@ class ForensicDiskAccessor:
         Yields (filename, child_node) tuples.  Handles the API differences
         between ExtFS/XFS (iterdir yields INode with .filename), FATFS
         (iterdir yields DirectoryEntry with .name), Btrfs (iterdir yields
-        (name, INode) tuples), and FFS (iterdir yields INode with .name).
+        (name, INode) tuples), APFS (listdir yields (name, INode) tuples),
+        and FFS (iterdir yields INode with .name).
         """
         fs_type = self._dissect_fs_type
 
@@ -1974,6 +2165,20 @@ class ForensicDiskAccessor:
                         if fname in ('.', '..', '', './', '../'):
                             continue
                         yield (fname, child)
+                    except Exception:
+                        continue
+                return
+
+            # APFS: use iterdir() which yields DirectoryEntry objects with .name and .inode
+            # (listdir() only yields name strings without INode references)
+            if fs_type in _APFS_FILESYSTEMS:
+                for entry in node.iterdir():
+                    try:
+                        name = entry.name if hasattr(entry, 'name') else str(entry)
+                        child_node = entry.inode if hasattr(entry, 'inode') else entry
+                        if name in ('.', '..'):
+                            continue
+                        yield (name, child_node)
                     except Exception:
                         continue
                 return
@@ -2123,6 +2328,9 @@ class ForensicDiskAccessor:
         try:
             if fs_type in _HFS_FILESYSTEMS:
                 root = self._dissect_fs.get_root_directory()
+            elif fs_type in _APFS_FILESYSTEMS:
+                # self._dissect_fs is an APFS Volume; .root is the root INode
+                root = self._dissect_fs.root
             else:
                 root = self._dissect_fs.get("/")
             _walk(root, "", 0)
@@ -2463,6 +2671,8 @@ class ForensicDiskAccessor:
         try:
             if fs_type in _HFS_FILESYSTEMS:
                 root = self._dissect_fs.get_root_directory()
+            elif fs_type in _APFS_FILESYSTEMS:
+                root = self._dissect_fs.root
             else:
                 root = self._dissect_fs.get("/")
             _walk(root, "", 0)
