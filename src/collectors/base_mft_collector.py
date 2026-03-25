@@ -27,6 +27,7 @@ Usage:
         print(f"Collected: {path}")
 """
 
+import os
 import re
 import hashlib
 import itertools
@@ -880,7 +881,29 @@ class BaseMFTCollector(ABC):
             )
             return
 
-        # Regular artifact collection (MFT filter-based)
+        # For non-NTFS filesystems with 'paths' filter, use direct path access
+        # instead of full scan + pattern matching (which fails on large volumes
+        # because DFS scan may not reach target paths within the entry limit)
+        artifact_paths = mft_filter.get('paths', [])
+        use_direct_access = (
+            artifact_paths
+            and self._accessor
+            and getattr(self._accessor, '_dissect_fs', None) is not None
+            and getattr(self._accessor, '_extractor', None) is None  # Not NTFS
+        )
+
+        if use_direct_access:
+            logger.info(f"[{source}] Collecting {artifact_type} via direct path access ({len(artifact_paths)} paths)")
+            extracted_count = 0
+            for result in self._collect_by_direct_paths(artifact_type, artifact_paths, artifact_dir):
+                extracted_count += 1
+                yield result
+                if progress_callback:
+                    progress_callback(result[0])
+            logger.info(f"[{source}] Collected {extracted_count:,} {artifact_type} artifacts (direct access)")
+            return
+
+        # NTFS: Regular artifact collection (MFT filter-based full scan)
         logger.info(f"[{source}] Collecting {artifact_type} using MFT filter...")
 
         extracted_count = 0
@@ -891,6 +914,158 @@ class BaseMFTCollector(ABC):
                 progress_callback(result[0])
 
         logger.info(f"[{source}] Collected {extracted_count:,} {artifact_type} artifacts")
+
+    def _collect_by_direct_paths(
+        self,
+        artifact_type: str,
+        artifact_paths: list,
+        artifact_dir: Path
+    ):
+        """
+        Collect artifacts by directly accessing known paths on non-NTFS filesystems.
+
+        Instead of scanning the entire filesystem and pattern-matching (which fails
+        on large APFS/HFS+ volumes because DFS traversal may never reach target paths
+        within the scan entry limit), this method uses fs.get(path) to directly
+        access each known artifact path.
+
+        For glob patterns like '/Users/*/.zsh_history', it lists the parent directory
+        and iterates matching entries.
+        """
+        import glob as _glob_mod
+
+        accessor = self._accessor
+        collected = 0
+
+        for path_pattern in artifact_paths:
+            path_pattern = path_pattern.rstrip('/')
+
+            # Check if pattern contains glob wildcards
+            if '*' in path_pattern:
+                # Split into fixed prefix and glob suffix
+                # e.g. '/Users/*/.zsh_history' -> parent='/Users', pattern='*/.zsh_history'
+                parts = path_pattern.lstrip('/').split('/')
+                fixed_parts = []
+                for p in parts:
+                    if '*' in p:
+                        break
+                    fixed_parts.append(p)
+
+                parent_path = '/' + '/'.join(fixed_parts) if fixed_parts else '/'
+                glob_suffix = '/'.join(parts[len(fixed_parts):])
+
+                try:
+                    if not accessor.path_exists(parent_path):
+                        continue
+
+                    parent_entries = accessor.list_directory(parent_path)
+                    for entry in parent_entries:
+                        if not entry.is_directory:
+                            continue
+                        # For '/Users/*/.zsh_history' with parent='/Users' and entry='john':
+                        # try '/Users/john/.zsh_history'
+                        remaining = glob_suffix.replace('*', entry.filename, 1)
+                        full_path = f"{parent_path}/{remaining}".replace('//', '/')
+
+                        if '*' in full_path:
+                            # Still has wildcards (nested glob) — list and match
+                            dir_path = '/'.join(full_path.split('/')[:-1])
+                            file_pattern = full_path.split('/')[-1]
+                            try:
+                                if not accessor.path_exists(dir_path):
+                                    continue
+                                dir_entries = accessor.list_directory(dir_path)
+                                for de in dir_entries:
+                                    if de.is_directory:
+                                        continue
+                                    import fnmatch
+                                    if fnmatch.fnmatch(de.filename, file_pattern):
+                                        target = f"{dir_path}/{de.filename}"
+                                        yield from self._extract_direct_path(
+                                            accessor, target, artifact_type, artifact_dir
+                                        )
+                                        collected += 1
+                            except Exception:
+                                continue
+                        else:
+                            # Fully resolved path
+                            try:
+                                if accessor.path_exists(full_path):
+                                    yield from self._extract_direct_path(
+                                        accessor, full_path, artifact_type, artifact_dir
+                                    )
+                                    collected += 1
+                            except Exception:
+                                continue
+                except Exception as e:
+                    logger.debug(f"[direct_paths] Glob expansion failed for {path_pattern}: {e}")
+                    continue
+            else:
+                # Exact path — direct access
+                try:
+                    if accessor.path_exists(path_pattern):
+                        yield from self._extract_direct_path(
+                            accessor, path_pattern, artifact_type, artifact_dir
+                        )
+                        collected += 1
+                except Exception as e:
+                    logger.debug(f"[direct_paths] Access failed for {path_pattern}: {e}")
+
+        logger.info(f"[direct_paths] {artifact_type}: {collected} file(s) collected from {len(artifact_paths)} path(s)")
+
+    def _extract_direct_path(self, accessor, file_path: str, artifact_type: str, artifact_dir: Path):
+        """Extract a single file by direct path access and yield (local_path, metadata)."""
+        import hashlib
+        from datetime import datetime, timezone
+
+        try:
+            filename = file_path.split('/')[-1]
+            safe_subdir = file_path.lstrip('/').replace('/', os.sep)
+            local_path = artifact_dir / safe_subdir
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Stream file content
+            md5 = hashlib.md5()
+            sha256 = hashlib.sha256()
+            total_bytes = 0
+
+            try:
+                with open(local_path, 'wb') as out_f:
+                    for chunk in accessor.stream_file(file_path):
+                        out_f.write(chunk)
+                        md5.update(chunk)
+                        sha256.update(chunk)
+                        total_bytes += len(chunk)
+            except Exception:
+                # Fallback to read_file for small files
+                data = accessor.read_file(file_path)
+                if data:
+                    local_path.write_bytes(data)
+                    md5.update(data)
+                    sha256.update(data)
+                    total_bytes = len(data)
+
+            if total_bytes == 0:
+                if local_path.exists():
+                    local_path.unlink()
+                return
+
+            metadata = {
+                'artifact_type': artifact_type,
+                'name': filename,
+                'original_path': file_path,
+                'size': total_bytes,
+                'hash_md5': md5.hexdigest(),
+                'hash_sha256': sha256.hexdigest(),
+                'collection_method': 'direct_path_access',
+                'collected_at': datetime.now(timezone.utc).isoformat(),
+                'source': self._get_source_description(),
+            }
+
+            yield (str(local_path), metadata)
+
+        except Exception as e:
+            logger.debug(f"[direct_paths] Extract failed for {file_path}: {e}")
 
     def _collect_by_mft_filter(
         self,
