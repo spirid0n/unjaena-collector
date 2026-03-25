@@ -924,10 +924,11 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
 
     'macos_kakaotalk_credentials': {
         'paths': [
-            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Cookies/Cookies.binarycookies',
-            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Application Support/KakaoTalk/talk.db',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Application Support/com.kakao.KakaoTalkMac/*',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Cookies/*',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Preferences/*.plist',
         ],
-        'description': 'KakaoTalk login data and message database',
+        'description': 'KakaoTalk login data and message database (hash-named DB files)',
         'forensic_value': 'critical',
         'category': 'applications',
         'os_type': 'macos',
