@@ -860,17 +860,12 @@ class BaseMFTCollector(ABC):
         source = self._get_source_description()
         logger.info(f"[{source}] Collecting {artifact_type}, filter={mft_filter}")
 
-        # Build MFT index (first time only)
-        if not self._mft_indexed:
-            self._build_mft_index()
-
         # Per-artifact output directory
         artifact_dir = self.output_dir / artifact_type
         artifact_dir.mkdir(exist_ok=True)
 
         # Handle special artifacts ($MFT, $LogFile, $UsnJrnl) — NTFS only
         if 'special' in mft_filter:
-            # Skip NTFS-specific special artifacts on non-NTFS filesystems
             os_type = mft_filter.get('os_type', 'windows')
             if os_type != 'windows':
                 logger.debug(f"[{source}] Skipping NTFS special artifact {artifact_type} on {os_type}")
@@ -882,6 +877,7 @@ class BaseMFTCollector(ABC):
             return
 
         # For non-NTFS filesystems with 'paths' filter, use direct path access
+        # BEFORE building MFT index (skip the expensive full scan entirely)
         # instead of full scan + pattern matching (which fails on large volumes
         # because DFS scan may not reach target paths within the entry limit)
         artifact_paths = mft_filter.get('paths', [])
@@ -903,7 +899,10 @@ class BaseMFTCollector(ABC):
             logger.info(f"[{source}] Collected {extracted_count:,} {artifact_type} artifacts (direct access)")
             return
 
-        # NTFS: Regular artifact collection (MFT filter-based full scan)
+        # NTFS: Build MFT index (first time only) then filter-based collection
+        if not self._mft_indexed:
+            self._build_mft_index()
+
         logger.info(f"[{source}] Collecting {artifact_type} using MFT filter...")
 
         extracted_count = 0
