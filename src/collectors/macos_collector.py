@@ -29,6 +29,8 @@ import glob
 import hashlib
 import plistlib
 import logging
+import platform
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Generator, Dict, Any, Optional, List, Tuple
@@ -457,6 +459,74 @@ MACOS_ARTIFACT_TYPES = {
         'mitre_attack': 'T1059.004',
         'kill_chain_phase': 'execution',
     },
+
+    # ==========================================================================
+    # Messenger Applications (P1 - Chat History)
+    # ==========================================================================
+    'macos_whatsapp': {
+        'name': 'WhatsApp macOS',
+        'description': 'WhatsApp macOS message database and media',
+        'paths': [
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite-wal',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite-shm',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Contacts.sqlite',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Media/*',
+        ],
+        'forensic_value': 'critical',
+        'mitre_attack': 'T1005',
+        'kill_chain_phase': 'collection',
+    },
+    'macos_wechat': {
+        'name': 'WeChat macOS',
+        'description': 'WeChat macOS message databases',
+        'paths': [
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*.db',
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*.db-wal',
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*/*.db',
+        ],
+        'forensic_value': 'critical',
+        'mitre_attack': 'T1005',
+        'kill_chain_phase': 'collection',
+    },
+    'macos_line': {
+        'name': 'LINE macOS',
+        'description': 'LINE macOS message databases',
+        'paths': [
+            '/Users/*/Library/Containers/jp.naver.line.mac/Data/Library/Application Support/LINE/Data/db/*.edb',
+            '/Users/*/Library/Containers/Line/Data/Library/Container/jp.naver.line/Data/db/*.edb',
+            '/Users/*/Library/Containers/jp.naver.line.mac/Data/Library/Application Support/LINE/Data/db/*.sqlite',
+        ],
+        'forensic_value': 'critical',
+        'mitre_attack': 'T1005',
+        'kill_chain_phase': 'collection',
+    },
+    'macos_signal': {
+        'name': 'Signal macOS',
+        'description': 'Signal macOS database and config',
+        'paths': [
+            '/Users/*/Library/Application Support/Signal/sql/db.sqlite',
+            '/Users/*/Library/Application Support/Signal/config.json',
+            '/Users/*/Library/Application Support/Signal/sql/db.sqlite-wal',
+        ],
+        'forensic_value': 'critical',
+        'mitre_attack': 'T1005',
+        'kill_chain_phase': 'collection',
+    },
+
+    # ==========================================================================
+    # Process Memory Dumps
+    # ==========================================================================
+    'macos_process_memory': {
+        'name': 'Process Memory Dumps',
+        'description': 'Process memory dumps',
+        'paths': [
+            '/tmp/forensic_memdump_*.bin',
+        ],
+        'forensic_value': 'critical',
+        'mitre_attack': 'T1005',
+        'kill_chain_phase': 'collection',
+    },
 }
 
 
@@ -759,6 +829,326 @@ class macOSCollector:
                     pass
 
         return info
+
+    # ==================================================================
+    # Process Memory Dump
+    # ==================================================================
+    MEMDUMP_TARGET_PROCESSES = {
+        'WeChat': 'wechat',
+        'LINE': 'line',
+    }
+
+    def dump_process_memory(
+        self,
+        output_dir: Optional[str] = None,
+        target_processes: Optional[Dict[str, str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Dump process memory for specified running applications.
+
+        Uses macOS-native tools (vmmap + memory read via lldb) to create
+        memory dumps of running messenger processes. Requires root/sudo.
+
+        This method ONLY collects raw memory. No decryption or key
+        extraction is performed here.
+
+        Args:
+            output_dir: Directory for dump files (default: /tmp)
+            target_processes: Dict of {process_name: output_label}
+                             (default: MEMDUMP_TARGET_PROCESSES)
+
+        Returns:
+            List of dicts with dump results (path, pid, size, success)
+        """
+        if platform.system() != 'Darwin':
+            logger.warning("[macOSCollector] Process memory dump is only supported on macOS")
+            return []
+
+        if target_processes is None:
+            target_processes = self.MEMDUMP_TARGET_PROCESSES
+
+        dump_dir = output_dir or '/tmp'
+        results = []
+
+        for process_name, output_label in target_processes.items():
+            try:
+                result = self._dump_single_process(process_name, output_label, dump_dir)
+                if result:
+                    results.append(result)
+            except Exception as e:
+                logger.error(f"[macOSCollector] Failed to dump {process_name}: {e}")
+                results.append({
+                    'process_name': process_name,
+                    'success': False,
+                    'error': str(e),
+                })
+
+        return results
+
+    def _dump_single_process(
+        self,
+        process_name: str,
+        output_label: str,
+        dump_dir: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Dump memory of a single process using macOS native tools.
+
+        Strategy:
+        1. Find PID via pgrep
+        2. Use vmmap to identify writable heap/data regions
+        3. Read memory regions via lldb batch mode
+        4. Write concatenated regions to output file
+
+        Args:
+            process_name: Name of the process (e.g., 'WeChat')
+            output_label: Label for output file (e.g., 'wechat')
+            dump_dir: Output directory
+
+        Returns:
+            Dict with dump result or None if process not found
+        """
+        # Step 1: Find PID
+        pid = self._find_process_pid(process_name)
+        if pid is None:
+            _debug_print(f"[macOSCollector] Process not running: {process_name}")
+            return None
+
+        logger.info(f"[macOSCollector] Found {process_name} (PID: {pid}), starting memory dump")
+
+        output_path = os.path.join(dump_dir, f"forensic_memdump_{output_label}.bin")
+
+        # Step 2: Get writable memory regions via vmmap
+        regions = self._get_writable_regions(pid)
+        if not regions:
+            logger.warning(f"[macOSCollector] No writable regions found for {process_name} (PID: {pid})")
+            return {
+                'process_name': process_name,
+                'pid': pid,
+                'success': False,
+                'error': 'No writable memory regions found (may need root)',
+            }
+
+        # Step 3: Dump memory regions via lldb
+        total_bytes = self._dump_regions_lldb(pid, regions, output_path)
+
+        if total_bytes > 0:
+            logger.info(
+                f"[macOSCollector] Memory dump complete: {process_name} "
+                f"({total_bytes / (1024*1024):.1f} MB) -> {output_path}"
+            )
+            return {
+                'process_name': process_name,
+                'pid': pid,
+                'output_path': output_path,
+                'size_bytes': total_bytes,
+                'regions_dumped': len(regions),
+                'success': True,
+            }
+        else:
+            logger.warning(f"[macOSCollector] Empty dump for {process_name} (PID: {pid})")
+            return {
+                'process_name': process_name,
+                'pid': pid,
+                'success': False,
+                'error': 'Memory dump produced 0 bytes',
+            }
+
+    def _find_process_pid(self, process_name: str) -> Optional[int]:
+        """
+        Find PID of a running process by name.
+
+        Args:
+            process_name: Process name to search for
+
+        Returns:
+            PID as integer, or None if not found
+        """
+        try:
+            result = subprocess.run(
+                ['pgrep', '-i', '-x', process_name],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                # Take the first PID if multiple instances
+                pid_str = result.stdout.strip().split('\n')[0]
+                return int(pid_str)
+        except (subprocess.TimeoutExpired, ValueError) as e:
+            logger.warning(f"[macOSCollector] pgrep failed for {process_name}: {e}")
+
+        # Fallback: try broader search with pgrep -f
+        try:
+            result = subprocess.run(
+                ['pgrep', '-i', '-f', process_name],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pid_str = result.stdout.strip().split('\n')[0]
+                return int(pid_str)
+        except (subprocess.TimeoutExpired, ValueError):
+            pass
+
+        return None
+
+    def _get_writable_regions(self, pid: int) -> List[Tuple[int, int]]:
+        """
+        Get writable memory regions of a process using vmmap.
+
+        Filters for MALLOC, __DATA, and heap regions that are likely
+        to contain encryption keys.
+
+        Args:
+            pid: Process ID
+
+        Returns:
+            List of (start_address, size_bytes) tuples
+        """
+        regions = []
+
+        try:
+            result = subprocess.run(
+                ['vmmap', '-wide', str(pid)],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"[macOSCollector] vmmap failed (PID: {pid}): {result.stderr[:200]}"
+                )
+                return regions
+
+            for line in result.stdout.split('\n'):
+                # Parse vmmap output lines like:
+                # MALLOC_TINY    00007f8000000000-00007f8000100000 [1024K ...] rw-/rwx
+                # __DATA         00007fff20000000-00007fff20001000 [  4K ...] rw-/rw-
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Only capture writable regions (rw- permission)
+                if 'rw' not in line:
+                    continue
+
+                # Skip very large regions (>256MB) to avoid excessive dump size
+                # and system/shared library regions
+                if '__LINKEDIT' in line or 'shared memory' in line.lower():
+                    continue
+
+                # Extract address range: look for hex address pattern
+                parts = line.split()
+                for part in parts:
+                    if '-' in part and len(part) > 10:
+                        try:
+                            addr_parts = part.split('-')
+                            if len(addr_parts) == 2:
+                                start = int(addr_parts[0], 16)
+                                end = int(addr_parts[1], 16)
+                                size = end - start
+
+                                # Skip tiny (<4KB) and huge (>64MB) regions
+                                if 4096 <= size <= 64 * 1024 * 1024:
+                                    regions.append((start, size))
+                                break
+                        except ValueError:
+                            continue
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[macOSCollector] vmmap timed out (PID: {pid})")
+        except FileNotFoundError:
+            logger.error("[macOSCollector] vmmap not found (requires Xcode Command Line Tools)")
+
+        _debug_print(f"[macOSCollector] Found {len(regions)} writable regions for PID {pid}")
+
+        # Cap total regions to prevent excessive dump time
+        # Sort by size descending, take top 200 regions
+        regions.sort(key=lambda r: r[1], reverse=True)
+        return regions[:200]
+
+    def _dump_regions_lldb(
+        self,
+        pid: int,
+        regions: List[Tuple[int, int]],
+        output_path: str,
+    ) -> int:
+        """
+        Dump memory regions using lldb batch mode.
+
+        Attaches to process, reads specified memory regions, and writes
+        concatenated output to a single binary file.
+
+        Args:
+            pid: Process ID to attach to
+            regions: List of (start_address, size_bytes) tuples
+            output_path: Path for output binary file
+
+        Returns:
+            Total bytes written
+        """
+        total_bytes = 0
+
+        # Build lldb command script
+        lldb_commands = []
+        lldb_commands.append(f'process attach --pid {pid}')
+
+        # Create a temporary script for lldb to dump each region
+        import tempfile
+        tmp_dir = tempfile.mkdtemp(prefix='forensic_lldb_')
+
+        region_files = []
+        for i, (start_addr, size) in enumerate(regions):
+            region_file = os.path.join(tmp_dir, f'region_{i:04d}.bin')
+            region_files.append(region_file)
+            lldb_commands.append(
+                f'memory read --binary --outfile {region_file} '
+                f'--count {size} {start_addr:#x}'
+            )
+
+        lldb_commands.append('process detach')
+        lldb_commands.append('quit')
+
+        # Write lldb command file
+        cmd_file = os.path.join(tmp_dir, 'dump_commands.lldb')
+        with open(cmd_file, 'w') as f:
+            f.write('\n'.join(lldb_commands) + '\n')
+
+        try:
+            # Run lldb in batch mode
+            result = subprocess.run(
+                ['lldb', '--batch', '--source', cmd_file],
+                capture_output=True, text=True,
+                timeout=120  # 2 minute timeout for memory dump
+            )
+
+            if result.returncode != 0:
+                _debug_print(f"[macOSCollector] lldb stderr: {result.stderr[:500]}")
+
+            # Concatenate all region dumps into single output file
+            with open(output_path, 'wb') as out_f:
+                for region_file in region_files:
+                    if os.path.exists(region_file):
+                        try:
+                            with open(region_file, 'rb') as rf:
+                                data = rf.read()
+                                out_f.write(data)
+                                total_bytes += len(data)
+                        except OSError:
+                            pass
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[macOSCollector] lldb memory dump timed out (PID: {pid})")
+        except FileNotFoundError:
+            logger.error(
+                "[macOSCollector] lldb not found. "
+                "Install Xcode Command Line Tools: xcode-select --install"
+            )
+        finally:
+            # Cleanup temporary files
+            import shutil
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return total_bytes
 
 
 # Convenience function
