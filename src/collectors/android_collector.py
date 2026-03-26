@@ -411,7 +411,7 @@ ANDROID_ARTIFACT_TYPES = {
     },
     'mobile_android_line': {
         'name': 'LINE',
-        'description': 'LINE messages (wxSQLite3 encrypted)',
+        'description': 'LINE messages',
         'package': 'jp.naver.line.android',
         'forensic_value': 'critical',
         'subcategory': 'app_messenger',
@@ -435,7 +435,7 @@ ANDROID_ARTIFACT_TYPES = {
     },
     'mobile_android_signal': {
         'name': 'Signal',
-        'description': 'Signal messages (SQLCipher + AES-GCM encrypted)',
+        'description': 'Signal messages',
         'package': 'org.thoughtcrime.securesms',
         'forensic_value': 'critical',
         'subcategory': 'app_messenger',
@@ -478,7 +478,7 @@ ANDROID_ARTIFACT_TYPES = {
     },
     'mobile_android_wechat': {
         'name': 'WeChat',
-        'description': 'WeChat messages (SQLCipher encrypted, 1.41B MAU)',
+        'description': 'WeChat messages',
         'package': 'com.tencent.mm',
         'forensic_value': 'critical',
         'subcategory': 'app_messenger',

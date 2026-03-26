@@ -371,12 +371,19 @@ def _node_inum(node, fs_type: str) -> int:
     - FAT: node.cluster (FAT has no inodes; use start cluster as pseudo-inode)
     - ExFAT: node.cluster if available
     - HFS+/HFSX: node.identifier (CNID, Catalog Node ID)
+    - APFS: node.oid (Object ID in the APFS B-tree)
     """
     try:
         # HFS+/HFSX (pyfshfs): use CNID (identifier)
         if fs_type in _HFS_FILESYSTEMS:
             if hasattr(node, 'identifier'):
                 return int(node.identifier)
+            return 0
+
+        # APFS: INode uses .oid (object ID), not .inum
+        if fs_type in _APFS_FILESYSTEMS:
+            if hasattr(node, 'oid'):
+                return int(node.oid)
             return 0
 
         if hasattr(node, 'inum'):
@@ -3040,7 +3047,8 @@ class ForensicDiskAccessor:
         try:
             node = self._dissect_fs.get(inode)
             return self._dissect_read_file_content(node, max_size)
-        except FileNotFoundError:
+        except (FileNotFoundError, KeyError):
+            # APFS raises KeyError when INode oid is not found in the B-tree
             raise FilesystemError(f"Inode not found: {inode}")
         except Exception as e:
             raise FilesystemError(f"Failed to read inode {inode}: {e}")
@@ -3216,7 +3224,8 @@ class ForensicDiskAccessor:
         try:
             node = self._dissect_fs.get(inode)
             yield from self._dissect_stream_file_content(node, chunk_size)
-        except FileNotFoundError:
+        except (FileNotFoundError, KeyError):
+            # APFS raises KeyError when INode oid is not found in the B-tree
             raise FilesystemError(f"Inode not found: {inode}")
 
     # ---------- get_file_metadata (dissect) ----------

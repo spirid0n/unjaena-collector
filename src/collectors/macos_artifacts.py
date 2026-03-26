@@ -927,15 +927,107 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
             '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Application Support/com.kakao.KakaoTalkMac/*',
             '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Cookies/*',
             '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Preferences/*.plist',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Caches/Cache.db',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Caches/Cache.db-wal',
+            '/Users/*/Library/Containers/com.kakao.KakaoTalkMac/Data/Library/Caches/Cache.db-shm',
         ],
-        'description': 'KakaoTalk login data and message database (hash-named DB files)',
+        'description': 'KakaoTalk message database and application data',
         'forensic_value': 'critical',
         'category': 'applications',
         'os_type': 'macos',
         'path_optional': True,
     },
 
-    # --- Device UUID (for encryption key derivation) ---
+    # --- WhatsApp macOS ---
+
+    'macos_whatsapp': {
+        'paths': [
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite-wal',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite-shm',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Contacts.sqlite',
+            '/Users/*/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Media/*',
+        ],
+        'description': 'WhatsApp macOS message database and media',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- WeChat macOS ---
+
+    'macos_wechat': {
+        'paths': [
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*.db',
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*.db-wal',
+            '/Users/*/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/*/*/*/*.db',
+        ],
+        'description': 'WeChat macOS message databases',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- LINE macOS ---
+
+    'macos_line': {
+        'paths': [
+            '/Users/*/Library/Containers/jp.naver.line.mac/Data/Library/Application Support/LINE/Data/db/*.edb',
+            '/Users/*/Library/Containers/Line/Data/Library/Container/jp.naver.line/Data/db/*.edb',
+            '/Users/*/Library/Containers/jp.naver.line.mac/Data/Library/Application Support/LINE/Data/db/*.sqlite',
+        ],
+        'description': 'LINE macOS message databases',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- Signal macOS ---
+
+    'macos_signal': {
+        'paths': [
+            '/Users/*/Library/Application Support/Signal/sql/db.sqlite',
+            '/Users/*/Library/Application Support/Signal/config.json',
+            '/Users/*/Library/Application Support/Signal/sql/db.sqlite-wal',
+        ],
+        'description': 'Signal macOS database and config',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- macOS Keychain ---
+
+    'macos_keychain_data': {
+        'paths': [
+            '/Users/*/Library/Keychains/login.keychain-db',
+            '/Library/Keychains/System.keychain',
+        ],
+        'description': 'macOS Keychain databases',
+        'forensic_value': 'critical',
+        'category': 'security',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- Process Memory Dumps ---
+
+    'macos_process_memory': {
+        'paths': [
+            '/tmp/forensic_memdump_*.bin',
+        ],
+        'description': 'Process memory dumps',
+        'forensic_value': 'critical',
+        'category': 'memory',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
+    # --- Device UUID ---
 
     'macos_device_uuid': {
         'paths': [
@@ -943,7 +1035,7 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
             '/Library/Preferences/SystemConfiguration/com.apple.Boot.plist',
             '/private/var/db/dslocal/nodes/Default/config/KernelCoreDumpConfig.plist',
         ],
-        'description': 'Device UUID (IOPlatformUUID) for encryption key derivation',
+        'description': 'Device UUID (IOPlatformUUID)',
         'forensic_value': 'critical',
         'category': 'system_info',
         'os_type': 'macos',

@@ -423,6 +423,12 @@ SERVER_TO_COLLECTOR_MAPPING = {
     'macos_bash_history': 'macos_bash_history',
     'macos_fseventsd': 'macos_fseventsd',
     'macos_spotlight': 'macos_spotlight',
+    'macos_whatsapp': 'macos_whatsapp',
+    'macos_wechat': 'macos_wechat',
+    'macos_line': 'macos_line',
+    'macos_signal': 'macos_signal',
+    'macos_keychain_data': 'macos_keychain_data',
+    'macos_process_memory': 'macos_process_memory',
 }
 
 
