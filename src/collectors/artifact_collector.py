@@ -590,10 +590,11 @@ ARTIFACT_TYPES = {
         'name': 'KakaoTalk PC',
         'description': 'KakaoTalk PC messages, user data, and process memory',
         'paths': [
-            r'%LOCALAPPDATA%\Kakao\KakaoTalk\users\**\*.edb',      # chatLogs, TalkUserDB, chatListInfo
-            r'%LOCALAPPDATA%\Kakao\KakaoTalk\users\**\*.dat',      # profile.dat, appstate.dat
-            r'%LOCALAPPDATA%\Kakao\KakaoTalk\*.ini',               # config
-            r'%LOCALAPPDATA%\Kakao\KakaoTalk\*.dat',               # config
+            r'%LOCALAPPDATA%\Kakao\KakaoTalk\users\**\*.edb',
+            r'%LOCALAPPDATA%\Kakao\KakaoTalk\users\**\*.dat',
+            r'%LOCALAPPDATA%\Kakao\KakaoTalk\users\*.dat',
+            r'%LOCALAPPDATA%\Kakao\KakaoTalk\*.ini',
+            r'%LOCALAPPDATA%\Kakao\KakaoTalk\*.dat',
         ],
         'mft_config': {
             'user_path': 'AppData/Local/Kakao/KakaoTalk',
@@ -612,7 +613,7 @@ ARTIFACT_TYPES = {
         'name': 'LINE PC',
         'description': 'LINE PC messages, user data, and process memory',
         'paths': [
-            r'%LOCALAPPDATA%\LINE\Data\**\*.edb',                  # encrypted databases
+            r'%LOCALAPPDATA%\LINE\Data\**\*.edb',
         ],
         'mft_config': {
             'user_path': 'AppData/Local/LINE/Data',
@@ -631,9 +632,9 @@ ARTIFACT_TYPES = {
         'name': 'Telegram Desktop',
         'description': 'Telegram Desktop tdata, session keys, and process memory',
         'paths': [
-            r'%APPDATA%\Telegram Desktop\tdata\key_datas',         # encryption key (TDF$ binary)
-            r'%APPDATA%\Telegram Desktop\tdata\settingss',         # settings (TDF$ binary)
-            r'%APPDATA%\Telegram Desktop\tdata\*\*',               # hex user folders (maps + encrypted data)
+            r'%APPDATA%\Telegram Desktop\tdata\key_datas',
+            r'%APPDATA%\Telegram Desktop\tdata\settingss',
+            r'%APPDATA%\Telegram Desktop\tdata\*\*',
         ],
         # tdata files are extensionless; exclude media/stickers that may exist in subdirs
         'exclude_extensions': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
@@ -651,17 +652,17 @@ ARTIFACT_TYPES = {
         'requires_admin': False,
         'collector': 'collect_messenger_with_memory',
         'artifact_key': 'telegram_pc',
-        'forensic_value': 'messages (from memory), session keys, settings',
+        'forensic_value': 'messages, session data, settings',
         'process_name': 'Telegram.exe',
     },
     'windows_wechat': {
         'name': 'WeChat Desktop',
-        'description': 'WeChat Desktop encrypted databases and process memory',
+        'description': 'WeChat Desktop databases and process memory',
         'paths': [
-            r'%USERPROFILE%\Documents\xwechat_files\**\*.db',      # encrypted DB files
-            r'%USERPROFILE%\Documents\xwechat_files\**\*.db-wal',  # WAL files
-            r'%USERPROFILE%\Documents\xwechat_files\**\*.db-shm',  # SHM files
-            r'%USERPROFILE%\Documents\WeChat Files\**\*.db',       # legacy layout
+            r'%USERPROFILE%\Documents\xwechat_files\**\*.db',
+            r'%USERPROFILE%\Documents\xwechat_files\**\*.db-wal',
+            r'%USERPROFILE%\Documents\xwechat_files\**\*.db-shm',
+            r'%USERPROFILE%\Documents\WeChat Files\**\*.db',
             r'%USERPROFILE%\Documents\WeChat Files\**\*.db-wal',
             r'%USERPROFILE%\Documents\WeChat Files\**\*.db-shm',
         ],
@@ -680,13 +681,13 @@ ARTIFACT_TYPES = {
     },
     'windows_whatsapp': {
         'name': 'WhatsApp Desktop',
-        'description': 'WhatsApp Desktop encrypted databases, DPAPI keys, and process memory',
+        'description': 'WhatsApp Desktop databases and process memory',
         'paths': [
-            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db',      # SEE encrypted DBs
-            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db-wal',  # WAL (contacts data!)
-            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db-shm',  # SHM
-            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\*.dat',        # nondb_settings (DPAPI key)
-            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\IndexedDB\**\*',  # LevelDB (contacts+messages)
+            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db',
+            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db-wal',
+            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\**\*.db-shm',
+            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\*.dat',
+            r'%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\IndexedDB\**\*',
         ],
         'mft_config': {
             'user_path': 'AppData/Local/Packages/5319275A.WhatsAppDesktop_cv1g1gvanyjgm/LocalState',
@@ -710,7 +711,7 @@ ARTIFACT_TYPES = {
         'name': 'Discord Desktop',
         'description': 'Discord Desktop LevelDB data and user cache',
         'paths': [
-            r'%APPDATA%\discord\Local Storage\leveldb\*',          # LevelDB (messages, tokens, activity)
+            r'%APPDATA%\discord\Local Storage\leveldb\*',
             r'%APPDATA%\discord\userDataCache.json',               # user data cache
         ],
         'mft_config': {
@@ -723,7 +724,7 @@ ARTIFACT_TYPES = {
         'requires_admin': False,
         'collector': 'collect_user_glob',
         'artifact_key': 'discord_pc',
-        'forensic_value': 'user ID, auth token, server/channel activity, draft messages',
+        'forensic_value': 'user data, server/channel activity, draft messages',
     },
     'windows_teamviewer': {
         'name': 'TeamViewer',
@@ -820,7 +821,7 @@ ARTIFACT_TYPES = {
     # =========================================================================
     'mobile_android_kakaotalk': {
         'name': 'KakaoTalk',
-        'description': 'KakaoTalk messages (encrypted)',
+        'description': 'KakaoTalk messages',
         'paths': [],
         'category': 'android',
         'subcategory': 'app_messenger',
@@ -842,7 +843,7 @@ ARTIFACT_TYPES = {
     },
     'mobile_android_wechat': {
         'name': 'WeChat',
-        'description': 'WeChat messages (1.41B MAU, SQLCipher encrypted)',
+        'description': 'WeChat messages',
         'paths': [],
         'category': 'android',
         'subcategory': 'app_messenger',
@@ -908,7 +909,7 @@ ARTIFACT_TYPES = {
     },
     'mobile_android_signal': {
         'name': 'Signal',
-        'description': 'Signal messages (100M MAU, encrypted)',
+        'description': 'Signal messages',
         'paths': [],
         'category': 'android',
         'subcategory': 'app_messenger',
@@ -1262,7 +1263,7 @@ ARTIFACT_TYPES = {
     # =========================================================================
     'mobile_ios_kakaotalk': {
         'name': 'KakaoTalk',
-        'description': 'KakaoTalk messages (encrypted)',
+        'description': 'KakaoTalk messages',
         'paths': [],
         'category': 'ios',
         'subcategory': 'messenger',
@@ -1282,7 +1283,7 @@ ARTIFACT_TYPES = {
     },
     'mobile_ios_wechat': {
         'name': 'WeChat',
-        'description': 'WeChat messages (1.41B MAU, encrypted)',
+        'description': 'WeChat messages',
         'paths': [],
         'category': 'ios',
         'subcategory': 'messenger',
@@ -1342,7 +1343,7 @@ ARTIFACT_TYPES = {
     },
     'mobile_ios_signal': {
         'name': 'Signal',
-        'description': 'Signal messages (100M MAU, encrypted)',
+        'description': 'Signal messages',
         'paths': [],
         'category': 'ios',
         'subcategory': 'messenger',
@@ -3471,7 +3472,7 @@ class LocalMFTCollector(_LocalMFTBase):
                 yield from super().collect(artifact_type, progress_callback, **kwargs)
 
                 # [2026-02-16] Memory dump for PC messengers collected via MFT mode
-                # MFT mode collects files only; messenger decryption needs process memory
+                # MFT mode collects files only; messenger analysis requires process memory
                 if artifact_type in ARTIFACT_TYPES:
                     at_config = ARTIFACT_TYPES[artifact_type]
                     if at_config.get('collector') == 'collect_messenger_with_memory':
@@ -5536,7 +5537,7 @@ class ArtifactCollector:
         artifact_dir: Path,
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """
-        Dump process memory for encryption key extraction (live system only).
+        Dump process memory for forensic analysis (live system only).
         Gracefully fails on dead disk (E01) or when process is not running.
         """
         if getattr(self, f'_memory_dumped_{artifact_type}', False):
