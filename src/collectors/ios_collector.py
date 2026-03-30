@@ -2582,7 +2582,7 @@ class iOSDeviceConnector:
             return False
 
         if progress_callback:
-            progress_callback("Deriving decryption key (this may take 1-2 minutes)...")
+            progress_callback("Preparing backup access (this may take 1-2 minutes)...")
         try:
             from collectors.ios_backup_decryptor import create_encrypted_backup
 

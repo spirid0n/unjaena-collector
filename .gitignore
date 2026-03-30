@@ -171,3 +171,18 @@ resources/downgrade_apks/*.apk
 
 # NUL placeholder
 resources/downgrade_apks/NUL
+
+# Standalone operator tools (not part of public collector)
+flash_combination_extract.py
+heimdall_bin/
+heimdall.zip
+
+# Agent APK binary (built from agent-android/, not distributed via git)
+
+# Agent APK (built separately, distributed via GitHub Releases)
+resources/agent_apk/
+
+# Test output (personal device data)
+test_output_android/
+test_android_collection.py
+test_android_quick.py
