@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from gui.styles import COLORS
+from collectors.android_collector_extended import _load_advanced_plugin
 
 
 # =============================================================================
@@ -151,8 +152,6 @@ class AndroidDeviceInfoDialog(QDialog):
         patch = d.get('security_patch', '') or ''
         rooted = d.get('rooted', False)
 
-        phase_cve = (31 <= sdk <= 33) and (not patch or patch < '2024-10-01')
-
         # (status, name, description)
         phases = [
             (
@@ -168,15 +167,15 @@ class AndroidDeviceInfoDialog(QDialog):
                 "Most production apps disable this — expect high failure rate."
             ),
             (
-                "available" if phase_cve else "unavailable",
-                "Phase 3a — CVE-2024-0044 Privilege Escalation",
-                f"Android 12–13 (SDK 31–33) with security patch before 2024-10-01 only.\n"
-                f"This device: SDK {sdk} — {'applicable' if phase_cve else 'not applicable'}."
+                "available" if _load_advanced_plugin() else "unavailable",
+                "Phase 3a — Advanced Access (Pro Plugin)",
+                "Requires unjaena-collector-pro plugin (licensed agencies only).\n"
+                "Provides additional extraction methods for authorized forensic use."
             ),
             (
                 "unavailable",
-                "Phase 3b — Dirty Pipe (CVE-2022-0847)",
-                "Kernel 5.8–5.16 only. Current device kernel is outside that range."
+                "Phase 3b — Advanced Kernel Access (Pro Plugin)",
+                "Requires unjaena-collector-pro plugin. Not available in this build."
             ),
             (
                 "partial",
@@ -255,8 +254,7 @@ class AndroidDeviceInfoDialog(QDialog):
         notices = [
             "This tool must only be used for lawful digital forensics purposes.",
             "You must have the device owner's consent or a valid search warrant.",
-            "CVE-based methods (Phase 3a, 3b) exploit known Android vulnerabilities.\n"
-            "  These are permitted only within the scope of lawful forensic investigations.",
+            "Advanced access methods (Phase 3a) require the pro plugin for licensed agencies.",
             "Collected data must be handled in accordance with Chain of Custody procedures.",
             "Do not modify device settings or data during collection.",
         ]

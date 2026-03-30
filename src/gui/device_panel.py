@@ -391,17 +391,12 @@ class DeviceListPanel(QWidget):
                 lines.append(f"Serial: ...{serial[-8:]}")
             lines.append("─────────────────────")
 
-            phase_cve = (31 <= sdk <= 33) and (not patch or patch < '2024-10-01')
-            available = ["sdcard (Phase 1)", "ADB Backup (Phase 3e)"]
-            if phase_cve:
-                available.append("CVE-2024-0044 (Phase 3a)")
+            available = ["sdcard (Phase 1)", "ADB Backup (Phase 3d)"]
             if rooted:
                 available.append("Root full access")
             unavailable = []
             if not rooted:
                 unavailable.append("App internal DB (root required)")
-            if not phase_cve:
-                unavailable.append("CVE-2024-0044 (SDK 31–33 only)")
 
             lines.append("Available: " + ", ".join(available))
             if unavailable:
