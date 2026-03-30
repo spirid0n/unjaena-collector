@@ -139,7 +139,7 @@ class TestADBShellEscaping:
 
         cmd = (
             f'am broadcast '
-            f'-a com.aidf.agent.ACTION_START_SCRAPING '
+            f'-a com.unjaena.agent.ACTION_START_SCRAPING '
             f'--es server_url {shlex.quote(server_url)} '
             f'--es session_id {shlex.quote(session_id)} '
             f'--es target_apps {shlex.quote(target_str)}'

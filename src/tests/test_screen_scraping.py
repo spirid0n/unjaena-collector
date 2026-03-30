@@ -69,7 +69,7 @@ class TestScreenScrapeConstants:
     def test_agent_package(self):
         """Agent 패키지명"""
         from collectors.android_collector import AndroidCollector
-        assert AndroidCollector.AGENT_PACKAGE == 'com.aidf.agent'
+        assert AndroidCollector.AGENT_PACKAGE == 'com.unjaena.agent'
 
     def test_agent_receiver(self):
         """CommandReceiver 경로"""
@@ -79,7 +79,7 @@ class TestScreenScrapeConstants:
     def test_agent_result_dir(self):
         """결과 디렉토리 경로"""
         from collectors.android_collector import AndroidCollector
-        assert 'com.aidf.agent' in AndroidCollector.AGENT_RESULT_DIR
+        assert 'com.unjaena.agent' in AndroidCollector.AGENT_RESULT_DIR
         assert AndroidCollector.AGENT_RESULT_DIR.endswith('/results')
 
     def test_agent_manifest_file(self):
@@ -261,7 +261,7 @@ class TestScreenScrapeMethods:
         broadcast_cmds = [c for c in calls if 'am broadcast' in c]
         assert len(broadcast_cmds) >= 1, f"No broadcast command found in calls: {calls}"
         broadcast_cmd = broadcast_cmds[0]
-        assert 'START_SCRAPING' in broadcast_cmd or 'com.aidf.agent' in broadcast_cmd
+        assert 'START_SCRAPING' in broadcast_cmd or 'com.unjaena.agent' in broadcast_cmd
 
     def test_pull_scraping_results(self, tmp_path):
         """결과 파일 pull"""
@@ -453,8 +453,8 @@ class TestSecurityTokenFileDelivery:
         collector._case_id = 'case-001'
         collector._session_id = 'sess-001'
         collector._udid = 'test-serial-hash'
-        collector.AGENT_PACKAGE = 'com.aidf.agent'
-        collector.AGENT_RECEIVER = 'com.aidf.agent/.receiver.CommandReceiver'
+        collector.AGENT_PACKAGE = 'com.unjaena.agent'
+        collector.AGENT_RECEIVER = 'com.unjaena.agent/.receiver.CommandReceiver'
         return collector
 
     def test_broadcast_no_token_extra(self, tmp_path):
@@ -521,7 +521,7 @@ class TestSecurityTokenFileDelivery:
         )
 
         # 토큰 파일 경로가 올바른지 확인
-        expected_path = '/sdcard/Android/data/com.aidf.agent/files/.scraping_token'
+        expected_path = '/sdcard/Android/data/com.unjaena.agent/files/.scraping_token'
         file_cmds = [c for c in calls if '.scraping_token' in c]
         assert any(expected_path in c for c in file_cmds), \
             f"Expected path {expected_path} not found in: {file_cmds}"
@@ -733,10 +733,10 @@ class TestSecurityAPKUninstall:
         collector._collection_token = 'test-token-123'
         collector._case_id = 'case-001'
         collector._session_id = 'sess-001'
-        collector.AGENT_PACKAGE = 'com.aidf.agent'
-        collector.AGENT_RECEIVER = 'com.aidf.agent/.receiver.CommandReceiver'
-        collector.AGENT_RESULT_DIR = '/sdcard/Android/data/com.aidf.agent/files/results'
-        collector.AGENT_MANIFEST_FILE = '/sdcard/Android/data/com.aidf.agent/files/results/result_manifest.json'
+        collector.AGENT_PACKAGE = 'com.unjaena.agent'
+        collector.AGENT_RECEIVER = 'com.unjaena.agent/.receiver.CommandReceiver'
+        collector.AGENT_RESULT_DIR = '/sdcard/Android/data/com.unjaena.agent/files/results'
+        collector.AGENT_MANIFEST_FILE = '/sdcard/Android/data/com.unjaena.agent/files/results/result_manifest.json'
         collector.SCRAPING_POLL_INTERVAL = 1
         collector.SCRAPING_MAX_WAIT = 1800
         return collector
@@ -778,7 +778,7 @@ class TestSecurityAPKUninstall:
         collector._uninstall_agent_apk.assert_called_once()
 
     def test_uninstall_calls_adb_uninstall(self, tmp_path):
-        """adb uninstall com.aidf.agent 호출 확인"""
+        """adb uninstall com.unjaena.agent 호출 확인"""
         collector = self._make_collector(tmp_path)
 
         collector._uninstall_agent_apk()
@@ -787,7 +787,7 @@ class TestSecurityAPKUninstall:
         collector._run_system_adb.assert_called_once()
         call_args = collector._run_system_adb.call_args[0][0]
         assert 'uninstall' in call_args
-        assert 'com.aidf.agent' in call_args
+        assert 'com.unjaena.agent' in call_args
 
 
 if __name__ == '__main__':
