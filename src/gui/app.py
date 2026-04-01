@@ -3149,7 +3149,7 @@ class CollectionWorker(QThread):
                 # Auto-select best partition by priority: NTFS > APFS > HFS+ > ext4 > largest
                 partitions = collector.list_partitions()
                 selected = False
-                priority_fs = ['NTFS', 'APFS', 'HFS+', 'HFSX', 'HFS', 'ext4', 'ext3', 'ext2', 'XFS', 'Btrfs', 'UFS', 'FAT32', 'FAT16', 'FAT12', 'exFAT']
+                priority_fs = ['NTFS', 'APFS', 'HFS+', 'HFSX', 'HFS', 'ext4', 'ext3', 'ext2', 'XFS', 'Btrfs', 'ZFS', 'UFS', 'FAT32', 'FAT16', 'FAT12', 'exFAT']
                 for target_fs in priority_fs:
                     for p in partitions:
                         if getattr(p, 'filesystem', '').upper() == target_fs.upper():
