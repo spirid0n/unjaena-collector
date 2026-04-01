@@ -958,6 +958,25 @@ class BaseMFTCollector(ABC):
                         continue
 
                     parent_entries = accessor.list_directory(parent_path)
+
+                    # File-level glob (no '/' in suffix, e.g. '*.plist'):
+                    # match against FILES in parent_path, not directories.
+                    if '/' not in glob_suffix:
+                        import fnmatch
+                        for entry in parent_entries:
+                            if entry.is_directory:
+                                continue
+                            if fnmatch.fnmatch(entry.filename, glob_suffix):
+                                full_path = f"{parent_path}/{entry.filename}".replace('//', '/')
+                                try:
+                                    yield from self._extract_direct_path(
+                                        accessor, full_path, artifact_type, artifact_dir
+                                    )
+                                    collected += 1
+                                except Exception:
+                                    continue
+                        continue
+
                     for entry in parent_entries:
                         if not entry.is_directory:
                             continue
