@@ -3668,9 +3668,9 @@ class LocalMFTCollector(_LocalMFTBase):
             logger.warning(f"Cannot collect {artifact_type} via directory fallback (requires raw disk access)")
             return
 
-        # Skip mobile artifacts
-        if config.get('category') in ('android', 'ios'):
-            logger.debug(f"Skipping mobile artifact: {artifact_type}")
+        # Skip non-Windows artifacts (mobile, macOS, Linux require their own collectors)
+        if config.get('category') in ('android', 'ios', 'macos', 'linux'):
+            logger.debug(f"Skipping non-Windows artifact: {artifact_type}")
             return
 
         # Handle aliases
