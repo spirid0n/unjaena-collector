@@ -105,7 +105,7 @@ def detect_os_type(filesystem: str, root_entries: List[str] = None) -> str:
         return 'windows'
     elif filesystem_lower in ('apfs', 'hfs+', 'hfsx', 'hfs'):
         return 'macos'
-    elif filesystem_lower in ('ext2', 'ext3', 'ext4'):
+    elif filesystem_lower in ('ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'zfs'):
         return 'linux'
 
     # Root directory structure-based secondary detection
