@@ -253,6 +253,10 @@ forensic_hidden_imports = [
 
     # --- dissect filesystem parsers (conditional imports in forensic_disk_accessor.py) ---
     'dissect',
+    'dissect.extfs',       # ext2/ext3/ext4 filesystem parsing (Linux)
+    'dissect.xfs',         # XFS filesystem parsing (Linux)
+    'dissect.btrfs',       # Btrfs filesystem parsing (Linux)
+    'dissect.ffs',         # UFS/FFS filesystem parsing (FreeBSD)
     'dissect.fat',         # FAT12/16/32 filesystem parsing
     'dissect.fat.exfat',   # exFAT filesystem parsing
     'dissect.apfs',        # APFS filesystem parsing (macOS)
@@ -295,8 +299,13 @@ collect_packages = [
     'dissect.hypervisor',  # AGPL-3.0 — VMDK/VHD/VHDX/QCOW2/VDI disk images
     'dissect.cstruct',     # AGPL-3.0 — Binary structure parsing (dissect dependency)
     'dissect.util',        # AGPL-3.0 — Utility functions (_native.pyd)
-    'dissect.fat',         # AGPL-3.0 — FAT/exFAT filesystem parsing (forensic_disk_accessor.py)
-    'dissect.apfs',        # AGPL-3.0 — APFS filesystem parsing (macOS disk images)
+    'dissect.fat',         # AGPL-3.0 — FAT/exFAT filesystem parsing
+    'dissect.apfs',        # AGPL-3.0 — APFS filesystem parsing (macOS)
+    'dissect.extfs',       # AGPL-3.0 — ext2/ext3/ext4 filesystem parsing (Linux)
+    'dissect.xfs',         # AGPL-3.0 — XFS filesystem parsing (Linux)
+    'dissect.btrfs',       # AGPL-3.0 — Btrfs filesystem parsing (Linux)
+    'dissect.ffs',         # AGPL-3.0 — UFS/FFS filesystem parsing (FreeBSD)
+    'dissect.ntfs',        # AGPL-3.0 — NTFS filesystem parsing
     'PyQt6',               # GPL-3.0 — GUI framework (3400+ data files: Qt6 DLLs, plugins, QML)
     'qh3',                 # MIT — QUIC/HTTP3 (_hazmat.pyd native, pymobiledevice3 remote)
     'aiohttp',             # Apache-2.0 — async HTTP (4 native .pyd extensions)
