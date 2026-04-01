@@ -427,9 +427,17 @@ class E01ArtifactCollector(BaseMFTCollector):
             logger.error("No partition selected. Call select_partition() first.")
             return
 
-        # Skip mobile artifacts
+        # Skip non-disk-image artifacts (mobile, macOS, Linux are separate collectors)
         if artifact_type in ARTIFACT_PATHS and ARTIFACT_PATHS[artifact_type].get('skip'):
-            logger.debug(f"Skipping {artifact_type} (not applicable for E01)")
+            logger.debug(f"Skipping {artifact_type} (not applicable for disk image)")
+            return
+        # Skip platform-specific artifacts not collectible from disk images
+        # mobile_*: requires live device connection
+        # macos_*: requires APFS/HFS+ (E01 uses MFT/NTFS)
+        # linux_*: requires ext4/xfs (E01 uses MFT/NTFS)
+        _skip_prefixes = ('mobile_android_', 'mobile_ios_', 'macos_', 'linux_')
+        if any(artifact_type.startswith(p) for p in _skip_prefixes):
+            logger.debug(f"Skipping {artifact_type} (not applicable for disk image)")
             return
 
         # Use base class implementation
