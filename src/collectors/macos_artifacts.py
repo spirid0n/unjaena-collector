@@ -1000,6 +1000,21 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
         'path_optional': True,
     },
 
+    # --- Discord macOS ---
+
+    'macos_discord': {
+        'paths': [
+            '/Users/*/Library/Application Support/discord/Local Storage/leveldb/*',
+            '/Users/*/Library/Application Support/discord/userDataCache.json',
+            '/Users/*/Library/Application Support/discord/Cache/Cache_Data/*',
+        ],
+        'description': 'Discord Desktop LevelDB data and user cache',
+        'forensic_value': 'critical',
+        'category': 'applications',
+        'os_type': 'macos',
+        'path_optional': True,
+    },
+
     # --- macOS Keychain ---
 
     'macos_keychain_data': {
