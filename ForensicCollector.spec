@@ -105,16 +105,60 @@ common_hidden_imports = [
     'collectors.android_edl_collector',
     'collectors.android_mtk_collector',
 
-    # --- USB: libusb (LGPL-2.1) ---
+    # --- USB: libusb (LGPL-2.1) + PyUSB (BSD) ---
     'usb1',
     'libusb1',
+    'usb',                 # PyUSB — used by android_edl/mtk_collector, device_enumerators
+    'usb.core',
+    'usb.util',
+    'usb.backend',
+    'usb.backend.libusb1',
+    'usb.backend.libusb0',
+    'usb.backend.openusb',
+    'usb.control',
+    'usb._interop',
+    'usb._objfinalizer',
+    'usb._lookup',
+    'usb.libloader',
 
     # --- Crypto: rsa (Apache-2.0), cryptography (Apache-2.0/BSD) ---
     'rsa',
     'cryptography',
     'cryptography.hazmat',
     'cryptography.hazmat.primitives',
+    'cryptography.hazmat.primitives.ciphers',
+    'cryptography.hazmat.primitives.ciphers.aead',  # secure_upload.py
+    'cryptography.hazmat.primitives.kdf',
+    'cryptography.hazmat.primitives.kdf.hkdf',      # secure_upload.py
     'cryptography.hazmat.backends',
+
+    # --- GUI: PyQt6 (GPL-3.0) ---
+    'PyQt6',
+    'PyQt6.QtCore',
+    'PyQt6.QtGui',
+    'PyQt6.QtWidgets',
+    'PyQt6.sip',
+
+    # --- HTTP: requests (Apache-2.0) + deps ---
+    'requests',            # used in app.py, uploader.py, updater.py, etc.
+    'requests.adapters',   # secure_upload.py
+    'urllib3',             # requests dependency
+    'charset_normalizer',  # requests dependency (has native PYD)
+    'idna',                # requests dependency
+
+    # --- Async HTTP: aiohttp (Apache-2.0) + websockets (BSD) ---
+    'aiohttp',             # uploader.py — async upload support
+    'websockets',          # uploader.py — WebSocket upload
+    'aiosignal',           # aiohttp dependency
+    'frozenlist',          # aiohttp dependency (has native PYD)
+    'multidict',           # aiohttp dependency (has native PYD)
+    'yarl',                # aiohttp dependency (has native PYD)
+    'propcache',           # aiohttp dependency (has native PYD)
+    'attrs',               # aiohttp dependency
+    'aiohappyeyeballs',    # aiohttp dependency
+
+    # --- System: psutil (BSD) ---
+    'psutil',              # memory_collector.py — process enumeration
 
     # --- iOS: pymobiledevice3 (GPL-3.0) ---
     # Core modules (traced via runtime import analysis)
@@ -171,6 +215,11 @@ common_hidden_imports = [
     'tqdm',                # MPL-2.0/MIT
     'ujson',               # BSD
     'wsproto',             # MIT
+    'qh3',                 # MIT — QUIC/HTTP3 for iOS remote connections (native PYD)
+    'click',               # BSD — CLI framework (pymobiledevice3 dep)
+    'developer_disk_image',# MIT — iOS developer disk image support
+    'ipsw_parser',         # MIT — iOS IPSW firmware parsing
+    'asn1crypto',          # MIT — ASN.1 parsing (dissect.apfs dep)
 
     # --- iOS backup: biplist (BSD), iphone_backup_decrypt (MIT) ---
     'biplist',
@@ -201,6 +250,14 @@ forensic_hidden_imports = [
     'yara',            # YARA rule scanning (memory_collector.py)
     'pyfshfs',         # HFS+ filesystem parsing (forensic_disk_accessor.py)
     'lzfse',           # macOS APFS/LZFSE decompression (disk_backends.py)
+
+    # --- dissect filesystem parsers (conditional imports in forensic_disk_accessor.py) ---
+    'dissect',
+    'dissect.fat',         # FAT12/16/32 filesystem parsing
+    'dissect.fat.exfat',   # exFAT filesystem parsing
+    'dissect.apfs',        # APFS filesystem parsing (macOS)
+    'dissect.ntfs',        # NTFS parsing (used by dissect internally)
+    'dissect.volume',      # Volume/partition parsing (dissect dep)
 ]
 
 # Combine based on platform
@@ -223,8 +280,8 @@ extra_hiddenimports = []
 # Packages that require full collection (all submodules + data + binaries)
 # License compatibility verified: all AGPL-3.0 / GPL-3.0 / MIT / BSD / Apache-2.0
 collect_packages = [
-    'certifi',             # MPL-2.0 — SSL CA certificates (required for requests in PyInstaller)
-    'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules)
+    'certifi',             # MPL-2.0 — SSL CA certificates (cacert.pem required at runtime)
+    'pymobiledevice3',     # GPL-3.0 — iOS device communication (161 submodules + resource files)
     'construct',           # MIT — binary data parsing (dynamic struct definitions)
     'srptools',            # MIT — SRP authentication protocol
     'opack2',              # MIT — Apple opack serialization format
@@ -232,12 +289,20 @@ collect_packages = [
     'pycrashreport',       # GPL-3.0 — iOS crash report parsing
     'pygnuutils',          # GPL-3.0 — GNU utility wrappers
     'adb_shell',           # Apache-2.0 — Android ADB communication
-    'frida',               # wxWindows/LGPL — process memory collection (deep import chain)
-    'zeroconf',            # LGPL — mDNS/DNS-SD discovery (data files required)
-    'dissect.fve',         # AGPL-3.0 — BitLocker/LUKS volume support (pure Python)
+    'frida',               # wxWindows/LGPL — process memory collection (_frida.pyd 118MB native)
+    'zeroconf',            # LGPL — mDNS/DNS-SD discovery (18 Cython .pyd extensions)
+    'dissect.fve',         # AGPL-3.0 — BitLocker/LUKS volume support (_native.pyd)
     'dissect.hypervisor',  # AGPL-3.0 — VMDK/VHD/VHDX/QCOW2/VDI disk images
     'dissect.cstruct',     # AGPL-3.0 — Binary structure parsing (dissect dependency)
-    'dissect.util',        # AGPL-3.0 — Utility functions (dissect dependency)
+    'dissect.util',        # AGPL-3.0 — Utility functions (_native.pyd)
+    'dissect.fat',         # AGPL-3.0 — FAT/exFAT filesystem parsing (forensic_disk_accessor.py)
+    'dissect.apfs',        # AGPL-3.0 — APFS filesystem parsing (macOS disk images)
+    'PyQt6',               # GPL-3.0 — GUI framework (3400+ data files: Qt6 DLLs, plugins, QML)
+    'qh3',                 # MIT — QUIC/HTTP3 (_hazmat.pyd native, pymobiledevice3 remote)
+    'aiohttp',             # Apache-2.0 — async HTTP (4 native .pyd extensions)
+    'charset_normalizer',  # MIT — encoding detection (2 native .pyd extensions, requests dep)
+    'cryptography',        # Apache-2.0/BSD — crypto primitives (_rust.pyd 9MB native)
+    'psutil',              # BSD — process/system monitoring (_psutil_windows.pyd native)
 ]
 
 for pkg in collect_packages:
