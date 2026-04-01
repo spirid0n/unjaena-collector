@@ -447,35 +447,49 @@ class E01ArtifactCollector(BaseMFTCollector):
                     break
 
         _linux_fs = ('ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'zfs')
-        _macos_fs = ('apfs', 'hfs', 'hfs+')
-        _windows_fs = ('ntfs', 'fat', 'fat32', 'exfat')
+        _macos_fs = ('apfs', 'hfs', 'hfs+', 'hfsx')
+        _windows_fs = ('ntfs', 'fat32', 'fat16', 'fat12', 'exfat')
 
-        # Skip Windows artifacts on Linux/macOS filesystems
-        if fs_type in _linux_fs and not artifact_type.startswith('linux_'):
-            if artifact_type.startswith(('macos_',)) or artifact_type in (
-                'prefetch', 'eventlog', 'registry', 'amcache', 'userassist',
-                'shellbags', 'usn_journal', 'mft', 'srum', 'bits_jobs',
-                'jumplist', 'thumbcache', 'recycle_bin', 'scheduled_task',
-                'wmi_subscription', 'powershell_history', 'rdp_history',
-                'activities_cache', 'defender_detection',
-            ):
-                logger.debug(f"Skipping {artifact_type} (Windows artifact on {fs_type})")
+        # OS-agnostic artifacts that can exist on any filesystem
+        _generic_artifacts = (
+            'document', 'email', 'image', 'video', 'browser',
+            'shortcut', 'recent', 'filesystem_entry',
+        )
+
+        # Windows-only artifacts (NTFS/MFT specific)
+        _windows_only = (
+            'prefetch', 'eventlog', 'registry', 'amcache', 'userassist',
+            'shellbags', 'usn_journal', 'mft', 'srum', 'bits_jobs',
+            'jumplist', 'thumbcache', 'recycle_bin', 'scheduled_task',
+            'wmi_subscription', 'powershell_history', 'rdp_history',
+            'activities_cache', 'defender_detection', 'logfile',
+        )
+
+        # On Linux filesystems: allow linux_ + generic, skip Windows-only + macOS
+        if fs_type in _linux_fs:
+            if artifact_type.startswith('macos_'):
+                logger.debug(f"Skipping {artifact_type} (macOS artifact on {fs_type})")
+                return
+            if artifact_type in _windows_only:
+                logger.debug(f"Skipping {artifact_type} (Windows-only on {fs_type})")
                 return
 
-        # Skip Linux artifacts on Windows/macOS filesystems
-        if fs_type in _windows_fs and artifact_type.startswith('linux_'):
-            logger.debug(f"Skipping {artifact_type} (Linux artifact on {fs_type})")
-            return
+        # On macOS filesystems: allow macos_ + generic, skip Windows-only + Linux
+        elif fs_type in _macos_fs:
+            if artifact_type.startswith('linux_'):
+                logger.debug(f"Skipping {artifact_type} (Linux artifact on {fs_type})")
+                return
+            if artifact_type in _windows_only:
+                logger.debug(f"Skipping {artifact_type} (Windows-only on {fs_type})")
+                return
 
-        # Skip macOS artifacts on Windows/Linux filesystems
-        if fs_type in (_linux_fs + _windows_fs) and artifact_type.startswith('macos_'):
-            logger.debug(f"Skipping {artifact_type} (macOS artifact on {fs_type})")
-            return
-
-        # Skip Windows artifacts on macOS filesystems
-        if fs_type in _macos_fs and not artifact_type.startswith('macos_'):
-            if not artifact_type.startswith('linux_'):
-                logger.debug(f"Skipping {artifact_type} (non-macOS artifact on {fs_type})")
+        # On Windows filesystems: allow Windows + generic, skip Linux/macOS
+        elif fs_type in _windows_fs:
+            if artifact_type.startswith('linux_'):
+                logger.debug(f"Skipping {artifact_type} (Linux artifact on {fs_type})")
+                return
+            if artifact_type.startswith('macos_'):
+                logger.debug(f"Skipping {artifact_type} (macOS artifact on {fs_type})")
                 return
 
         # Use base class implementation
