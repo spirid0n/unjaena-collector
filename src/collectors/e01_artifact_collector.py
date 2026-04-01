@@ -431,14 +431,52 @@ class E01ArtifactCollector(BaseMFTCollector):
         if artifact_type in ARTIFACT_PATHS and ARTIFACT_PATHS[artifact_type].get('skip'):
             logger.debug(f"Skipping {artifact_type} (not applicable for disk image)")
             return
-        # Skip platform-specific artifacts not collectible from disk images
-        # mobile_*: requires live device connection
-        # macos_*: requires APFS/HFS+ (E01 uses MFT/NTFS)
-        # linux_*: requires ext4/xfs (E01 uses MFT/NTFS)
-        _skip_prefixes = ('mobile_android_', 'mobile_ios_', 'macos_', 'linux_')
-        if any(artifact_type.startswith(p) for p in _skip_prefixes):
-            logger.debug(f"Skipping {artifact_type} (not applicable for disk image)")
+
+        # Skip artifacts based on detected filesystem type
+        # mobile_*: always skip (requires live device connection)
+        if artifact_type.startswith(('mobile_android_', 'mobile_ios_')):
+            logger.debug(f"Skipping {artifact_type} (requires live device)")
             return
+
+        # Detect filesystem type from selected partition
+        fs_type = ''
+        if self._selected_partition is not None and self._partitions:
+            for p in self._partitions:
+                if getattr(p, 'index', None) == self._selected_partition:
+                    fs_type = getattr(p, 'filesystem', '').lower()
+                    break
+
+        _linux_fs = ('ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'zfs')
+        _macos_fs = ('apfs', 'hfs', 'hfs+')
+        _windows_fs = ('ntfs', 'fat', 'fat32', 'exfat')
+
+        # Skip Windows artifacts on Linux/macOS filesystems
+        if fs_type in _linux_fs and not artifact_type.startswith('linux_'):
+            if artifact_type.startswith(('macos_',)) or artifact_type in (
+                'prefetch', 'eventlog', 'registry', 'amcache', 'userassist',
+                'shellbags', 'usn_journal', 'mft', 'srum', 'bits_jobs',
+                'jumplist', 'thumbcache', 'recycle_bin', 'scheduled_task',
+                'wmi_subscription', 'powershell_history', 'rdp_history',
+                'activities_cache', 'defender_detection',
+            ):
+                logger.debug(f"Skipping {artifact_type} (Windows artifact on {fs_type})")
+                return
+
+        # Skip Linux artifacts on Windows/macOS filesystems
+        if fs_type in _windows_fs and artifact_type.startswith('linux_'):
+            logger.debug(f"Skipping {artifact_type} (Linux artifact on {fs_type})")
+            return
+
+        # Skip macOS artifacts on Windows/Linux filesystems
+        if fs_type in (_linux_fs + _windows_fs) and artifact_type.startswith('macos_'):
+            logger.debug(f"Skipping {artifact_type} (macOS artifact on {fs_type})")
+            return
+
+        # Skip Windows artifacts on macOS filesystems
+        if fs_type in _macos_fs and not artifact_type.startswith('macos_'):
+            if not artifact_type.startswith('linux_'):
+                logger.debug(f"Skipping {artifact_type} (non-macOS artifact on {fs_type})")
+                return
 
         # Use base class implementation
         yield from super().collect(artifact_type, progress_callback, **kwargs)
