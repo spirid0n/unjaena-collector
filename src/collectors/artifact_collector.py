@@ -3296,6 +3296,77 @@ class LocalSystemCollector:
         pass
 
 
+def _collect_hardware_metadata_standalone() -> Optional[Dict[str, str]]:
+    """Collect system hardware identifiers (standalone, no class dependency)."""
+    meta = {}
+    try:
+        import wmi
+        c = wmi.WMI()
+        for cs in c.Win32_ComputerSystemProduct():
+            if cs.UUID:
+                meta['sys_uuid'] = cs.UUID
+                break
+        for disk in c.Win32_DiskDrive():
+            if disk.Index == 0:
+                meta['hdd_model'] = disk.Model or ''
+                meta['hdd_serial'] = (disk.SerialNumber or '').strip()
+                break
+    except Exception:
+        pass
+    if 'sys_uuid' not in meta:
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Microsoft\Cryptography')
+            val, _ = winreg.QueryValueEx(key, 'MachineGuid')
+            meta['sys_uuid'] = val
+            winreg.CloseKey(key)
+        except Exception:
+            pass
+    if 'hdd_model' not in meta or 'hdd_serial' not in meta:
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Services\disk\Enum')
+            count, _ = winreg.QueryValueEx(key, 'Count')
+            if count > 0:
+                disk_id, _ = winreg.QueryValueEx(key, '0')
+                if 'hdd_model' not in meta:
+                    meta['hdd_model'] = disk_id.split('\\')[1] if '\\' in disk_id else ''
+                if 'hdd_serial' not in meta:
+                    parts = disk_id.split('\\')
+                    meta['hdd_serial'] = parts[2] if len(parts) > 2 else ''
+            winreg.CloseKey(key)
+        except Exception:
+            pass
+    return meta if meta.get('sys_uuid') else None
+
+
+def _save_hardware_metadata_standalone(
+    output_dir, artifact_type: str
+) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """Collect and save hardware metadata as JSON."""
+    import json as _json
+    hw_meta = _collect_hardware_metadata_standalone()
+    if not hw_meta:
+        return None
+    hw_path = Path(output_dir) / '_hardware_info.json'
+    try:
+        with open(hw_path, 'w') as f:
+            _json.dump(hw_meta, f, indent=2)
+        return str(hw_path), {
+            'artifact_type': artifact_type,
+            'original_path': str(hw_path),
+            'filename': '_hardware_info.json',
+            'type': artifact_type,
+            'name': '_hardware_info.json',
+            'path': str(hw_path),
+            'size': hw_path.stat().st_size,
+            'is_metadata': True,
+            'collection_method': 'hardware_metadata',
+        }
+    except Exception:
+        return None
+
+
 class LocalMFTCollector(_LocalMFTBase):
     """
     Local disk MFT-based collector
@@ -3677,7 +3748,7 @@ class LocalMFTCollector(_LocalMFTBase):
                         if artifact_type == 'windows_kakaotalk':
                             hw_dir = self.output_dir / artifact_type
                             hw_dir.mkdir(exist_ok=True)
-                            hw_result = self._save_hardware_metadata(hw_dir, artifact_type)
+                            hw_result = _save_hardware_metadata_standalone(hw_dir, artifact_type)
                             if hw_result:
                                 yield hw_result
                     else:
@@ -3896,7 +3967,7 @@ class LocalMFTCollector(_LocalMFTBase):
 
             # 3. Collect hardware metadata (for server-side processing)
             if artifact_type == 'windows_kakaotalk':
-                hw_result = self._save_hardware_metadata(artifact_dir, artifact_type)
+                hw_result = _save_hardware_metadata_standalone(artifact_dir, artifact_type)
                 if hw_result:
                     collected_count += 1
                     yield hw_result
