@@ -99,6 +99,14 @@ _APFS_FILESYSTEMS = frozenset({'APFS'})
 # HFS+ uses pyfshfs (libfshfs) — separate from dissect
 _HFS_FILESYSTEMS = frozenset({'HFS', 'HFS+', 'HFSX'})
 
+# macOS APFS firmlinks: on Data volumes /var, /etc, /tmp are empty stubs;
+# actual content lives under /private/{var,etc,tmp}.
+_MACOS_FIRMLINKS = {
+    '/var': '/private/var',
+    '/etc': '/private/etc',
+    '/tmp': '/private/tmp',
+}
+
 # Check pyfshfs availability
 try:
     import pyfshfs
@@ -2095,6 +2103,24 @@ class ForensicDiskAccessor:
             path = path.rstrip('/')
         return path
 
+    def _apply_macos_firmlink(self, path: str) -> Optional[str]:
+        """
+        Return the firmlink-resolved path for macOS APFS data volumes.
+
+        On APFS data volumes /var, /etc, /tmp are empty directory stubs.
+        The real content lives at /private/var, /private/etc, /private/tmp
+        (connected via firmlinks on a running system).
+
+        Returns the remapped path if applicable, or None if no mapping
+        matches.  Only applies when the current filesystem is APFS.
+        """
+        if self._dissect_fs_type not in _APFS_FILESYSTEMS:
+            return None
+        for stub, target in _MACOS_FIRMLINKS.items():
+            if path == stub or path.startswith(stub + '/'):
+                return target + path[len(stub):]
+        return None
+
     def _dissect_node_to_catalog(
         self,
         node,
@@ -2774,7 +2800,16 @@ class ForensicDiskAccessor:
             if fs_type in _HFS_FILESYSTEMS:
                 node = self._dissect_fs.get_file_entry_by_path(dissect_path)
             else:
-                node = self._dissect_fs.get(dissect_path)
+                try:
+                    node = self._dissect_fs.get(dissect_path)
+                except Exception:
+                    # APFS firmlink fallback: /var -> /private/var, etc.
+                    firmlink_path = self._apply_macos_firmlink(dissect_path)
+                    if firmlink_path is not None:
+                        node = self._dissect_fs.get(firmlink_path)
+                        dissect_path = firmlink_path
+                    else:
+                        raise
             parent_inode = _node_inum(node, fs_type)
             parent_path = dissect_path.rstrip('/')
 
@@ -2948,9 +2983,17 @@ class ForensicDiskAccessor:
         try:
             node = self._dissect_fs.get(dissect_path)
             return self._dissect_read_file_content(node, max_size)
-        except FileNotFoundError:
-            raise FilesystemError(f"File not found: {path}")
         except Exception as e:
+            # APFS firmlink fallback: /var -> /private/var, etc.
+            firmlink_path = self._apply_macos_firmlink(dissect_path)
+            if firmlink_path is not None:
+                try:
+                    node = self._dissect_fs.get(firmlink_path)
+                    return self._dissect_read_file_content(node, max_size)
+                except Exception:
+                    pass  # fall through to original error
+            if isinstance(e, FileNotFoundError):
+                raise FilesystemError(f"File not found: {path}")
             raise FilesystemError(f"Failed to read file {path}: {e}")
 
     def _dissect_read_exfat_by_path(self, path: str, max_size: int = None) -> bytes:
@@ -3200,8 +3243,19 @@ class ForensicDiskAccessor:
         try:
             node = self._dissect_fs.get(dissect_path)
             yield from self._dissect_stream_file_content(node, chunk_size)
-        except FileNotFoundError:
-            raise FilesystemError(f"File not found: {path}")
+        except Exception as e:
+            # APFS firmlink fallback: /var -> /private/var, etc.
+            firmlink_path = self._apply_macos_firmlink(dissect_path)
+            if firmlink_path is not None:
+                try:
+                    node = self._dissect_fs.get(firmlink_path)
+                    yield from self._dissect_stream_file_content(node, chunk_size)
+                    return
+                except Exception:
+                    pass  # fall through to original error
+            if isinstance(e, FileNotFoundError):
+                raise FilesystemError(f"File not found: {path}")
+            raise FilesystemError(f"Failed to stream file {path}: {e}")
 
     def _dissect_stream_file_by_inode(
         self, inode: int, chunk_size: int = 64 * 1024 * 1024
