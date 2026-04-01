@@ -1589,7 +1589,14 @@ class iOSBackupParser:
                 if not _validate_ios_file_hash(file_hash):
                     continue
 
+                # Try path variants: pre-iOS 17, iOS 17+ (Snapshot/), flat
                 actual_path = self.backup_path / file_hash[:2] / file_hash
+                if not actual_path.exists():
+                    actual_path = self.backup_path / 'Snapshot' / file_hash[:2] / file_hash
+                if not actual_path.exists():
+                    actual_path = self.backup_path / file_hash
+                if not actual_path.exists():
+                    continue
 
                 # [SECURITY] Path traversal check via string prefix (resolve once)
                 try:
@@ -1657,11 +1664,13 @@ class iOSBackupParser:
         if not _validate_ios_file_hash(file_hash):
             return False
 
-        # Find actual file in backup
+        # Find actual file in backup (try pre-iOS 17, iOS 17+ Snapshot/, flat)
         source_path = self.backup_path / file_hash[:2] / file_hash
 
         if not source_path.exists():
-            # Try flat structure (older backups)
+            source_path = self.backup_path / 'Snapshot' / file_hash[:2] / file_hash
+
+        if not source_path.exists():
             source_path = self.backup_path / file_hash
 
         if not source_path.exists():
