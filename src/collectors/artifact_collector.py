@@ -1244,7 +1244,6 @@ ARTIFACT_TYPES = {
 
     # =========================================================================
     # [2026-02-24] Screen Scraping (Non-Root Accessibility Service)
-    # Agent APK가 Accessibility Service로 앱 화면을 자동 스크래핑
     # =========================================================================
     'mobile_android_screen_scrape': {
         'name': 'Screen Scraping',

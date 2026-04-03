@@ -863,10 +863,10 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # ================================================================
-    # [2026-02-20] iOS 한국 앱 → 앱별 개별 수집 타입
+    # Korean apps - per-app collection types
     # ================================================================
 
-    # 금융
+    # Finance
     'mobile_ios_kakaobank': {
         'name': 'KakaoBank',
         'description': 'KakaoBank mobile banking app data',
@@ -994,7 +994,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 내비/교통
+    # Navigation / Transportation
     'mobile_ios_tmap': {
         'name': 'TMAP',
         'description': 'TMAP navigation history and GPS data',
@@ -1050,7 +1050,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 쇼핑/배달
+    # Shopping / Delivery
     'mobile_ios_coupang': {
         'name': 'Coupang',
         'description': 'Coupang shopping app user and group data',
@@ -1086,7 +1086,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 브라우저
+    # Browser
     'mobile_ios_chrome': {
         'name': 'Chrome',
         'description': 'Chrome iOS browsing history, searches, downloads',
@@ -1095,7 +1095,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 이메일
+    # Email
     'mobile_ios_gmail': {
         'name': 'Gmail',
         'description': 'Gmail iOS email metadata',
@@ -1104,7 +1104,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 오피스
+    # Office
     'mobile_ios_excel': {
         'name': 'Excel',
         'description': 'Microsoft Excel iOS data',
@@ -1155,7 +1155,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 스트리밍
+    # Streaming
     'mobile_ios_youtube': {
         'name': 'YouTube',
         'description': 'YouTube watch and upload history',
@@ -1178,7 +1178,7 @@ IOS_ARTIFACT_TYPES = {
         'pattern': True,
     },
 
-    # 유틸리티
+    # Utility
     'mobile_ios_jikbang': {
         'name': 'Jikbang',
         'description': 'Jikbang real estate search data',
@@ -1258,7 +1258,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # ================================================================
-    # [2026-02-23] 누락 앱 추가 (서버 파서 있으나 수집 정의 없던 9개)
+    # Additional apps (server parsers existed but collection was missing)
     # ================================================================
     'mobile_ios_band': {
         'name': 'BAND',
@@ -2505,10 +2505,9 @@ class iOSDeviceConnector:
                     encrypted_backup=self._encrypted_backup_obj
                 )
                 collector.select_backup(str(self._backup_path))
-                self._backup_collector = collector  # [2026-02-06] 성공 시에만 설정
+                self._backup_collector = collector  # Only set on success
             except Exception as e:
-                # [2026-02-06] FIX: 실패 시 _backup_collector를 설정하지 않음
-                # 다음 아티팩트에서 다시 시도할 수 있도록
+                # On failure, do not set _backup_collector so next artifact can retry
                 yield '', {
                     'artifact_type': artifact_type,
                     'status': 'error',

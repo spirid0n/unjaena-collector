@@ -1,8 +1,7 @@
 """
 Process Memory Dumper Module
 
-Windows 프로세스 메모리 덤프 수집 모듈.
-MiniDumpWriteDump API를 사용하여 특정 프로세스의 메모리를 덤프합니다.
+Collects process memory dumps using the Windows MiniDumpWriteDump API.
 
 Usage:
     dumper = ProcessMemoryDumper()
@@ -58,7 +57,7 @@ class PROCESSENTRY32(ctypes.Structure):
 
 
 class ProcessMemoryDumper:
-    """Windows 프로세스 메모리 덤프 클래스"""
+    """Windows process memory dump class."""
 
     def __init__(self):
         self.kernel32 = ctypes.windll.kernel32
@@ -66,14 +65,14 @@ class ProcessMemoryDumper:
 
     def find_process_by_name(self, process_name: str) -> List[Tuple[int, str]]:
         """
-        프로세스 이름으로 PID 찾기
+        Find PIDs by process name.
 
         Args:
-            process_name: 프로세스 이름 (예: "KakaoTalk.exe")
-                          UWP 앱도 매칭 (예: "WhatsApp.exe" → "WhatsApp.Root.exe")
+            process_name: Process name (e.g. "KakaoTalk.exe").
+                          Also matches UWP apps (e.g. "WhatsApp.exe" -> "WhatsApp.Root.exe").
 
         Returns:
-            List of (pid, exe_name) tuples
+            List of (pid, exe_name) tuples.
         """
         processes = []
         process_name_lower = process_name.lower()
@@ -120,15 +119,15 @@ class ProcessMemoryDumper:
         dump_type: int = None
     ) -> dict:
         """
-        프로세스 메모리 덤프
+        Dump process memory.
 
         Args:
-            process_name: 프로세스 이름 (예: "KakaoTalk.exe")
-            output_path: 덤프 파일 저장 경로
-            dump_type: MiniDump 타입 (기본: MiniDumpWithFullMemory)
+            process_name: Process name (e.g. "KakaoTalk.exe").
+            output_path: Output file path for the dump.
+            dump_type: MiniDump type (default: MiniDumpWithFullMemory).
 
         Returns:
-            dict with 'success', 'pid', 'path', 'size', 'error'
+            dict with 'success', 'pid', 'path', 'size', 'error'.
         """
         result = {
             'success': False,
@@ -139,21 +138,21 @@ class ProcessMemoryDumper:
         }
 
         if dump_type is None:
-            # 전체 메모리 + 데이터 세그먼트 + 핸들 정보
+            # Full memory + data segments + handle info
             dump_type = MiniDumpWithFullMemory | MiniDumpWithDataSegs | MiniDumpWithHandleData
 
-        # 프로세스 찾기
+        # Find process
         processes = self.find_process_by_name(process_name)
         if not processes:
             result['error'] = f"Process not found: {process_name}"
             logger.warning(result['error'])
             return result
 
-        pid, exe_name = processes[0]  # 첫 번째 매칭 프로세스 사용
+        pid, exe_name = processes[0]  # Use first matching process
         result['pid'] = pid
         logger.info(f"Found process: {exe_name} (PID: {pid})")
 
-        # 프로세스 핸들 열기
+        # Open process handle
         process_handle = self.kernel32.OpenProcess(
             PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
             False,
@@ -167,7 +166,7 @@ class ProcessMemoryDumper:
             return result
 
         try:
-            # 출력 파일 생성
+            # Create output file
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -188,7 +187,7 @@ class ProcessMemoryDumper:
                 return result
 
             try:
-                # MiniDumpWriteDump 호출
+                # Call MiniDumpWriteDump
                 success = self.dbghelp.MiniDumpWriteDump(
                     process_handle,
                     pid,
@@ -223,10 +222,10 @@ class ProcessMemoryDumper:
         output_path: str
     ) -> dict:
         """
-        Lightweight memory dump for forensic analysis
+        Lightweight memory dump for forensic analysis.
 
-        MiniDumpWithPrivateReadWriteMemory를 사용하여
-        힙, 스택 등 읽기/쓰기 가능한 메모리만 덤프
+        Uses MiniDumpWithPrivateReadWriteMemory to dump only
+        private read/write memory regions (heap, stack, etc.).
         """
         dump_type = (
             MiniDumpWithPrivateReadWriteMemory |

@@ -536,13 +536,13 @@ class SyncUploader:
 
 class R2DirectUploader:
     """
-    R2 Direct Uploader — presigned URL을 통해 Cloudflare R2에 직접 업로드.
+    R2 Direct Uploader — uploads files directly to Cloudflare R2 via presigned URLs.
 
-    서버는 presigned URL 발급과 완료 확인만 담당하며, 실제 파일 전송은
-    클라이언트 → R2 직접 연결로 이루어져 서버 대역폭 부하를 제거합니다.
+    The server only issues presigned URLs and confirms completion; actual file
+    transfer goes directly from client to R2, eliminating server bandwidth load.
 
-    - 100MB 미만: 단일 PUT 업로드
-    - 100MB 이상: Multipart 업로드 (파트별 PUT)
+    - Under 100MB: Single PUT upload
+    - 100MB and above: Multipart upload (per-part PUT)
     """
 
     DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
@@ -560,14 +560,14 @@ class R2DirectUploader:
     ):
         """
         Args:
-            server_url: API 서버 URL (e.g., https://api.example.com)
-            session_id: 수집 세션 ID
-            collection_token: 수집 인증 토큰
-            case_id: 케이스 ID
-            consent_record: 법적 동의 기록
-            max_file_size: 최대 파일 크기 (bytes)
-            config: 앱 설정 (dev_mode 등)
-            request_signer: RequestSigner 인스턴스 (HMAC 서명)
+            server_url: API server URL (e.g., https://api.example.com)
+            session_id: Collection session ID
+            collection_token: Collection auth token
+            case_id: Case ID
+            consent_record: Legal consent record
+            max_file_size: Maximum file size (bytes)
+            config: App settings (dev_mode, etc.)
+            request_signer: RequestSigner instance (HMAC signing)
         """
         self.server_url = server_url.rstrip('/')
         self.session_id = session_id
@@ -579,7 +579,7 @@ class R2DirectUploader:
         self.request_signer = request_signer
 
     def _get_auth_headers(self, method: str = "POST", path: str = "", body=None) -> dict:
-        """인증 헤더 생성 (세션 + 토큰 + HMAC 서명)"""
+        """Build auth headers (session + token + HMAC signature)."""
         headers = {
             'X-Session-ID': self.session_id,
             'X-Collection-Token': self.collection_token,
@@ -591,7 +591,7 @@ class R2DirectUploader:
         return headers
 
     def _compute_file_hash(self, file_path: str) -> str:
-        """SHA-256 해시 계산"""
+        """Compute SHA-256 hash."""
         h = hashlib.sha256()
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(8192), b''):
@@ -599,7 +599,7 @@ class R2DirectUploader:
         return h.hexdigest()
 
     def _request_presigned_url(self, file_path: str, artifact_type: str, file_hash: str) -> dict:
-        """서버에서 presigned URL 발급 요청 (최대 5회 재시도)"""
+        """Request presigned URL from server (up to 5 retries)."""
         file_size = os.path.getsize(file_path)
         file_name = Path(file_path).name
         endpoint = "/api/v1/collector/r2/presigned-url"
@@ -653,7 +653,7 @@ class R2DirectUploader:
         raise RuntimeError("Presigned URL request failed after all retries")
 
     def _validate_presigned_url(self, presigned_url: str) -> None:
-        """[Security] Presigned URL 도메인 검증 — R2/S3 이외 도메인 거부"""
+        """[Security] Validate presigned URL domain — reject non-R2/S3 domains."""
         from urllib.parse import urlparse
         parsed = urlparse(presigned_url)
         # Allow: Cloudflare R2 (*.r2.cloudflarestorage.com), AWS S3, localhost (dev)
@@ -673,7 +673,7 @@ class R2DirectUploader:
             )
 
     def _upload_single(self, file_path: str, presigned_url: str) -> None:
-        """단일 PUT으로 R2에 직접 업로드 (< 100MB), 최대 3회 재시도"""
+        """Single PUT direct upload to R2 (< 100MB), up to 3 retries."""
         self._validate_presigned_url(presigned_url)
         file_size = os.path.getsize(file_path)
         timeout = max(120, file_size / (1 * 1024 * 1024) + 60)  # 1MB/s + 60s buffer
@@ -700,7 +700,7 @@ class R2DirectUploader:
                     raise
 
     def _upload_multipart(self, file_path: str, presigned_info: dict) -> list:
-        """Multipart 업로드 (>= 100MB): 파트 병렬 PUT (최대 4 동시)"""
+        """Multipart upload (>= 100MB): parallel part PUT (max 4 concurrent)."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         urls = presigned_info['upload_url']
@@ -711,7 +711,7 @@ class R2DirectUploader:
         actual_file_size = os.path.getsize(file_path)
         total_parts = len(urls)
 
-        # 파트별 데이터를 미리 읽어서 메모리에 준비 (병렬 PUT을 위해)
+        # Pre-read part data into memory for parallel PUT
         parts_data = []
         with open(file_path, 'rb') as f:
             for idx, part_info in enumerate(urls):
@@ -756,7 +756,7 @@ class R2DirectUploader:
                     else:
                         raise
 
-        # 파트 병렬 업로드 (최대 4 동시)
+        # Parallel part upload (max 4 concurrent)
         max_workers = min(4, total_parts)
         completed_parts = [None] * total_parts
 
@@ -768,9 +768,9 @@ class R2DirectUploader:
 
             for future in as_completed(futures):
                 idx = futures[future]
-                completed_parts[idx] = future.result()  # 예외 시 전파
+                completed_parts[idx] = future.result()  # propagates exceptions
 
-        # 파트 번호 순서대로 정렬 (S3/R2 CompleteMultipartUpload 요구사항)
+        # Sort by part number (S3/R2 CompleteMultipartUpload requirement)
         completed_parts.sort(key=lambda p: p['PartNumber'])
         return completed_parts
 
@@ -779,7 +779,7 @@ class R2DirectUploader:
         file_name: str, artifact_type: str, parts: list = None,
         is_encrypted: bool = False, original_path: str = "",
     ) -> dict:
-        """서버에 업로드 완료 확인 요청 (최대 5회 재시도)"""
+        """Confirm upload completion with server (up to 5 retries)."""
         endpoint = "/api/v1/collector/r2/upload-complete"
 
         payload = {
@@ -836,7 +836,7 @@ class R2DirectUploader:
         raise RuntimeError("Upload confirmation failed after all retries")
 
     def _abort_upload(self, case_id: str, key: str, upload_id: str) -> None:
-        """Multipart 업로드 중단 (실패 시 정리)"""
+        """Abort multipart upload (cleanup on failure)."""
         try:
             endpoint = "/api/v1/collector/r2/abort-upload"
             headers = self._get_auth_headers("POST", endpoint)
@@ -859,14 +859,14 @@ class R2DirectUploader:
         progress_callback: Callable[[float], None] = None,
     ) -> UploadResult:
         """
-        R2 직접 업로드 (presigned URL).
+        R2 direct upload via presigned URL.
 
-        1. SHA-256 해시 계산
-        2. 서버에서 presigned URL 발급
-        3. R2에 직접 PUT 업로드 (단일/멀티파트)
-        4. 서버에 업로드 완료 확인 → Celery 파싱 트리거
+        1. Compute SHA-256 hash
+        2. Request presigned URL from server
+        3. PUT upload directly to R2 (single or multipart)
+        4. Confirm upload completion with server
         """
-        # 파일 크기 검증
+        # Validate file size
         try:
             file_size = os.path.getsize(file_path)
         except OSError as e:
@@ -892,7 +892,7 @@ class R2DirectUploader:
                 is_recoverable=False,
             )
 
-        # SHA-256 해시 계산
+        # Compute SHA-256 hash
         try:
             file_hash = self._compute_file_hash(file_path)
         except Exception as e:
@@ -903,13 +903,13 @@ class R2DirectUploader:
         encrypted_path = None
 
         try:
-            # Step 1: Presigned URL 요청
+            # Step 1: Request presigned URL
             presigned_info = self._request_presigned_url(file_path, artifact_type, file_hash)
             key = presigned_info['key']
             is_multipart = presigned_info.get('multipart', False)
             upload_id = presigned_info.get('upload_id')
 
-            # Step 1.5: Per-Case Encryption — 서버에서 DEK 수신 시 파일 암호화
+            # Step 1.5: Per-Case Encryption — encrypt file if server provides DEK
             encryption_key_hex = presigned_info.get('encryption_key')
             is_encrypted = False
             encrypted_path = None
@@ -957,7 +957,7 @@ class R2DirectUploader:
 
             upload_path = encrypted_path if is_encrypted else file_path
 
-            # Step 2: R2에 직접 업로드
+            # Step 2: Direct upload to R2
             completed_parts = None
             if is_multipart:
                 completed_parts = self._upload_multipart(upload_path, presigned_info)
@@ -965,11 +965,11 @@ class R2DirectUploader:
                 upload_url = presigned_info['upload_url']
                 self._upload_single(upload_path, upload_url)
 
-            # 암호화 임시 파일 정리
+            # Clean up encrypted temp file
             if encrypted_path and os.path.exists(encrypted_path):
                 os.remove(encrypted_path)
 
-            # Step 3: 서버에 완료 확인
+            # Step 3: Confirm completion with server
             original_path = metadata.get('original_path', '') if metadata else ''
             confirm_result = self._confirm_upload(
                 key=key,
@@ -992,11 +992,11 @@ class R2DirectUploader:
             sanitized_error = _sanitize_error_for_logging(str(e))
             logger.error(f"[R2] Direct upload failed: {sanitized_error}")
 
-            # 암호화 임시 파일 정리
+            # Clean up encrypted temp file
             if encrypted_path and os.path.exists(encrypted_path):
                 os.remove(encrypted_path)
 
-            # Multipart 중단 정리
+            # Abort multipart cleanup
             if presigned_info and presigned_info.get('upload_id'):
                 self._abort_upload(
                     self.case_id,
@@ -1019,7 +1019,7 @@ class R2DirectUploader:
         if total == 0:
             return []
 
-        # 결과를 원래 순서대로 유지하기 위해 인덱스 기반 저장
+        # Store results by index to preserve original order
         results = [None] * total
         completed_count = 0
         lock = threading.Lock()
@@ -1041,7 +1041,7 @@ class R2DirectUploader:
                 future = executor.submit(_upload_one, i, file_path, artifact_type, metadata)
                 futures[future] = i
 
-            # 모든 작업 완료 대기 (예외 전파)
+            # Wait for all tasks to complete (propagates exceptions)
             for future in as_completed(futures):
                 try:
                     future.result()

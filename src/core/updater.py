@@ -1,8 +1,5 @@
 """
 Auto-Update Checker — GitHub Releases API
-
-앱 시작 시 백그라운드에서 최신 버전을 확인하고,
-업데이트가 있으면 GUI 알림을 표시합니다.
 """
 import json
 import logging
@@ -21,7 +18,7 @@ RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
 
 def get_current_version() -> str:
-    """현재 앱 버전 반환"""
+    """Return the current app version."""
     try:
         import os
         if getattr(sys, 'frozen', False):
@@ -42,7 +39,7 @@ def get_current_version() -> str:
 
 
 def _parse_version(version_str: str) -> Tuple[int, ...]:
-    """v2.2.0 또는 2.2.0 → (2, 2, 0)"""
+    """v2.2.0 or 2.2.0 -> (2, 2, 0)"""
     cleaned = version_str.lstrip('v').split('-')[0]  # v2.2.0-beta → 2.2.0
     parts = []
     for p in cleaned.split('.'):
@@ -54,7 +51,7 @@ def _parse_version(version_str: str) -> Tuple[int, ...]:
 
 
 def _get_platform_asset_name() -> str:
-    """현재 OS에 맞는 릴리스 에셋 이름 패턴"""
+    """Return the release asset name pattern for the current OS."""
     system = platform.system().lower()
     machine = platform.machine().lower()
 
@@ -70,10 +67,10 @@ def _get_platform_asset_name() -> str:
 
 def check_for_update() -> Optional[dict]:
     """
-    GitHub Releases API로 최신 버전 확인.
+    Check for the latest version via GitHub Releases API.
 
     Returns:
-        업데이트 정보 dict 또는 None (최신 버전이거나 확인 실패)
+        Update info dict, or None if already up to date or check failed.
         {
             'current_version': '2.1.0',
             'latest_version': '2.2.0',
@@ -113,7 +110,7 @@ def check_for_update() -> Optional[dict]:
             logger.debug(f"[Updater] Up to date: {current} >= {latest_version}")
             return None
 
-        # 현재 플랫폼에 맞는 다운로드 URL 찾기
+        # Find download URL for the current platform
         asset_pattern = _get_platform_asset_name()
         download_url = None
         for asset in release.get('assets', []):
@@ -140,7 +137,7 @@ def check_for_update() -> Optional[dict]:
 
 
 def show_update_dialog(parent, update_info: dict):
-    """PyQt6 업데이트 알림 다이얼로그"""
+    """Show a PyQt6 update notification dialog."""
     try:
         from PyQt6.QtWidgets import QMessageBox, QPushButton
         from PyQt6.QtCore import QUrl

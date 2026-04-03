@@ -101,7 +101,7 @@ class RequestSigner:
         body_hash = hashlib.sha256(body if body else b"").hexdigest()
 
         # Token prefix for binding (prevents cross-token replay)
-        token_prefix = (collection_token or "")[:32]  # [SEC] 32자로 확대
+        token_prefix = (collection_token or "")[:32]
 
         # Canonical string
         canonical = f"{method.upper()}\n{path}\n{timestamp}\n{nonce}\n{body_hash}\n{token_prefix}"

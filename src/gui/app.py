@@ -3411,7 +3411,7 @@ class CollectionWorker(QThread):
                             file_count = 0
                             error_count = 0
 
-                            # [2026-02-08] iOS 백업 진행률 콜백 추가
+                            # [2026-02-08] iOS backup progress callback
                             def ios_progress_callback(msg: str):
                                 # Progress percentage → update progress bar only (no log spam)
                                 if "progress:" in msg.lower():
@@ -3440,7 +3440,7 @@ class CollectionWorker(QThread):
                                 if self._cancelled:
                                     break
 
-                                # [2026-02-06] FIX: 에러 응답 필터링 (빈 경로 또는 status=error)
+                                # [2026-02-06] FIX: filter error responses (empty path or status=error)
                                 if not file_path or metadata.get('status') in ('error', 'not_found', 'not_implemented'):
                                     error_msg = metadata.get('error', metadata.get('message', 'Unknown error'))
                                     status = metadata.get('status', 'error')
@@ -3703,7 +3703,7 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit(f"☁️ Uploading {len(encrypted_files)} files...", False)
 
-            # R2 직접 업로드 (서버 우회 — Cloudflare R2에 직접 전송)
+            # Direct R2 upload (bypass server — send directly to Cloudflare R2)
             uploader = R2DirectUploader(
                 server_url=self.server_url,
                 session_id=self.session_id,
@@ -3717,7 +3717,7 @@ class CollectionWorker(QThread):
             success_count = 0
             total_upload = len(encrypted_files)
 
-            # [2026-03-09] 병렬 업로드 (최대 5개 동시) — 순차 업로드 대비 3~5배 속도 향상
+            # [2026-03-09] Parallel upload (up to 5 concurrent) — 3-5x faster than sequential
             from concurrent.futures import ThreadPoolExecutor, as_completed
             import threading
 
