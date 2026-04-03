@@ -581,7 +581,7 @@ class ConsentDialog(QDialog):
             <b>Notice pursuant to EU AI Act (2024/1689), PIPA Art. 37-2, GDPR Art. 22</b></p>
         <ul>
             <li><b>AI System Classification:</b> This system may be classified as high-risk under EU AI Act Annex III, 6(e) when used in law enforcement contexts. Appropriate human oversight is required.</li>
-            <li><b>AI Processing:</b> Open-source LLM models (e.g., Qwen, LLaMA family, 14B+ parameters) process data <u>locally on the analysis server</u>. No data is sent to third-party AI providers (OpenAI, Google, etc.) unless explicitly configured.</li>
+            <li><b>AI Processing:</b> Open-source LLM models (32B+ parameters) process data <u>locally on the analysis server</u>. No data is sent to third-party AI providers (OpenAI, Google, etc.) unless explicitly configured.</li>
             <li><b>Analysis Methods:</b> MITRE ATT&CK kill-chain mapping (14 phases), evidence scoring with weighted algorithms, vector similarity search, cross-evidence correlation, temporal clustering. Note: routine activity may be categorized under attack phases — this does not indicate an actual attack occurred.</li>
             <li><b>Algorithmic Scoring:</b> Evidence is prioritized using automated scoring (keyword matching, temporal anomaly detection including night/weekend activity weighting, privilege indicators). These embedded assumptions may constitute algorithmic bias.</li>
             <li><b>Automated Decisions:</b> AI identifies suspicious activity, malware indicators, etc. for <u>reference only</u>.</li>
@@ -661,7 +661,7 @@ class ConsentDialog(QDialog):
             <b>EU AI Act (2024/1689), 개인정보보호법 제37조의2, GDPR 제22조에 따른 고지</b></p>
         <ul>
             <li><b>AI 시스템 분류:</b> 본 시스템은 법 집행 맥락에서 사용 시 EU AI Act 부속서 III, 6(e)에 따라 고위험으로 분류될 수 있습니다. 적절한 인적 감독이 필요합니다.</li>
-            <li><b>AI 처리:</b> 오픈소스 LLM 모델(예: Qwen, LLaMA 계열, 14B+ 파라미터)이 <u>분석 서버에서 로컬로</u> 데이터를 처리합니다. 명시적으로 설정하지 않는 한 제3자 AI 제공자(OpenAI, Google 등)에 데이터가 전송되지 않습니다.</li>
+            <li><b>AI 처리:</b> 오픈소스 LLM 모델(32B+ 파라미터)이 <u>분석 서버에서 로컬로</u> 데이터를 처리합니다. 명시적으로 설정하지 않는 한 제3자 AI 제공자(OpenAI, Google 등)에 데이터가 전송되지 않습니다.</li>
             <li><b>분석 방법:</b> MITRE ATT&CK 킬체인 매핑(14단계), 가중 알고리즘 기반 증거 점수화, 벡터 유사도 검색, 교차 증거 상관분석, 시간적 클러스터링. 참고: 일상적 활동이 공격 단계로 분류될 수 있으나, 이는 실제 공격이 발생했음을 의미하지 않습니다.</li>
             <li><b>알고리즘 점수화:</b> 증거는 자동 점수화(키워드 매칭, 야간/주말 활동 가중치 등 시간적 이상 감지, 권한 지표)를 통해 우선순위가 결정됩니다. 이러한 내장 가정은 알고리즘 편향을 구성할 수 있습니다.</li>
             <li><b>자동화된 판단:</b> 의심 활동, 악성코드 지표 등을 AI가 자동 판단 (<u>참고용</u>)</li>
@@ -741,7 +741,7 @@ class ConsentDialog(QDialog):
             <b>EU AI Act (2024/1689)、個人情報保護法関連規制、GDPR第22条に基づく告知</b></p>
         <ul>
             <li><b>AIシステム分類：</b>本システムは法執行の文脈で使用される場合、EU AI Act附属書III、6(e)に基づき高リスクに分類される可能性があります。適切な人的監視が必要です。</li>
-            <li><b>AI処理：</b>オープンソースLLMモデル（例：Qwen、LLaMAファミリー、14B+パラメータ）が<u>分析サーバーでローカルに</u>データを処理します。明示的に設定しない限り、第三者AIプロバイダー（OpenAI、Google等）にデータは送信されません。</li>
+            <li><b>AI処理：</b>オープンソースLLMモデル（32B+パラメータ）が<u>分析サーバーでローカルに</u>データを処理します。明示的に設定しない限り、第三者AIプロバイダー（OpenAI、Google等）にデータは送信されません。</li>
             <li><b>分析手法：</b>MITRE ATT&CKキルチェーンマッピング（14フェーズ）、重み付けアルゴリズムによる証拠スコアリング、ベクトル類似度検索、証拠間相関分析、時間的クラスタリング。注：日常的な活動が攻撃フェーズに分類される場合がありますが、実際に攻撃が発生したことを意味するものではありません。</li>
             <li><b>アルゴリズムスコアリング：</b>証拠は自動スコアリング（キーワードマッチング、夜間/週末活動の重み付けなどの時間的異常検知、権限指標）により優先順位が決定されます。これらの内蔵仮定はアルゴリズムバイアスを構成する可能性があります。</li>
             <li><b>自動判定：</b>不審な活動、マルウェア指標等をAIが自動判定（<u>参考用</u>）</li>
@@ -821,7 +821,7 @@ class ConsentDialog(QDialog):
             <b>根据EU AI Act (2024/1689)、适用AI及隐私法规、GDPR第22条的告知</b></p>
         <ul>
             <li><b>AI系统分类：</b>本系统在执法场景下使用时，可能根据EU AI Act附件III第6(e)条被归类为高风险系统。需要适当的人工监督。</li>
-            <li><b>AI处理：</b>开源LLM模型（如Qwen、LLaMA系列，14B+参数）<u>在分析服务器上本地</u>处理数据。除非明确配置，数据不会发送给第三方AI提供商（OpenAI、Google等）。</li>
+            <li><b>AI处理：</b>开源LLM模型（32B+参数）<u>在分析服务器上本地</u>处理数据。除非明确配置，数据不会发送给第三方AI提供商（OpenAI、Google等）。</li>
             <li><b>分析方法：</b>MITRE ATT&CK杀伤链映射（14阶段）、加权算法证据评分、向量相似度搜索、交叉证据关联分析、时间聚类。注意：日常活动可能被归类为攻击阶段——这并不意味着实际发生了攻击。</li>
             <li><b>算法评分：</b>证据通过自动评分（关键词匹配、包括夜间/周末活动加权的时间异常检测、权限指标）确定优先级。这些内置假设可能构成算法偏见。</li>
             <li><b>自动判断：</b>AI自动识别可疑活动、恶意软件指标等（<u>仅供参考</u>）</li>
