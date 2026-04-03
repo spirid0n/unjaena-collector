@@ -228,7 +228,6 @@ class HeadlessCollector:
         success_count = 0
         fail_count = 0
 
-        # [2026-03-09] 병렬 업로드 (최대 5개 동시)
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading
 

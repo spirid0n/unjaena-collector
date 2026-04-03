@@ -694,8 +694,6 @@ class ForensicImageEnumerator(BaseDeviceEnumerator):
 
             partitions = accessor.list_partitions()
 
-            # [2026-02-05] FIX: NTFS를 FAT32보다 우선 (GPT의 EFI 파티션이 FAT32이므로)
-            # 모든 파티션을 스캔하고, 우선순위: NTFS > ext4 > APFS > FAT32
             best_fs = None
             best_os = 'unknown'
             fs_priority = {'NTFS': 10, 'ext4': 9, 'ext3': 8, 'ext2': 7,

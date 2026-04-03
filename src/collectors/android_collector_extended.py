@@ -5172,7 +5172,7 @@ class AndroidCollector:
     # Screen Scraping (Non-Root Accessibility Service)
     # ==========================================================================
 
-    # Agent APK 경로 (collector/resources/agent_apk/)
+    # Agent APK path (collector/resources/agent_apk/)
     AGENT_APK_PATH = Path(__file__).parent.parent.parent / 'resources' / 'agent_apk' / 'ForensicAgent.apk'
     AGENT_APK_VERSION_PATH = Path(__file__).parent.parent.parent / 'resources' / 'agent_apk' / 'version.txt'
     AGENT_PACKAGE = 'com.unjaena.agent'
@@ -5305,7 +5305,7 @@ class AndroidCollector:
 
             self._enable_accessibility_service(progress_callback)
 
-            # Step 3: Get installed apps for collection profile matching (서버에서 지원 목록 동적 조회)
+            # Step 3: Get installed apps for collection profile matching
             supported_packages = self._get_supported_packages()
             if not supported_packages:
                 yield '', {
@@ -5398,7 +5398,7 @@ class AndroidCollector:
             # Step 8: Clean up device results
             self._cleanup_device_results()
 
-            # Step 9: [보안] Agent APK 제거 (포렌식 원칙: 디바이스 최소 수정)
+            # Step 9: Remove Agent APK (forensic principle: minimal device modification)
             if progress_callback:
                 progress_callback('Removing Agent APK from device...')
             self._uninstall_agent_apk()
@@ -5426,7 +5426,7 @@ class AndroidCollector:
             _debug_print(f'[SCRAPE] Agent APK not found: {self.AGENT_APK_PATH}')
             return False
 
-        # [보안] APK 무결성 검증 (SHA256)
+        # APK integrity verification (SHA256)
         hash_file = self.AGENT_APK_PATH.with_suffix('.apk.sha256')
         if hash_file.exists():
             import hashlib
@@ -5480,7 +5480,7 @@ class AndroidCollector:
             return False
 
     def _uninstall_agent_apk(self):
-        """수집 완료 후 Agent APK 제거 + ADB reverse 해제 (포렌식 원칙: 디바이스 최소 수정)"""
+        """Remove Agent APK and release ADB reverse after collection."""
         try:
             output, rc = self._run_system_adb(
                 ['uninstall', self.AGENT_PACKAGE], timeout=30
@@ -5576,7 +5576,7 @@ class AndroidCollector:
         return installed
 
     def _get_supported_packages(self) -> List[str]:
-        """서버에서 지원 앱 패키지 목록 동적 조회 (역공학 시 지원 범위 노출 방지)"""
+        """Dynamically fetch supported app package list from server."""
         try:
             import json
             import urllib.request
@@ -5739,8 +5739,7 @@ class AndroidCollector:
         except Exception as e:
             _debug_print(f'[SCRAPE] ADB reverse setup failed (non-fatal): {e}')
 
-        # [보안] 토큰을 파일로 전달 (broadcast extras 노출 방지)
-        # logcat ActivityManager 로그에 토큰이 평문으로 기록되는 것을 방지
+        # Pass token via file to avoid exposure in broadcast extras and logcat
         token_path = f'/sdcard/Android/data/{self.AGENT_PACKAGE}/files/.scraping_token'
         token_dir = f'/sdcard/Android/data/{self.AGENT_PACKAGE}/files'
         self._adb_shell(f'mkdir -p {shlex.quote(token_dir)}')
@@ -5751,7 +5750,7 @@ class AndroidCollector:
         # base URL including the prefix so Agent hits the correct endpoints.
         agent_server_url = f"{server_url.rstrip('/')}/api/v1/collector"
 
-        # Send broadcast to CommandReceiver (토큰은 파일로 전달, broadcast에 미포함)
+        # Send broadcast to CommandReceiver (token passed via file, not in broadcast)
         cmd = (
             f'am broadcast '
             f'-a com.unjaena.agent.ACTION_START_SCRAPING '
