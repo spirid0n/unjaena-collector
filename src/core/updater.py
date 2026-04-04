@@ -118,6 +118,21 @@ def check_for_update() -> Optional[dict]:
                 download_url = asset.get('browser_download_url')
                 break
 
+        # Fetch SHA256 hash for verification
+        sha256_hash = None
+        for asset in release.get('assets', []):
+            if asset.get('name') == 'SHA256SUMS.txt':
+                try:
+                    sha_resp = requests.get(asset['browser_download_url'], timeout=10)
+                    if sha_resp.status_code == 200:
+                        for line in sha_resp.text.strip().split('\n'):
+                            if asset_pattern in line:
+                                sha256_hash = line.split()[0]
+                                break
+                except Exception:
+                    pass
+                break
+
         return {
             'current_version': current,
             'latest_version': latest_version,
@@ -126,6 +141,7 @@ def check_for_update() -> Optional[dict]:
             'download_url': download_url,
             'release_page': release.get('html_url', RELEASES_PAGE),
             'published_at': release.get('published_at', ''),
+            'sha256': sha256_hash,
         }
 
     except requests.RequestException as e:
@@ -146,10 +162,15 @@ def show_update_dialog(parent, update_info: dict):
         msg = QMessageBox(parent)
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setWindowTitle("Update Available")
+        sha_text = ""
+        if update_info.get('sha256'):
+            sha_text = f"\n\nSHA-256: {update_info['sha256']}"
+
         msg.setText(
             f"A new version is available!\n\n"
             f"Current: v{update_info['current_version']}\n"
             f"Latest:  v{update_info['latest_version']}"
+            f"{sha_text}"
         )
 
         notes = update_info.get('release_notes', '')

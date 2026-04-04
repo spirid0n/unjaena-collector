@@ -18,6 +18,8 @@ import requests
 import websockets
 from pathlib import Path
 from datetime import datetime
+
+from core.token_validator import _get_ssl_verify
 from typing import Callable, Optional
 from dataclasses import dataclass
 
@@ -467,6 +469,7 @@ class SyncUploader:
                         data=data,
                         headers=headers,
                         timeout=upload_timeout,
+                        verify=_get_ssl_verify(),
                     )
 
                     if response.status_code == 200:
@@ -623,6 +626,7 @@ class R2DirectUploader:
                     json=payload,
                     headers=headers,
                     timeout=60,
+                    verify=_get_ssl_verify(),
                 )
 
                 if response.status_code == 429:
@@ -806,6 +810,7 @@ class R2DirectUploader:
                     json=payload,
                     headers=headers,
                     timeout=60,
+                    verify=_get_ssl_verify(),
                 )
 
                 if response.status_code == 429:
