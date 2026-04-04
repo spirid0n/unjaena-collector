@@ -198,10 +198,11 @@ class ConsentDialog(QDialog):
     def _fetch_consent_from_server(self) -> Optional[dict]:
         """Fetch consent template from server"""
         try:
+            from core.token_validator import _get_ssl_verify
             url = f"{self.server_url}/api/v1/collector/consent"
             params = {"language": self.language, "category": "collection"}
 
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10, verify=_get_ssl_verify())
             response.raise_for_status()
 
             data = response.json()
@@ -283,9 +284,28 @@ class ConsentDialog(QDialog):
         self.agree_btn.setText("Agree and Start Collection")
         self.cancel_btn.setText("Cancel")
 
+    @staticmethod
+    def _sanitize_html_tags(text: str) -> str:
+        """Strip dangerous HTML tags from server-returned content.
+        Allows only safe formatting tags; removes script, iframe, img, object, etc."""
+        import re
+        SAFE_TAGS = {'b', 'i', 'u', 'em', 'strong', 'br', 'p', 'ul', 'ol', 'li',
+                     'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'table', 'tr', 'td', 'th',
+                     'thead', 'tbody', 'span', 'div', 'blockquote', 'code', 'pre', 'a', 'sub', 'sup'}
+        def replace_tag(match):
+            tag_content = match.group(1).strip()
+            tag_name = tag_content.split()[0].strip('/').lower()
+            if tag_name in SAFE_TAGS:
+                return match.group(0)
+            return ''  # Remove unsafe tags
+        return re.sub(r'<([^>]+)>', replace_tag, text)
+
     def _markdown_to_html(self, markdown_text: str) -> str:
         """Markdown to HTML conversion (supports tables, horizontal rules)"""
         import re
+
+        # Sanitize raw HTML tags from server content before conversion
+        markdown_text = self._sanitize_html_tags(markdown_text)
 
         # Remove carriage returns
         html = markdown_text.replace('\r\n', '\n').replace('\r', '\n')
@@ -393,7 +413,8 @@ class ConsentDialog(QDialog):
 
             headers = {"Content-Type": "application/json"}
 
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            from core.token_validator import _get_ssl_verify
+            response = requests.post(url, json=payload, headers=headers, timeout=10, verify=_get_ssl_verify())
             response.raise_for_status()
 
             result = response.json()
