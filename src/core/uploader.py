@@ -518,9 +518,9 @@ class SyncUploader:
                             logger.warning(f"[UPLOAD] Server paused — stopping upload")
                             return UploadResult(
                                 success=False,
-                                error="Upload paused by server.",
+                                error="Upload paused — insufficient account balance.",
                                 error_title="Upload Paused",
-                                error_solution="Upload paused by server. Please check your account.",
+                                error_solution="Please check your account balance on the web platform. After resolving, restart the collector to continue. Already processed files are preserved.",
                                 is_recoverable=False,
                                 is_credit_paused=True,
                             )
@@ -860,6 +860,16 @@ class DirectUploader:
                     verify=_get_ssl_verify(),
                 )
 
+                if response.status_code == 402:
+                    try:
+                        detail = response.json()
+                    except Exception:
+                        detail = {}
+                    raise CreditPausedError(
+                        detail.get("message", "Upload paused by server."),
+                        detail=detail,
+                    )
+
                 if response.status_code == 429:
                     wait = attempt * 10
                     logger.warning(f"[DIRECT] Upload confirm rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
@@ -870,6 +880,8 @@ class DirectUploader:
                     raise RuntimeError(f"Upload confirmation failed ({response.status_code}): {response.text[:200]}")
 
                 return response.json()
+            except CreditPausedError:
+                raise  # Don't retry credit pause — propagate immediately
             except RuntimeError:
                 if attempt < max_retries:
                     wait = attempt * 5
@@ -1053,9 +1065,9 @@ class DirectUploader:
                 os.remove(encrypted_path)
             return UploadResult(
                 success=False,
-                error=str(cpe),
+                error="Upload paused — insufficient account balance.",
                 error_title="Upload Paused",
-                error_solution="Upload paused by server. Please check your account.",
+                error_solution="Please check your account balance on the web platform. After resolving, restart the collector to continue. Already processed files are preserved.",
                 is_recoverable=False,
                 is_credit_paused=True,
             )
@@ -1102,9 +1114,9 @@ class DirectUploader:
             nonlocal completed_count
             if credit_paused.is_set():
                 return UploadResult(
-                    success=False, error="Upload stopped by server.",
+                    success=False, error="Upload paused — insufficient account balance.",
                     error_title="Upload Paused",
-                    error_solution="Upload paused by server. Please check your account.",
+                    error_solution="Please check your account balance on the web platform. After resolving, restart the collector to continue. Already processed files are preserved.",
                     is_recoverable=False, is_credit_paused=True,
                 )
             result = self.upload_file(file_path, artifact_type, metadata)
