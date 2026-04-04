@@ -192,7 +192,7 @@ class HeadlessCollector:
     def _compute_hashes(self, files: List[str]) -> List[str]:
         """Stage 2: Compute SHA-256 hashes for integrity verification.
 
-        Note: Upload security is handled by R2DirectUploader during Stage 3.
+        Note: Upload security is handled by DirectUploader during Stage 3.
         """
         from core.encryptor import FileHashCalculator
 
@@ -213,10 +213,10 @@ class HeadlessCollector:
         return verified
 
     def _upload(self, files: List[str]) -> bool:
-        """Stage 3: Upload encrypted files to R2 via presigned URLs."""
-        from core.uploader import R2DirectUploader
+        """Stage 3: Upload files via presigned URLs."""
+        from core.uploader import DirectUploader
 
-        uploader = R2DirectUploader(
+        uploader = DirectUploader(
             server_url=self.server_url,
             session_id=self.session_id,
             collection_token=self.collection_token,
@@ -309,7 +309,10 @@ def run_headless(args, config: dict) -> int:
         from utils.hardware_id import get_hardware_id
         from core.request_signer import RequestSigner
         hw_id = get_hardware_id()
-        request_signer = RequestSigner(hw_id, result.challenge_salt or "", result.signing_key or "")
+        # Pass server-provided hkdf_info if available (backward compatible)
+        hkdf_info = getattr(result, 'hkdf_info', None)
+        hkdf_info_bytes = hkdf_info.encode('utf-8') if hkdf_info else None
+        request_signer = RequestSigner(hw_id, result.challenge_salt or "", result.signing_key or "", hkdf_info=hkdf_info_bytes)
     except Exception as e:
         logger.warning(f"Request signer init failed: {e}")
 

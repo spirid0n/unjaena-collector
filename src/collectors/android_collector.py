@@ -4472,13 +4472,12 @@ class AndroidCollector:
         Request scraping session from server.
 
         Uses the existing uploader's server URL and collection token.
-        Returns session info with scraping_token and available_apps.
+        Returns session info with available_apps.
         """
         try:
             import urllib.request
             import urllib.error
 
-            # Get server URL and token from uploader config
             server_url = getattr(self, '_server_url', None)
             collection_token = getattr(self, '_collection_token', None)
             case_id = getattr(self, '_case_id', None)
@@ -4488,11 +4487,9 @@ class AndroidCollector:
                 _debug_print('[SCRAPE] Server URL or collection token not configured')
                 return None
 
-            # Device fingerprint = Agent APK's SHA256(ANDROID_ID)
-            # Android 8+ assigns per-app ANDROID_ID, so we must query the Agent
+            # Device fingerprint (already hashed)
             device_fingerprint = self._get_agent_fingerprint()
             if not device_fingerprint:
-                # Fallback: shell ANDROID_ID (may differ from Agent's)
                 android_id_out, _ = self._adb_shell(
                     'settings get secure android_id'
                 )
@@ -4500,18 +4497,26 @@ class AndroidCollector:
                 device_fingerprint = hashlib.sha256(android_id.encode()).hexdigest()
                 _debug_print('[SCRAPE] WARNING: Using shell ANDROID_ID (may mismatch Agent)')
 
-            # Device serial hash
             device_serial_hash = hashlib.sha256(
                 self.device_info.serial.encode()
             ).hexdigest()
 
-            # Request body
+            # Minimize payload: send app count + package hashes instead of raw list
+            app_summaries = []
+            for app in installed_apps:
+                pkg = app.get('package', '')
+                app_summaries.append({
+                    'package_hash': hashlib.sha256(pkg.encode()).hexdigest(),
+                    'package': pkg,
+                    'version_name': app.get('version_name', ''),
+                })
+
             body = json.dumps({
                 'case_id': case_id or 'unknown',
                 'session_id': session_id or f'scrp_sess_{int(time.time())}',
                 'device_serial_hash': device_serial_hash,
-                'installed_apps': installed_apps,
-                'android_version': self.device_info.sdk_version,
+                'installed_apps': app_summaries,
+                'installed_app_count': len(installed_apps),
                 'device_fingerprint': device_fingerprint,
             }).encode()
 

@@ -3,7 +3,7 @@ Real-time Upload Module
 
 Handles file uploads with WebSocket progress reporting.
 P2-2: User-friendly error message support
-R2: Direct upload to Cloudflare R2 via presigned URLs
+Direct upload to cloud storage via presigned URLs
 """
 import hashlib
 import json
@@ -11,22 +11,31 @@ import logging
 import os
 import re
 import ssl
+import sys
 import time
 
 import aiohttp
 import requests
 import websockets
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.token_validator import _get_ssl_verify
 from typing import Callable, Optional
 from dataclasses import dataclass
 
+# Consolidated API endpoint paths for maintainability.
+_ENDPOINTS = {
+    'raw_upload': '/api/v1/collector/raw-files/upload',
+    'presigned_url': '/api/v1/collector/r2/presigned-url',
+    'upload_complete': '/api/v1/collector/r2/upload-complete',
+    'abort_upload': '/api/v1/collector/r2/abort-upload',
+}
+
 
 class CreditPausedError(Exception):
-    """Raised when the server returns 402 due to insufficient credits."""
-    def __init__(self, message: str = "Insufficient credits", detail: dict = None):
+    """Raised when the server returns 402 (upload paused by server)."""
+    def __init__(self, message: str = "Upload paused by server.", detail: dict = None):
         super().__init__(message)
         self.detail = detail or {}
 
@@ -72,6 +81,16 @@ def _sanitize_error_for_logging(error_text: str, max_length: int = 200) -> str:
     return sanitized
 
 
+def _zeroize_key(key_ref: str) -> None:
+    """Request garbage collection of sensitive key material.
+
+    Note: CPython's immutable strings cannot be reliably zeroed in memory.
+    This function deletes the reference to encourage GC. For stronger
+    guarantees, consider using ctypes or a secure memory library.
+    """
+    del key_ref
+
+
 @dataclass
 class UploadResult:
     """Upload result (P2-2: Extended error information)"""
@@ -81,7 +100,7 @@ class UploadResult:
     error_title: Optional[str] = None      # P2-2: User-friendly error title
     error_solution: Optional[str] = None   # P2-2: Solution/resolution
     is_recoverable: bool = True            # P2-2: Whether retry is possible
-    is_credit_paused: bool = False         # True when server returns 402 (insufficient credits)
+    is_credit_paused: bool = False         # True when server returns 402 (upload paused)
 
     @classmethod
     def from_error(cls, technical_error: str) -> 'UploadResult':
@@ -150,6 +169,14 @@ class RealTimeUploader:
 
         try:
             ws_endpoint = f"{self.ws_url}/ws/collection/{self.session_id}"
+
+            # [Security] Block insecure ws:// in release builds (except localhost)
+            if ws_endpoint.startswith('ws://') and not ws_endpoint.startswith('ws://localhost') and not ws_endpoint.startswith('ws://127.0.0.1'):
+                if getattr(sys, 'frozen', False):
+                    raise RuntimeError("Insecure WebSocket (ws://) not allowed in release builds. Use wss://")
+                else:
+                    logger.warning("[WebSocket] Insecure ws:// connection — development mode only")
+
             extra_headers = {
                 'X-Collection-Token': self.collection_token,
             }
@@ -161,10 +188,6 @@ class RealTimeUploader:
                 # Certificate verification is required in production environment
                 ssl_context.check_hostname = True
                 ssl_context.verify_mode = ssl.CERT_REQUIRED
-            elif not self._dev_mode:
-                logger.warning(
-                    "[SECURITY] Unencrypted WebSocket (ws://) in non-dev mode"
-                )
 
             self.ws = await websockets.connect(
                 ws_endpoint,
@@ -174,11 +197,11 @@ class RealTimeUploader:
             logger.info(f"[WebSocket] Connected to {ws_endpoint[:50]}...")
         except ssl.SSLError as ssl_err:
             logger.error(f"[WebSocket] SSL error: {ssl_err}")
-            print(f"WebSocket SSL authentication failed - please verify server certificate")
+            logger.error("WebSocket SSL authentication failed - please verify server certificate")
             self.ws = None
         except Exception as e:
             logger.warning(f"[WebSocket] Connection failed: {e}")
-            print(f"WebSocket connection failed: {e}")
+            logger.warning(f"WebSocket connection failed: {e}")
             self.ws = None
 
     async def disconnect_websocket(self):
@@ -208,10 +231,10 @@ class RealTimeUploader:
                     'progress': progress,
                     'message': message,
                     'current_file': current_file,
-                    'timestamp': datetime.utcnow().isoformat(),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
                 }))
             except Exception as e:
-                print(f"Failed to send progress: {e}")
+                logger.warning(f"Failed to send progress: {e}")
 
     async def upload_file(
         self,
@@ -287,12 +310,12 @@ class RealTimeUploader:
                     }
                     if self.request_signer:
                         upload_headers.update(self.request_signer.sign_request(
-                            "POST", "/api/v1/collector/raw-files/upload",
+                            "POST", _ENDPOINTS['raw_upload'],
                             None, self.collection_token,
                         ))
 
                     async with session.post(
-                        f"{self.server_url}/api/v1/collector/raw-files/upload",
+                        f"{self.server_url}{_ENDPOINTS['raw_upload']}",
                         data=data,
                         headers=upload_headers,
                     ) as response:
@@ -453,7 +476,7 @@ class SyncUploader:
                     }
                     if self.request_signer:
                         headers.update(self.request_signer.sign_request(
-                            "POST", "/api/v1/collector/raw-files/upload",
+                            "POST", _ENDPOINTS['raw_upload'],
                             None, self.collection_token,
                         ))
 
@@ -472,7 +495,7 @@ class SyncUploader:
                         )
 
                     response = requests.post(
-                        f"{self.server_url}/api/v1/collector/raw-files/upload",
+                        f"{self.server_url}{_ENDPOINTS['raw_upload']}",
                         files=files,
                         data=data,
                         headers=headers,
@@ -490,14 +513,14 @@ class SyncUploader:
                         )
                     else:
                         error_text = response.text
-                        # Credit paused — stop uploading
+                        # Server paused — stop uploading
                         if response.status_code == 402:
-                            logger.warning(f"[UPLOAD] Credits paused — stopping upload")
+                            logger.warning(f"[UPLOAD] Server paused — stopping upload")
                             return UploadResult(
                                 success=False,
-                                error="Insufficient credits. Please recharge.",
-                                error_title="Insufficient Credits",
-                                error_solution="Please recharge credits to continue. Parsing will resume automatically.",
+                                error="Upload paused by server.",
+                                error_title="Upload Paused",
+                                error_solution="Upload paused by server. Please check your account.",
                                 is_recoverable=False,
                                 is_credit_paused=True,
                             )
@@ -556,12 +579,12 @@ class SyncUploader:
         return results
 
 
-class R2DirectUploader:
+class DirectUploader:
     """
-    R2 Direct Uploader — uploads files directly to Cloudflare R2 via presigned URLs.
+    Direct Uploader — uploads files directly to cloud storage via presigned URLs.
 
     The server only issues presigned URLs and confirms completion; actual file
-    transfer goes directly from client to R2, eliminating server bandwidth load.
+    transfer goes directly from client to storage, eliminating server bandwidth load.
 
     - Under 100MB: Single PUT upload
     - 100MB and above: Multipart upload (per-part PUT)
@@ -624,7 +647,7 @@ class R2DirectUploader:
         """Request presigned URL from server (up to 5 retries)."""
         file_size = os.path.getsize(file_path)
         file_name = Path(file_path).name
-        endpoint = "/api/v1/collector/r2/presigned-url"
+        endpoint = _ENDPOINTS['presigned_url']
 
         payload = {
             "case_id": self.case_id,
@@ -653,15 +676,15 @@ class R2DirectUploader:
                         detail = response.json()
                     except Exception:
                         detail = {}
-                    logger.warning(f"[R2] Upload paused — insufficient credits (case {self.case_id})")
+                    logger.warning(f"[UPLOAD] Server paused upload (case {self.case_id})")
                     raise CreditPausedError(
-                        detail.get("message", "Insufficient credits. Please recharge."),
+                        detail.get("message", "Upload paused by server."),
                         detail=detail,
                     )
 
                 if response.status_code == 429:
                     wait = attempt * 10
-                    logger.warning(f"[R2] Presigned URL rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
+                    logger.warning(f"[DIRECT] Presigned URL rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
                     time.sleep(wait)
                     continue
 
@@ -672,14 +695,14 @@ class R2DirectUploader:
             except RuntimeError:
                 if attempt < max_retries:
                     wait = attempt * 5
-                    logger.warning(f"[R2] Presigned URL attempt {attempt}/{max_retries} failed, retrying in {wait}s")
+                    logger.warning(f"[DIRECT] Presigned URL attempt {attempt}/{max_retries} failed, retrying in {wait}s")
                     time.sleep(wait)
                 else:
                     raise
             except Exception as e:
                 if attempt < max_retries:
                     wait = attempt * 5
-                    logger.warning(f"[R2] Presigned URL attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
+                    logger.warning(f"[DIRECT] Presigned URL attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
                     time.sleep(wait)
                 else:
                     raise
@@ -687,27 +710,21 @@ class R2DirectUploader:
         raise RuntimeError("Presigned URL request failed after all retries")
 
     def _validate_presigned_url(self, presigned_url: str) -> None:
-        """[Security] Validate presigned URL domain — reject non-R2/S3 domains."""
+        """[Security] Validate presigned URL — must be HTTPS (or localhost for dev)."""
         from urllib.parse import urlparse
         parsed = urlparse(presigned_url)
-        # Allow: Cloudflare R2 (*.r2.cloudflarestorage.com), AWS S3, localhost (dev)
-        allowed_suffixes = (
-            '.r2.cloudflarestorage.com',
-            '.s3.amazonaws.com',
-        )
-        allowed_hosts = ('127.0.0.1', 'localhost')
+        allowed_dev_hosts = ('127.0.0.1', 'localhost')
         if not parsed.hostname:
             raise RuntimeError("[SECURITY] Presigned URL has no hostname")
-        if parsed.hostname in allowed_hosts:
+        if parsed.hostname in allowed_dev_hosts:
             return  # dev mode
-        if not any(parsed.hostname.endswith(s) for s in allowed_suffixes):
+        if parsed.scheme != 'https':
             raise RuntimeError(
-                f"[SECURITY] Presigned URL points to unauthorized domain: {parsed.hostname}. "
-                f"Expected Cloudflare R2 or AWS S3 domain."
+                f"[SECURITY] Presigned URL must use HTTPS, got: {parsed.scheme}"
             )
 
     def _upload_single(self, file_path: str, presigned_url: str) -> None:
-        """Single PUT direct upload to R2 (< 100MB), up to 3 retries."""
+        """Single PUT direct upload (< 100MB), up to 3 retries."""
         self._validate_presigned_url(presigned_url)
         file_size = os.path.getsize(file_path)
         timeout = max(120, file_size / (1 * 1024 * 1024) + 60)  # 1MB/s + 60s buffer
@@ -723,12 +740,12 @@ class R2DirectUploader:
                         timeout=timeout,
                     )
                 if response.status_code not in (200, 201):
-                    raise RuntimeError(f"R2 PUT upload failed ({response.status_code}): {response.text[:200]}")
+                    raise RuntimeError(f"PUT upload failed ({response.status_code}): {response.text[:200]}")
                 return  # success
             except Exception as e:
                 if attempt < max_retries:
                     wait = attempt * 5
-                    logger.warning(f"[R2] Upload attempt {attempt}/{max_retries} failed, retrying in {wait}s: {e}")
+                    logger.warning(f"[DIRECT] Upload attempt {attempt}/{max_retries} failed, retrying in {wait}s: {e}")
                     time.sleep(wait)
                 else:
                     raise
@@ -776,16 +793,16 @@ class R2DirectUploader:
                     )
                     if response.status_code not in (200, 201):
                         raise RuntimeError(
-                            f"R2 multipart part {part_number} upload failed "
+                            f"Multipart part {part_number} upload failed "
                             f"({response.status_code}): {response.text[:200]}"
                         )
                     etag = response.headers.get('ETag', '').strip('"')
-                    logger.debug(f"[R2] Part {part_number}/{total_parts} uploaded ({chunk_size:,} bytes)")
+                    logger.debug(f"[DIRECT] Part {part_number}/{total_parts} uploaded ({chunk_size:,} bytes)")
                     return {"PartNumber": part_number, "ETag": etag}
                 except Exception as e:
                     if attempt < max_retries:
                         wait = attempt * 5
-                        logger.warning(f"[R2] Part {part_number} attempt {attempt}/{max_retries} failed, retrying in {wait}s: {e}")
+                        logger.warning(f"[DIRECT] Part {part_number} attempt {attempt}/{max_retries} failed, retrying in {wait}s: {e}")
                         time.sleep(wait)
                     else:
                         raise
@@ -804,7 +821,7 @@ class R2DirectUploader:
                 idx = futures[future]
                 completed_parts[idx] = future.result()  # propagates exceptions
 
-        # Sort by part number (S3/R2 CompleteMultipartUpload requirement)
+        # Sort by part number (CompleteMultipartUpload requirement)
         completed_parts.sort(key=lambda p: p['PartNumber'])
         return completed_parts
 
@@ -814,7 +831,7 @@ class R2DirectUploader:
         is_encrypted: bool = False, original_path: str = "",
     ) -> dict:
         """Confirm upload completion with server (up to 5 retries)."""
-        endpoint = "/api/v1/collector/r2/upload-complete"
+        endpoint = _ENDPOINTS['upload_complete']
 
         payload = {
             "case_id": self.case_id,
@@ -845,7 +862,7 @@ class R2DirectUploader:
 
                 if response.status_code == 429:
                     wait = attempt * 10
-                    logger.warning(f"[R2] Upload confirm rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
+                    logger.warning(f"[DIRECT] Upload confirm rate limited, retrying in {wait}s (attempt {attempt}/{max_retries})")
                     time.sleep(wait)
                     continue
 
@@ -856,14 +873,14 @@ class R2DirectUploader:
             except RuntimeError:
                 if attempt < max_retries:
                     wait = attempt * 5
-                    logger.warning(f"[R2] Upload confirm attempt {attempt}/{max_retries} failed, retrying in {wait}s")
+                    logger.warning(f"[DIRECT] Upload confirm attempt {attempt}/{max_retries} failed, retrying in {wait}s")
                     time.sleep(wait)
                 else:
                     raise
             except Exception as e:
                 if attempt < max_retries:
                     wait = attempt * 5
-                    logger.warning(f"[R2] Upload confirm attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
+                    logger.warning(f"[DIRECT] Upload confirm attempt {attempt}/{max_retries} error: {e}, retrying in {wait}s")
                     time.sleep(wait)
                 else:
                     raise
@@ -873,7 +890,7 @@ class R2DirectUploader:
     def _abort_upload(self, case_id: str, key: str, upload_id: str) -> None:
         """Abort multipart upload (cleanup on failure)."""
         try:
-            endpoint = "/api/v1/collector/r2/abort-upload"
+            endpoint = _ENDPOINTS['abort_upload']
             headers = self._get_auth_headers("POST", endpoint)
 
             requests.post(
@@ -882,9 +899,9 @@ class R2DirectUploader:
                 headers=headers,
                 timeout=15,
             )
-            logger.info(f"[R2] Multipart upload aborted: {key}")
+            logger.info(f"[DIRECT] Multipart upload aborted: {key}")
         except Exception as e:
-            logger.warning(f"[R2] Failed to abort multipart upload: {e}")
+            logger.warning(f"[DIRECT] Failed to abort multipart upload: {e}")
 
     def upload_file(
         self,
@@ -894,11 +911,11 @@ class R2DirectUploader:
         progress_callback: Callable[[float], None] = None,
     ) -> UploadResult:
         """
-        R2 direct upload via presigned URL.
+        Direct upload via presigned URL.
 
         1. Compute SHA-256 hash
         2. Request presigned URL from server
-        3. PUT upload directly to R2 (single or multipart)
+        3. PUT upload directly to cloud storage (single or multipart)
         4. Confirm upload completion with server
         """
         # Validate file size
@@ -946,6 +963,9 @@ class R2DirectUploader:
 
             # Step 1.5: Per-Case Encryption — encrypt file if server provides DEK
             encryption_key_hex = presigned_info.get('encryption_key')
+            # [SECURITY] Remove DEK from presigned_info dict immediately to limit
+            # the number of references holding sensitive key material in memory.
+            presigned_info.pop('encryption_key', None)
             is_encrypted = False
             encrypted_path = None
 
@@ -954,9 +974,9 @@ class R2DirectUploader:
                 MAX_ENCRYPT_SIZE = 500 * 1024 * 1024  # 500MB
                 if file_size > MAX_ENCRYPT_SIZE:
                     logger.warning(
-                        f"[R2] File too large for in-memory encryption ({file_size / (1024**2):.0f}MB > "
+                        f"[DIRECT] File too large for in-memory encryption ({file_size / (1024**2):.0f}MB > "
                         f"{MAX_ENCRYPT_SIZE / (1024**2):.0f}MB), uploading without encryption. "
-                        f"⚠️ Evidence will be protected by TLS in transit and R2 server-side encryption at rest."
+                        f"⚠️ Evidence will be protected by TLS in transit and server-side encryption at rest."
                     )
                     _pcb = getattr(self, '_progress_callback', None)
                     if _pcb:
@@ -964,6 +984,8 @@ class R2DirectUploader:
                             f"⚠️ {file_name}: Large file ({file_size / (1024**2):.0f}MB) — "
                             f"client-side encryption skipped, protected by server-side encryption"
                         )
+                    # [SECURITY] Zero out key material before releasing reference
+                    _zeroize_key(encryption_key_hex)
                     del encryption_key_hex
                 else:
                     try:
@@ -981,18 +1003,20 @@ class R2DirectUploader:
                         del encrypted_data
 
                         is_encrypted = True
-                        logger.info(f"[R2] File encrypted: {file_name} ({os.path.getsize(encrypted_path):,} bytes)")
+                        logger.info(f"[DIRECT] File encrypted: {file_name} ({os.path.getsize(encrypted_path):,} bytes)")
                     except Exception as enc_err:
-                        logger.error(f"[R2] Encryption failed — aborting upload for evidence safety: {enc_err}")
+                        logger.error(f"[DIRECT] Encryption failed — aborting upload for evidence safety: {enc_err}")
                         return UploadResult.from_error(
                             f"Encryption failed for {file_name}: {enc_err}. Upload aborted to prevent plaintext evidence exposure."
                         )
                     finally:
+                        # [SECURITY] Zero out key material before releasing reference
+                        _zeroize_key(encryption_key_hex)
                         del encryption_key_hex
 
             upload_path = encrypted_path if is_encrypted else file_path
 
-            # Step 2: Direct upload to R2
+            # Step 2: Direct upload to cloud storage
             completed_parts = None
             if is_multipart:
                 completed_parts = self._upload_multipart(upload_path, presigned_info)
@@ -1017,28 +1041,28 @@ class R2DirectUploader:
                 original_path=original_path,
             )
 
-            logger.info(f"[R2] Upload complete: {file_name} → {key}")
+            logger.info(f"[DIRECT] Upload complete: {file_name} → {key}")
             return UploadResult(
                 success=True,
                 artifact_id=confirm_result.get('file_id'),
             )
 
         except CreditPausedError as cpe:
-            logger.warning(f"[R2] Upload stopped — credits paused: {cpe}")
+            logger.warning(f"[UPLOAD] Upload stopped by server: {cpe}")
             if encrypted_path and os.path.exists(encrypted_path):
                 os.remove(encrypted_path)
             return UploadResult(
                 success=False,
                 error=str(cpe),
-                error_title="Insufficient Credits",
-                error_solution="Please recharge credits to continue. Parsing will resume automatically.",
+                error_title="Upload Paused",
+                error_solution="Upload paused by server. Please check your account.",
                 is_recoverable=False,
                 is_credit_paused=True,
             )
 
         except Exception as e:
             sanitized_error = _sanitize_error_for_logging(str(e))
-            logger.error(f"[R2] Direct upload failed: {sanitized_error}")
+            logger.error(f"[DIRECT] Direct upload failed: {sanitized_error}")
 
             # Clean up encrypted temp file
             if encrypted_path and os.path.exists(encrypted_path):
@@ -1052,14 +1076,14 @@ class R2DirectUploader:
                     presigned_info['upload_id'],
                 )
 
-            return UploadResult.from_error(f"R2 upload failed: {e}")
+            return UploadResult.from_error(f"Direct upload failed: {e}")
 
     def upload_batch(
         self,
         files: list,
         progress_callback: Callable[[float, str], None] = None,
     ) -> list:
-        """Batch upload with R2 direct upload (parallel, max 4 concurrent)."""
+        """Batch upload with direct upload (parallel, max 4 concurrent)."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading
 
@@ -1078,9 +1102,9 @@ class R2DirectUploader:
             nonlocal completed_count
             if credit_paused.is_set():
                 return UploadResult(
-                    success=False, error="Upload stopped — insufficient credits.",
-                    error_title="Insufficient Credits",
-                    error_solution="Please recharge credits to continue.",
+                    success=False, error="Upload stopped by server.",
+                    error_title="Upload Paused",
+                    error_solution="Upload paused by server. Please check your account.",
                     is_recoverable=False, is_credit_paused=True,
                 )
             result = self.upload_file(file_path, artifact_type, metadata)
@@ -1105,7 +1129,7 @@ class R2DirectUploader:
                     future.result()
                 except Exception as e:
                     idx = futures[future]
-                    logger.error(f"[R2] Parallel upload failed (index {idx}): {e}")
+                    logger.error(f"[DIRECT] Parallel upload failed (index {idx}): {e}")
                     if results[idx] is None:
                         results[idx] = UploadResult.from_error(str(e))
 

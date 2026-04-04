@@ -21,7 +21,7 @@ import os
 import time
 from typing import Dict, Optional
 
-_HKDF_INFO = b"collector-request-signing-v1"
+_DEFAULT_HKDF_INFO = b"collector-request-signing-v1"
 
 
 def _hkdf_sha256(ikm: bytes, salt: bytes, info: bytes, length: int = 32) -> bytes:
@@ -48,12 +48,12 @@ class RequestSigner:
     Signs outgoing HTTP requests with HMAC-SHA256.
 
     Usage:
-        signer = RequestSigner(hardware_id, challenge_salt, signing_key)
+        signer = RequestSigner(hardware_id, challenge_salt, signing_key, hkdf_info)
         headers = signer.sign_request("POST", "/api/v1/collector/raw-files/upload", body, token)
         # Merge headers into the request
     """
 
-    def __init__(self, hardware_id: str, challenge_salt: str, signing_key: str):
+    def __init__(self, hardware_id: str, challenge_salt: str, signing_key: str, hkdf_info: bytes = None):
         """
         Derive a per-session signing key.
 
@@ -61,16 +61,20 @@ class RequestSigner:
             hardware_id: SHA-256 hardware fingerprint from this machine
             challenge_salt: Random salt issued by the server during /authenticate
             signing_key: Hex-encoded ephemeral key issued by the server during /authenticate
+            hkdf_info: HKDF info parameter (from server /authenticate if available,
+                       falls back to built-in default for backward compatibility)
         """
         if not signing_key:
             raise ValueError("signing_key is required (issued by server at /authenticate)")
+
+        self._hkdf_info = hkdf_info or _DEFAULT_HKDF_INFO
 
         # Step 1: Decode server-issued ephemeral key
         base_key = bytes.fromhex(signing_key)
 
         # Step 2: HKDF with machine + session binding
         salt = (challenge_salt + hardware_id).encode("utf-8")
-        self._derived_key = _hkdf_sha256(base_key, salt, _HKDF_INFO, length=32)
+        self._derived_key = _hkdf_sha256(base_key, salt, self._hkdf_info, length=32)
 
     def sign_request(
         self,

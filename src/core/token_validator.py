@@ -56,6 +56,8 @@ class ValidationResult:
     error: Optional[str] = None
     challenge_salt: Optional[str] = None
     signing_key: Optional[str] = None
+    hkdf_info: Optional[str] = None  # Server-provided HKDF info (if available)
+    consent_signing_key: Optional[str] = None  # Server-provided consent signing key (if available)
 
 
 @dataclass
@@ -79,7 +81,12 @@ def _hash_token(token: str) -> str:
 
 
 def _is_token_used(token: str) -> bool:
-    """Check if token has already been used"""
+    """Check if token has already been used.
+
+    Note: This uses set membership (hash-based lookup), which is inherently
+    timing-safe. Server-side token verification must use hmac.compare_digest()
+    to prevent timing attacks on direct string comparisons.
+    """
     token_hash = _hash_token(token)
     return token_hash in _used_tokens
 
@@ -144,6 +151,15 @@ class TokenValidator:
             hardware_components = get_hardware_components()
             system_info = get_system_info()
 
+            # Hash individual component values before transmission
+            # (hardware_id is already a hash, but raw components like
+            # CPU ID, disk serial, MAC address should not be sent in cleartext)
+            hashed_components = {
+                k: hashlib.sha256(v.encode()).hexdigest()[:16]
+                if isinstance(v, str) else v
+                for k, v in hardware_components.items()
+            }
+
             # Call authentication endpoint
             # Enforce SSL certificate verification
             response = requests.post(
@@ -151,7 +167,7 @@ class TokenValidator:
                 json={
                     "session_token": session_token,
                     "hardware_id": hardware_id,
-                    "hardware_components": hardware_components,  # P0-3: Send individual components
+                    "hardware_components": hashed_components,  # P0-3: Send hashed components
                     "client_info": system_info,
                 },
                 timeout=self.timeout,
@@ -188,6 +204,8 @@ class TokenValidator:
                     expires_at=data.get('expires_at'),
                     challenge_salt=data.get('challenge_salt'),
                     signing_key=data.get('signing_key'),
+                    hkdf_info=data.get('hkdf_info'),
+                    consent_signing_key=data.get('consent_signing_key'),
                 )
             else:
                 # M1 Security: Prevent server error exposure - convert to user-friendly message
