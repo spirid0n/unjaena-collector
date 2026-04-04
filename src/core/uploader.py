@@ -23,6 +23,13 @@ from core.token_validator import _get_ssl_verify
 from typing import Callable, Optional
 from dataclasses import dataclass
 
+
+class CreditPausedError(Exception):
+    """Raised when the server returns 402 due to insufficient credits."""
+    def __init__(self, message: str = "Insufficient credits", detail: dict = None):
+        super().__init__(message)
+        self.detail = detail or {}
+
 from utils.error_messages import translate_error
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,7 @@ class UploadResult:
     error_title: Optional[str] = None      # P2-2: User-friendly error title
     error_solution: Optional[str] = None   # P2-2: Solution/resolution
     is_recoverable: bool = True            # P2-2: Whether retry is possible
+    is_credit_paused: bool = False         # True when server returns 402 (insufficient credits)
 
     @classmethod
     def from_error(cls, technical_error: str) -> 'UploadResult':
@@ -482,6 +490,17 @@ class SyncUploader:
                         )
                     else:
                         error_text = response.text
+                        # Credit paused — stop uploading
+                        if response.status_code == 402:
+                            logger.warning(f"[UPLOAD] Credits paused — stopping upload")
+                            return UploadResult(
+                                success=False,
+                                error="Insufficient credits. Please recharge.",
+                                error_title="Insufficient Credits",
+                                error_solution="Please recharge credits to continue. Parsing will resume automatically.",
+                                is_recoverable=False,
+                                is_credit_paused=True,
+                            )
                         # Non-retryable HTTP errors (4xx = client error)
                         if 400 <= response.status_code < 500:
                             sanitized_error = _sanitize_error_for_logging(error_text)
@@ -628,6 +647,17 @@ class R2DirectUploader:
                     timeout=60,
                     verify=_get_ssl_verify(),
                 )
+
+                if response.status_code == 402:
+                    try:
+                        detail = response.json()
+                    except Exception:
+                        detail = {}
+                    logger.warning(f"[R2] Upload paused — insufficient credits (case {self.case_id})")
+                    raise CreditPausedError(
+                        detail.get("message", "Insufficient credits. Please recharge."),
+                        detail=detail,
+                    )
 
                 if response.status_code == 429:
                     wait = attempt * 10
@@ -993,6 +1023,19 @@ class R2DirectUploader:
                 artifact_id=confirm_result.get('file_id'),
             )
 
+        except CreditPausedError as cpe:
+            logger.warning(f"[R2] Upload stopped — credits paused: {cpe}")
+            if encrypted_path and os.path.exists(encrypted_path):
+                os.remove(encrypted_path)
+            return UploadResult(
+                success=False,
+                error=str(cpe),
+                error_title="Insufficient Credits",
+                error_solution="Please recharge credits to continue. Parsing will resume automatically.",
+                is_recoverable=False,
+                is_credit_paused=True,
+            )
+
         except Exception as e:
             sanitized_error = _sanitize_error_for_logging(str(e))
             logger.error(f"[R2] Direct upload failed: {sanitized_error}")
@@ -1029,9 +1072,20 @@ class R2DirectUploader:
         completed_count = 0
         lock = threading.Lock()
 
+        credit_paused = threading.Event()
+
         def _upload_one(idx, file_path, artifact_type, metadata):
             nonlocal completed_count
+            if credit_paused.is_set():
+                return UploadResult(
+                    success=False, error="Upload stopped — insufficient credits.",
+                    error_title="Insufficient Credits",
+                    error_solution="Please recharge credits to continue.",
+                    is_recoverable=False, is_credit_paused=True,
+                )
             result = self.upload_file(file_path, artifact_type, metadata)
+            if getattr(result, 'is_credit_paused', False):
+                credit_paused.set()  # Signal other threads to stop
             with lock:
                 results[idx] = result
                 completed_count += 1
@@ -1046,7 +1100,6 @@ class R2DirectUploader:
                 future = executor.submit(_upload_one, i, file_path, artifact_type, metadata)
                 futures[future] = i
 
-            # Wait for all tasks to complete (propagates exceptions)
             for future in as_completed(futures):
                 try:
                     future.result()
