@@ -22,7 +22,7 @@ from PyQt6.QtGui import QFont
 
 from core.token_validator import TokenValidator
 from core.encryptor import FileHashCalculator
-from core.uploader import R2DirectUploader
+from core.uploader import DirectUploader
 from core.request_signer import RequestSigner
 from collectors.artifact_collector import (
     ArtifactCollector, ARTIFACT_TYPES,
@@ -62,8 +62,7 @@ try:
 except ImportError:
     BITLOCKER_AVAILABLE = False
 
-# Server artifact name -> Collector artifact name mapping
-# Server uses ArtifactType enum names, Collector uses short names
+# Artifact type mapping — future: load dynamically from server /authenticate response
 SERVER_TO_COLLECTOR_MAPPING = {
     # MFT related
     'filesystem_entry': 'mft',
@@ -1575,7 +1574,10 @@ class CollectorWindow(QMainWindow):
             from utils.hardware_id import get_hardware_id
             try:
                 hw_id = get_hardware_id()
-                self.request_signer = RequestSigner(hw_id, result.challenge_salt or "", result.signing_key or "")
+                # Pass server-provided hkdf_info if available (backward compatible)
+                hkdf_info = getattr(result, 'hkdf_info', None)
+                hkdf_info_bytes = hkdf_info.encode('utf-8') if hkdf_info else None
+                self.request_signer = RequestSigner(hw_id, result.challenge_salt or "", result.signing_key or "", hkdf_info=hkdf_info_bytes)
             except Exception as e:
                 logging.getLogger(__name__).warning(f"[RequestSigner] Init failed: {e}")
                 self.request_signer = None
@@ -3310,7 +3312,7 @@ class CollectionWorker(QThread):
         # NOT operational messages about encryption/decryption processes.
         class _SensitiveFilter(logging.Filter):
             _BLOCK_PATTERNS = (
-                'f0r_',              # Forensic password prefix value
+                'f0r_',
                 'passphrase=',       # Named param with credential value
                 'change_password',   # API call that handles raw passwords
                 'old=""', "old=''",  # change_password param
@@ -3324,8 +3326,8 @@ class CollectionWorker(QThread):
                 msg = record.getMessage().lower()
                 return not any(p in msg for p in self._BLOCK_PATTERNS)
 
-        if self.config.get('dev_mode', False):
-            # Dev: DEBUG log in TEMP directory
+        if self.config.get('dev_mode', False) and not getattr(__import__('sys'), 'frozen', False):
+            # Dev: DEBUG log in TEMP directory (only in source mode, never in release builds)
             _collector_log_path = os.path.join(os.environ.get('TEMP', '/tmp'), 'collector_debug.log')
             _log_level = logging.DEBUG
         else:
@@ -3703,8 +3705,8 @@ class CollectionWorker(QThread):
             # ========================================
             self.log_message.emit(f"☁️ Uploading {len(encrypted_files)} files...", False)
 
-            # Direct R2 upload (bypass server — send directly to Cloudflare R2)
-            uploader = R2DirectUploader(
+            # Direct upload via presigned URLs (bypass server for file transfer)
+            uploader = DirectUploader(
                 server_url=self.server_url,
                 session_id=self.session_id,
                 collection_token=self.collection_token,

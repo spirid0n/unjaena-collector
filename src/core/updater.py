@@ -162,16 +162,21 @@ def show_update_dialog(parent, update_info: dict):
         msg = QMessageBox(parent)
         msg.setIcon(QMessageBox.Icon.Information)
         msg.setWindowTitle("Update Available")
-        sha_text = ""
-        if update_info.get('sha256'):
-            sha_text = f"\n\nSHA-256: {update_info['sha256']}"
 
         msg.setText(
             f"A new version is available!\n\n"
             f"Current: v{update_info['current_version']}\n"
             f"Latest:  v{update_info['latest_version']}"
-            f"{sha_text}"
         )
+
+        # [SECURITY] Show SHA-256 hash prominently so the user can verify
+        # the downloaded file integrity. Full code signing (GPG) is planned
+        # for a future release.
+        if update_info.get('sha256'):
+            msg.setInformativeText(
+                f"After downloading, verify the file hash:\n"
+                f"SHA-256: {update_info['sha256']}"
+            )
 
         notes = update_info.get('release_notes', '')
         if notes:

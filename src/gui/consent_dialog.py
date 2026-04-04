@@ -44,7 +44,8 @@ class ConsentDialog(QDialog):
         server_url: str = None,
         session_id: str = None,
         case_id: str = None,
-        language: str = "en"
+        language: str = "en",
+        server_signing_key: str = None,
     ):
         """
         Args:
@@ -53,6 +54,7 @@ class ConsentDialog(QDialog):
             session_id: Collection session ID
             case_id: Case ID
             language: Default language code (en, ko, ja, zh)
+            server_signing_key: Server-provided consent signing key (from /authenticate)
         """
         super().__init__(parent)
         self.server_url = server_url
@@ -61,6 +63,9 @@ class ConsentDialog(QDialog):
         self.language = language
         self.consent_given = False
         self.consent_record = None
+
+        # Server-provided signing key for consent HMAC (preferred over env var)
+        self._server_signing_key = server_signing_key
 
         # Template information received from server
         self.template_id = None
@@ -489,10 +494,12 @@ class ConsentDialog(QDialog):
         record_str = f"{timestamp}|{hostname_hash}|{ip_hash}|{items_str}"
         record["consent_hash"] = hashlib.sha256(record_str.encode()).hexdigest()
 
-        # HMAC signature
-        signing_key = os.getenv("CONSENT_SIGNING_KEY")
+        # HMAC signature — prefer server-provided key, then env var, then random fallback
+        signing_key = self._server_signing_key
         if not signing_key:
-            # Fallback: random key (signature for local integrity only)
+            signing_key = os.getenv("CONSENT_SIGNING_KEY")
+        if not signing_key:
+            logger.warning("[CONSENT] No signing key available — consent signature will be unverifiable")
             signing_key = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
 
         verify_payload = f"{timestamp}|{record['consent_version']}|{record['consent_hash']}"
@@ -608,7 +615,8 @@ def show_consent_dialog(
     server_url: str = None,
     session_id: str = None,
     case_id: str = None,
-    language: str = "en"
+    language: str = "en",
+    server_signing_key: str = None,
 ) -> Optional[dict]:
     """
     Display consent dialog and return result
@@ -619,6 +627,7 @@ def show_consent_dialog(
         session_id: Collection session ID
         case_id: Case ID
         language: Default language code (en, ko, ja, zh)
+        server_signing_key: Server-provided consent signing key (if available)
 
     Returns:
         Consent record dict (if agreed) or None (if cancelled)
@@ -628,7 +637,8 @@ def show_consent_dialog(
         server_url=server_url,
         session_id=session_id,
         case_id=case_id,
-        language=language
+        language=language,
+        server_signing_key=server_signing_key,
     )
     result = dialog.exec()
 

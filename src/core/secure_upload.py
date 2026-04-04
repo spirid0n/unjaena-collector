@@ -37,7 +37,7 @@ import base64
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple, List, BinaryIO
+from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass, field
 
 # Cryptography imports
@@ -247,7 +247,7 @@ class SecureUploadManager:
 
         # Set default headers
         session.headers.update({
-            'User-Agent': 'ForensicsCollector/1.0',
+            'User-Agent': 'Mozilla/5.0 (compatible; collector)',
             'Accept': 'application/json',
         })
 
@@ -571,19 +571,35 @@ class ChainOfCustodyLogger:
         self.log_file = Path(log_file)
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create log file if not exists
+        # Hash chain: each entry includes the previous entry's hash
+        self._last_hash = None
+
+        # Create log file if not exists, or restore chain state from existing log
         if not self.log_file.exists():
             self._write_header()
+        else:
+            self._restore_chain_state()
 
     def _write_header(self):
         """Write log file header"""
         header = {
-            'format_version': '1.0',
+            'format_version': '1.1',
             'created_at': datetime.now(timezone.utc).isoformat(),
             'entries': []
         }
         with open(self.log_file, 'w', encoding='utf-8') as f:
             json.dump(header, f, indent=2)
+
+    def _restore_chain_state(self):
+        """Restore hash chain state from existing log file."""
+        try:
+            with open(self.log_file, 'r', encoding='utf-8') as f:
+                log_data = json.load(f)
+            entries = log_data.get('entries', [])
+            if entries:
+                self._last_hash = entries[-1].get('hash')
+        except Exception:
+            self._last_hash = None
 
     def log_event(
         self,
@@ -615,9 +631,11 @@ class ChainOfCustodyLogger:
         if metadata:
             entry['metadata'] = metadata
 
-        # Compute entry hash for tamper detection
+        # Hash chain: include previous entry's hash for tamper detection
+        entry['previous_hash'] = self._last_hash or "genesis"
         entry_str = json.dumps(entry, sort_keys=True)
         entry['hash'] = hashlib.sha256(entry_str.encode()).hexdigest()
+        self._last_hash = entry['hash']
 
         # Append to log file
         try:

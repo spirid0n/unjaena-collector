@@ -1,10 +1,16 @@
 # Forensic Collector - Cross-platform base dependencies
-# License: GPL-3.0 (due to pymobiledevice3 dependency)
+# License: AGPL-3.0 (due to pymobiledevice3 dependency)
 #
 # IMPORTANT: Every package referenced in ForensicCollector.spec (hiddenimports
 # + collect_packages) MUST appear here or in a platform file.  If a package is
 # missing, CI/CD pip install will skip it and the PyInstaller build will fail
 # at runtime with ImportError.
+#
+# SECURITY NOTE: For reproducible builds, generate a lock file after installing:
+#   pip freeze > requirements/base.lock.txt
+# The >= constraints below allow security patches but may introduce supply-chain
+# risks. CI/CD release builds should use the lock file for deterministic output.
+# To update the lock file, install from this file first, then freeze.
 
 # ── GUI ──────────────────────────────────────────────────────────────────────
 PyQt6>=6.6.0
