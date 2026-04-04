@@ -1,77 +1,75 @@
 # Collector Tools
 
-iOS 포렌식 수집에 필요한 도구들을 관리하는 디렉토리입니다.
+Directory for tools required by the iOS forensic collection module.
 
 ## pymobiledevice3
 
-iOS 기기 직접 연결을 위한 Pure Python 라이브러리입니다.
+A pure-Python library for communicating directly with iOS devices over USB.
 
-### 설치
+### Installation
 
 ```bash
 pip install pymobiledevice3
 ```
 
-### 기능
+### Features
 
-pymobiledevice3는 다음 기능을 제공합니다:
+| Feature | Description |
+|---------|-------------|
+| Device enumeration | List iOS devices connected via USB |
+| Device info | UDID, model, iOS version, and other details |
+| System logs | Real-time iOS system log collection |
+| Crash reports | Extract application crash reports |
+| Installed apps | List installed applications |
+| Backup creation | Create iOS backups |
 
-| 기능 | 설명 |
-|------|------|
-| 기기 열거 | USB로 연결된 iOS 기기 목록 조회 |
-| 기기 정보 | UDID, 모델, iOS 버전 등 상세 정보 |
-| 시스템 로그 | 실시간 iOS 시스템 로그 수집 |
-| 크래시 리포트 | 앱 크래시 리포트 추출 |
-| 설치된 앱 | 설치된 앱 목록 조회 |
-| 백업 생성 | iOS 백업 생성 |
+### License
 
-### 라이선스
+pymobiledevice3 is distributed under the **GPL-3.0** license.
 
-pymobiledevice3는 **GPL-3.0** 라이선스로 배포됩니다.
+- Project: https://github.com/doronz88/pymobiledevice3
+- License: https://www.gnu.org/licenses/gpl-3.0.html
 
-- 프로젝트: https://github.com/doronz88/pymobiledevice3
-- 라이선스: https://www.gnu.org/licenses/gpl-3.0.html
+### Requirements
 
-### 사용 조건
+- iOS device connected via USB
+- "Trust This Computer" must be approved on the device
+- On Windows, iTunes or Apple Mobile Device Support drivers are required
 
-- iOS 기기가 USB로 연결되어 있어야 함
-- 기기에서 "이 컴퓨터 신뢰" 승인 필요
-- Windows의 경우 iTunes 또는 Apple Mobile Device Support 드라이버 필요
+### Troubleshooting
 
-### 문제 해결
+**"Device not found"**
+1. Check USB cable and connection
+2. Unlock the device
+3. Look for the "Trust This Computer" prompt
+4. Verify iTunes is installed (includes required drivers)
 
-**"기기를 찾을 수 없습니다"**
-1. USB 케이블 및 연결 확인
-2. 기기 잠금 해제
-3. "이 컴퓨터 신뢰" 팝업 확인
-4. iTunes 설치 확인 (드라이버 포함)
+**"Pairing error"**
+1. Re-confirm "Trust This Computer" on the device
+2. Windows: run as administrator
+3. macOS/Linux: use `sudo`
 
-**"pairing 오류"**
-1. 기기에서 "이 컴퓨터 신뢰"를 다시 확인
-2. Windows: 관리자 권한으로 실행
-3. macOS/Linux: `sudo` 사용
-
-**"pymobiledevice3 설치 실패"**
+**"pymobiledevice3 installation failed"**
 ```bash
-# pip 업그레이드
+# Upgrade pip
 pip install --upgrade pip
 
-# 재설치
+# Force reinstall
 pip install --force-reinstall pymobiledevice3
 ```
 
-### 코드 예제
+### Code Example
 
 ```python
 from pymobiledevice3.usbmux import list_devices
 from pymobiledevice3.lockdown import create_using_usbmux
 
-# 연결된 기기 목록
+# List connected devices
 devices = list_devices()
 for device in devices:
     print(f"UDID: {device.serial}")
 
-# 기기 정보 조회
+# Query device info
 if devices:
     lockdown = create_using_usbmux(serial=devices[0].serial)
     info = lockdown.all_values

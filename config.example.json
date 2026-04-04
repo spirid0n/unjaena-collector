@@ -1,9 +1,9 @@
 {
-  "_comment": "포렌식 수집 도구 설정 파일 예시. config.json으로 복사 후 사용하세요.",
-  "_security_warning": "API 키는 환경변수(COLLECTOR_API_KEY)로 설정하세요. 이 파일에 직접 입력하지 마세요!",
+  "_comment": "Example configuration for the forensic collection tool. Copy to config.json before use.",
+  "_security_warning": "Set your API key via the COLLECTOR_API_KEY environment variable. Do not store it directly in this file!",
   "server": {
     "url": "https://your-server.example.com",
-    "_api_key_note": "환경변수 COLLECTOR_API_KEY 사용 권장. 이 파일에 API 키를 저장하지 마세요!",
+    "_api_key_note": "Use the COLLECTOR_API_KEY environment variable. Do not store API keys in this file!",
     "verify_ssl": true,
     "timeout_seconds": 300
   },
