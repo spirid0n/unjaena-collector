@@ -224,7 +224,7 @@ jobs:
   # Apple Silicon (ARM64) build covers macOS via Rosetta 2 compatibility.
 
   # =========================================================================
-  # Release — SHA256 + GitHub Release 생성
+  # Release — SHA256 checksums + GitHub Release
   # =========================================================================
   release:
     needs: [build-windows, build-linux, build-macos-arm64]
