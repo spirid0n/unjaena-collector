@@ -2833,6 +2833,12 @@ class CollectorWindow(QMainWindow):
 
         self.log_text.append(html)
 
+        # Show log file path on first error for user diagnostics
+        if level == 'error' and hasattr(self, '_log_path') and not getattr(self, '_log_path_shown', False):
+            self._log_path_shown = True
+            log_hint = f'<span style="color: #888;">Log file: {self._log_path}</span>'
+            self.log_text.append(log_hint)
+
     def closeEvent(self, event):
         """Cleanup on window close"""
         # Stop device monitoring
@@ -3326,27 +3332,38 @@ class CollectionWorker(QThread):
                 msg = record.getMessage().lower()
                 return not any(p in msg for p in self._BLOCK_PATTERNS)
 
+        from logging.handlers import RotatingFileHandler
+
         if self.config.get('dev_mode', False) and not getattr(__import__('sys'), 'frozen', False):
             # Dev: DEBUG log in TEMP directory (only in source mode, never in release builds)
             _collector_log_path = os.path.join(os.environ.get('TEMP', '/tmp'), 'collector_debug.log')
             _log_level = logging.DEBUG
         else:
-            # Prod: WARNING+ log in user home directory
+            # Prod: INFO+ log in user home directory with rotation
             import sys as _sys
             _log_dir = os.path.join(os.path.expanduser("~"), ".forensic-collector")
             os.makedirs(_log_dir, exist_ok=True)
             if _sys.platform != 'win32':
                 os.chmod(_log_dir, 0o700)
             _collector_log_path = os.path.join(_log_dir, 'collector.log')
-            _log_level = logging.WARNING
+            _log_level = logging.INFO
 
-        _fh = logging.FileHandler(_collector_log_path, mode='w', encoding='utf-8')
+        _fh = RotatingFileHandler(
+            _collector_log_path, mode='a', encoding='utf-8',
+            maxBytes=10 * 1024 * 1024,  # 10MB per file
+            backupCount=3,              # Keep 3 rotated backups
+        )
         _fh.setLevel(_log_level)
-        _fh.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
+        _fh.setFormatter(logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s:%(lineno)d — %(message)s'
+        ))
         _fh.addFilter(_SensitiveFilter())
         logging.getLogger().addHandler(_fh)
         logging.getLogger().setLevel(_log_level)
         logging.getLogger().info(f"[CollectorGUI] Logging to {_collector_log_path}")
+
+        # Store log path for user access
+        self._log_path = _collector_log_path
 
         try:
             self._start_time = time.time()
