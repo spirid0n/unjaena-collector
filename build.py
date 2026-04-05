@@ -280,6 +280,7 @@ def main():
 
     # Inject version from git tag or environment variable
     import json as _json
+    import subprocess as _subprocess
     with open(config_dest_path, 'r', encoding='utf-8') as f:
         _cfg = _json.load(f)
     # CI sets GITHUB_REF_NAME=collector-vX.Y.Z
@@ -290,8 +291,7 @@ def main():
     elif _cfg.get('version', '0.0.0') == '0.0.0':
         # Fallback: try git describe
         try:
-            import subprocess
-            _git_ver = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0'], text=True).strip()
+            _git_ver = _subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0'], text=True).strip()
             _cfg['version'] = _git_ver.replace('collector-v', '')
             print(f"[BUILD] Version from git: {_cfg['version']}")
         except Exception:
