@@ -120,7 +120,7 @@ class RealTimeUploader:
     """
     Real-time file uploader with WebSocket progress.
 
-    Uploads encrypted files to the forensics server while
+    Uploads protected files to the forensics server while
     reporting progress via WebSocket connection.
     """
 
@@ -247,7 +247,7 @@ class RealTimeUploader:
         Upload a single file to the server.
 
         Args:
-            file_path: Path to the encrypted file
+            file_path: Path to the protected file
             artifact_type: Type of artifact (e.g., 'prefetch', 'eventlog')
             metadata: File metadata
             progress_callback: Optional callback for upload progress
@@ -973,28 +973,28 @@ class DirectUploader:
             is_multipart = presigned_info.get('multipart', False)
             upload_id = presigned_info.get('upload_id')
 
-            # Step 1.5: Per-Case Encryption — encrypt file if server provides DEK
+            # Step 1.5: Per-Case Data Protection — protect file if server provides key
             encryption_key_hex = presigned_info.get('encryption_key')
-            # [SECURITY] Remove DEK from presigned_info dict immediately to limit
+            # [SECURITY] Remove key from presigned_info dict immediately to limit
             # the number of references holding sensitive key material in memory.
             presigned_info.pop('encryption_key', None)
             is_encrypted = False
             encrypted_path = None
 
             if encryption_key_hex:
-                # AES-GCM requires full plaintext in memory; skip for large files to avoid OOM
+                # Data protection requires full plaintext in memory; skip for large files to avoid OOM
                 MAX_ENCRYPT_SIZE = 500 * 1024 * 1024  # 500MB
                 if file_size > MAX_ENCRYPT_SIZE:
                     logger.warning(
-                        f"[DIRECT] File too large for in-memory encryption ({file_size / (1024**2):.0f}MB > "
-                        f"{MAX_ENCRYPT_SIZE / (1024**2):.0f}MB), uploading without encryption. "
-                        f"⚠️ Evidence will be protected by TLS in transit and server-side encryption at rest."
+                        f"[DIRECT] File too large for in-memory protection ({file_size / (1024**2):.0f}MB > "
+                        f"{MAX_ENCRYPT_SIZE / (1024**2):.0f}MB), uploading without client-side protection. "
+                        f"⚠️ Evidence will be protected by TLS in transit and server-side protection at rest."
                     )
                     _pcb = getattr(self, '_progress_callback', None)
                     if _pcb:
                         _pcb(
                             f"⚠️ {file_name}: Large file ({file_size / (1024**2):.0f}MB) — "
-                            f"client-side encryption skipped, protected by server-side encryption"
+                            f"client-side protection skipped, protected by server-side security"
                         )
                     # [SECURITY] Zero out key material before releasing reference
                     _zeroize_key(encryption_key_hex)
@@ -1015,11 +1015,11 @@ class DirectUploader:
                         del encrypted_data
 
                         is_encrypted = True
-                        logger.info(f"[DIRECT] File encrypted: {file_name} ({os.path.getsize(encrypted_path):,} bytes)")
+                        logger.info(f"[DIRECT] File protected: {file_name} ({os.path.getsize(encrypted_path):,} bytes)")
                     except Exception as enc_err:
-                        logger.error(f"[DIRECT] Encryption failed — aborting upload for evidence safety: {enc_err}")
+                        logger.error(f"[DIRECT] Data protection failed — aborting upload for evidence safety: {enc_err}")
                         return UploadResult.from_error(
-                            f"Encryption failed for {file_name}: {enc_err}. Upload aborted to prevent plaintext evidence exposure."
+                            f"Data protection failed for {file_name}: {enc_err}. Upload aborted to prevent unprotected evidence exposure."
                         )
                     finally:
                         # [SECURITY] Zero out key material before releasing reference
@@ -1036,7 +1036,7 @@ class DirectUploader:
                 upload_url = presigned_info['upload_url']
                 self._upload_single(upload_path, upload_url)
 
-            # Clean up encrypted temp file
+            # Clean up protected temp file
             if encrypted_path and os.path.exists(encrypted_path):
                 os.remove(encrypted_path)
 
@@ -1076,7 +1076,7 @@ class DirectUploader:
             sanitized_error = _sanitize_error_for_logging(str(e))
             logger.error(f"[DIRECT] Direct upload failed: {sanitized_error}")
 
-            # Clean up encrypted temp file
+            # Clean up protected temp file
             if encrypted_path and os.path.exists(encrypted_path):
                 os.remove(encrypted_path)
 

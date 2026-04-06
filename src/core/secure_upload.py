@@ -5,11 +5,11 @@ Secure Upload Manager - Secure data upload module
 Securely transfers collected forensic artifacts to the server.
 
 Security Features:
-- AES-256-GCM data encryption
+- Secure data protection
 - JWT token-based authentication
 - SHA-256 integrity verification
 - TLS 1.3 required (HTTPS)
-- Per-session encryption key issuance
+- Per-session secure key management
 
 Usage:
     from core.secure_upload import SecureUploadManager
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks for streaming upload
-NONCE_SIZE = 12  # 96 bits for AES-GCM
+NONCE_SIZE = 12  # 96 bits nonce
 TAG_SIZE = 16    # 128 bits authentication tag
 MIN_TLS_VERSION = 'TLSv1.2'  # Minimum TLS version
 
@@ -96,14 +96,14 @@ class SessionInfo:
 
 
 # =============================================================================
-# Encryption Utilities
+# Data Protection Utilities
 # =============================================================================
 
 class AESGCMCipher:
     """
-    AES-256-GCM encryption class
+    Secure data protection class
 
-    Uses NIST-recommended AES-GCM mode for simultaneous confidentiality and integrity.
+    Provides confidentiality and integrity for data transfers.
     """
 
     def __init__(self, key: bytes):
@@ -111,10 +111,10 @@ class AESGCMCipher:
         Initialize cipher with 256-bit key.
 
         Args:
-            key: 32-byte (256-bit) encryption key
+            key: 32-byte (256-bit) secure key
         """
         if not CRYPTO_AVAILABLE:
-            raise ImportError("cryptography package is required for encryption")
+            raise ImportError("cryptography package is required for data protection")
 
         if len(key) != 32:
             raise ValueError("Key must be 256 bits (32 bytes)")
@@ -124,11 +124,11 @@ class AESGCMCipher:
 
     def encrypt(self, plaintext: bytes, associated_data: Optional[bytes] = None) -> bytes:
         """
-        Encrypt data with AES-256-GCM.
+        Protect data for secure transfer.
 
         Args:
-            plaintext: Data to encrypt
-            associated_data: Optional authenticated but unencrypted data
+            plaintext: Data to protect
+            associated_data: Optional authenticated additional data
 
         Returns:
             nonce + ciphertext + tag (combined)
@@ -139,14 +139,14 @@ class AESGCMCipher:
 
     def decrypt(self, ciphertext: bytes, associated_data: Optional[bytes] = None) -> bytes:
         """
-        Decrypt data with AES-256-GCM.
+        Restore protected data.
 
         Args:
-            ciphertext: nonce + encrypted data + tag
+            ciphertext: nonce + protected data + tag
             associated_data: Optional authenticated data
 
         Returns:
-            Decrypted plaintext
+            Original plaintext
 
         Raises:
             cryptography.exceptions.InvalidTag: If authentication fails
@@ -158,7 +158,7 @@ class AESGCMCipher:
 
 def derive_key(master_secret: bytes, salt: bytes, info: bytes = b"forensic-upload") -> bytes:
     """
-    Derive encryption key from master secret using HKDF.
+    Derive secure key from master secret.
 
     Args:
         master_secret: Master secret received from server
@@ -283,7 +283,7 @@ class SecureUploadManager:
         session.headers['Authorization'] = f'Bearer {user_token}'
 
         try:
-            # Request encryption session
+            # Request secure session
             response = session.post(
                 f'{self.server_url}/api/v1/upload/session',
                 json={'case_id': case_id},
@@ -294,7 +294,7 @@ class SecureUploadManager:
             if response.status_code == 200:
                 data = response.json()
 
-                # Decode session encryption key
+                # Decode session secure key
                 master_secret = base64.b64decode(data.get('master_secret', ''))
                 salt = base64.b64decode(data.get('salt', ''))
 
@@ -334,7 +334,7 @@ class SecureUploadManager:
             file_path: Path to file to upload
             artifact_type: Artifact type
             metadata: Additional metadata
-            encrypt: Whether to encrypt
+            encrypt: Whether to apply data protection
             progress_callback: Progress callback (percent: int)
 
         Returns:
@@ -377,12 +377,12 @@ class SecureUploadManager:
             if metadata:
                 upload_metadata.update(metadata)
 
-            # Read and optionally encrypt file
+            # Read and optionally protect file
             with open(path, 'rb') as f:
                 file_data = f.read()
 
             if encrypt and self.cipher:
-                # Encrypt file data
+                # Protect file data
                 associated_data = json.dumps({
                     'filename': path.name,
                     'sha256': sha256_local
@@ -613,7 +613,7 @@ class ChainOfCustodyLogger:
         Log a custody event.
 
         Args:
-            event_type: Type of event (collected, encrypted, uploaded, etc.)
+            event_type: Type of event (collected, protected, uploaded, etc.)
             file_path: Path to the evidence file
             description: Event description
             user: User who performed the action
