@@ -214,7 +214,7 @@ ERROR_PATTERNS: List[Dict] = [
 
     # Concurrent collection related (409 Conflict)
     {
-        "pattern": r"(409|concurrent_collection|case_collection_in_progress|이미 다른 수집이 진행)",
+        "pattern": r"(409|concurrent_collection|case_collection_in_progress|already.*in progress)",
         "title": "Collection Session Conflict",
         "message": "A collection is already in progress for this case, or a previous session was not properly closed.",
         "solution": "1. Go to the Web Platform → Case Detail page\n2. Click [Cancel Operation] to terminate the existing session\n3. Generate a new session token\n4. Enter the new token and authenticate again",

@@ -1276,14 +1276,14 @@ IOS_ARTIFACT_TYPES = {
     },
     'mobile_ios_samjeomssam': {
         'name': 'Samjeomssam',
-        'description': 'Samjeomssam (삼쩜삼) tax refund service data',
+        'description': 'Samjeomssam tax refund service data',
         'manifest_domain': 'AppDomain-co.jobis.szs',
         'manifest_paths': ['*.sqlite', '*.db'],
         'pattern': True,
     },
     'mobile_ios_soomgo': {
         'name': 'Soomgo',
-        'description': 'Soomgo (숨고) professional service marketplace data',
+        'description': 'Soomgo professional service marketplace data',
         'manifest_domain': 'AppDomain-com.Soomgo',
         'manifest_paths': ['*.sqlite', '*.db'],
         'pattern': True,

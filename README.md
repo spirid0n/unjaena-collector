@@ -160,7 +160,7 @@ unjaena-collector/
 │   │   ├── ios_collector.py         # iOS backup & extraction
 │   │   ├── linux_collector.py       # Linux artifacts
 │   │   ├── macos_collector.py       # macOS artifacts
-│   │   ├── process_memory_dumper.py # Process memory acquisition
+│   │   ├── memory_collector.py      # Memory acquisition
 │   │   ├── mft_collector.py         # MFT parsing
 │   │   └── forensic_disk/           # Disk image access layer
 │   ├── core/                    # Core infrastructure
