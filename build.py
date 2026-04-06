@@ -295,7 +295,7 @@ def main():
             _cfg['version'] = _git_ver.replace('collector-v', '')
             print(f"[BUILD] Version from git: {_cfg['version']}")
         except Exception:
-            _cfg['version'] = '2.4.7'
+            _cfg['version'] = '1.0.0'
             print(f"[BUILD] Version fallback: {_cfg['version']}")
     with open(config_dest_path, 'w', encoding='utf-8') as f:
         _json.dump(_cfg, f, indent=4)
