@@ -91,7 +91,6 @@ class ServerSetupDialog(QDialog):
 
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("https://app.unjaena.com")
-        self.url_input.textChanged.connect(self._on_url_changed)
         self.url_input.setText("https://app.unjaena.com")
         form.addRow("Server URL:", self.url_input)
 
@@ -127,6 +126,11 @@ class ServerSetupDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
 
         layout.addLayout(btn_layout)
+
+        # Connect signal AFTER all widgets are created (avoid AttributeError)
+        self.url_input.textChanged.connect(self._on_url_changed)
+        # Trigger initial state
+        self._on_url_changed(self.url_input.text())
 
     def _on_url_changed(self, text: str):
         url = text.strip().rstrip("/")
