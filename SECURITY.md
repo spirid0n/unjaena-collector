@@ -8,7 +8,7 @@ If you discover a security vulnerability in this project, please report it respo
 
 ### How to Report
 
-1. Email: Send details to **admin@unjaena.com**
+1. Email: Send details to **contact@unjaena.com**
 2. Include:
    - Description of the vulnerability
    - Steps to reproduce

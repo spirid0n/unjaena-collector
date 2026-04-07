@@ -264,4 +264,27 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # Catch all unhandled exceptions and write to crash log
+    # (console=False on Windows hides all stderr/stdout)
+    try:
+        main()
+    except Exception as exc:
+        import traceback
+        from pathlib import Path
+        crash_log = Path.home() / ".forensic-collector" / "crash.log"
+        crash_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(crash_log, "w", encoding="utf-8") as f:
+            f.write(f"Collector crash at startup\n\n")
+            traceback.print_exc(file=f)
+        # Also try to show a native message box (no PyQt6 dependency)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Collector failed to start.\nSee: {crash_log}",
+                "unJaena Collector Error",
+                0x10,  # MB_ICONERROR
+            )
+        except Exception:
+            pass
+        sys.exit(1)

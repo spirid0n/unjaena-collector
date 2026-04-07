@@ -198,6 +198,6 @@ This project depends on [dissect.fve](https://github.com/fox-it/dissect.fve) (AG
 This project is **source-open for transparency**, not for community-driven development.
 As a forensic evidence collection tool, code integrity directly impacts legal admissibility — all changes are reviewed and authored by the internal team.
 
-- **Bug reports & security issues**: Please open a [GitHub Issue](https://github.com/unjaena/unjaena-collector/issues) or email `admin@unjaena.com`
+- **Bug reports & security issues**: Please open a [GitHub Issue](https://github.com/unjaena/unjaena-collector/issues) or email `contact@unjaena.com`
 - **Feature requests**: Welcome via Issues — we review and prioritize internally
 - **Pull requests**: Not accepted at this time
