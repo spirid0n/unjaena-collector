@@ -1681,7 +1681,13 @@ class iOSBackupParser:
             return False
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, output_path)
+        try:
+            shutil.copy2(source_path, output_path)
+        except (FileNotFoundError, OSError) as e:
+            # File may have been removed between exists() check and copy
+            # (e.g., incomplete backup, antivirus quarantine)
+            _debug_print(f"[iOS] extract_file copy failed: {e}")
+            return False
         return True
 
 
@@ -2630,16 +2636,33 @@ class iOSDeviceConnector:
         Create backup for artifact extraction.
 
         Reuses existing backup if available, creates new one otherwise.
+
+        Path structure created by create_backup():
+            ios_backup/backup/UDID/   <- actual backup (contains Manifest.plist, Manifest.db)
+        We check both the legacy expected path (ios_backup/UDID/) and the
+        actual create_backup() output path (ios_backup/backup/UDID/) for reuse.
         """
         if progress_callback:
             progress_callback("Creating device backup for artifact extraction...")
 
-        backup_dir = self.output_dir / 'ios_backup' / (self.udid or 'device')
-        backup_dir.mkdir(parents=True, exist_ok=True)
+        udid_or_device = self.udid or 'device'
+        ios_backup_root = self.output_dir / 'ios_backup'
+        ios_backup_root.mkdir(parents=True, exist_ok=True)
 
-        # Check if valid backup already exists
-        manifest_plist = backup_dir / 'Manifest.plist'
-        if manifest_plist.exists():
+        # Check if valid backup already exists.
+        # create_backup() places backups at ios_backup/backup/UDID/,
+        # so check there first, then fall back to ios_backup/UDID/ (legacy).
+        backup_dir = None
+        candidate_paths = [
+            ios_backup_root / 'backup' / udid_or_device,  # create_backup() output path
+            ios_backup_root / udid_or_device,              # legacy/direct path
+        ]
+        for candidate in candidate_paths:
+            if candidate.is_dir() and (candidate / 'Manifest.plist').exists():
+                backup_dir = candidate
+                break
+
+        if backup_dir is not None:
             if progress_callback:
                 progress_callback("Using existing backup...")
 
@@ -2668,7 +2691,7 @@ class iOSDeviceConnector:
             return
 
         # Create new backup
-        for path, meta in self.create_backup(backup_dir.parent, progress_callback):
+        for path, meta in self.create_backup(ios_backup_root, progress_callback):
             if meta.get('status') == 'error':
                 yield path, meta
                 return
@@ -3084,7 +3107,11 @@ class iOSCollector:
             if progress_callback:
                 progress_callback(f"Copying {filename}")
 
-            shutil.copy2(source_path, local_path)
+            try:
+                shutil.copy2(source_path, local_path)
+            except (FileNotFoundError, OSError) as e:
+                _debug_print(f"[iOS] Failed to copy {filename}: {e}")
+                continue
 
             sha256 = hashlib.sha256()
             with open(local_path, 'rb') as f:
