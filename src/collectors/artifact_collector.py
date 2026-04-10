@@ -4285,23 +4285,33 @@ class LocalMFTCollector(_LocalMFTBase):
             # Copy file
             shutil.copy2(src_path, output_file)
 
-            # Calculate hash
-            md5_hash = hashlib.md5()
-            sha256_hash = hashlib.sha256()
-            with open(output_file, 'rb') as f:
-                for chunk in iter(lambda: f.read(65536), b''):
-                    md5_hash.update(chunk)
-                    sha256_hash.update(chunk)
+            # Calculate hash (skip for files larger than 100MB to avoid performance hangs)
+            MAX_HASH_SIZE = 100 * 1024 * 1024  # 100MB
+            stat = src.stat()
+            hash_skipped = False
+
+            if stat.st_size <= MAX_HASH_SIZE:
+                md5_hash = hashlib.md5()
+                sha256_hash = hashlib.sha256()
+                with open(output_file, 'rb') as f:
+                    for chunk in iter(lambda: f.read(65536), b''):
+                        md5_hash.update(chunk)
+                        sha256_hash.update(chunk)
+                md5_hex = md5_hash.hexdigest()
+                sha256_hex = sha256_hash.hexdigest()
+            else:
+                md5_hex = ''
+                sha256_hex = ''
+                hash_skipped = True
 
             # Generate metadata
-            stat = src.stat()
             metadata = {
                 'artifact_type': artifact_type,
                 'name': src.name,
                 'original_path': str(src),
                 'size': stat.st_size,
-                'hash_md5': md5_hash.hexdigest(),
-                'hash_sha256': sha256_hash.hexdigest(),
+                'hash_md5': md5_hex,
+                'hash_sha256': sha256_hex,
                 'collection_method': 'directory_fallback',
                 'source': self._get_source_description(),
                 'is_deleted': False,  # Directory fallback cannot collect deleted files
@@ -4310,6 +4320,8 @@ class LocalMFTCollector(_LocalMFTBase):
                 'collected_at': datetime.now().isoformat(),
                 'warning': 'Collected via directory fallback - deleted files not recoverable',
             }
+            if hash_skipped:
+                metadata['hash_skipped'] = True
 
             if self._bitlocker_detected:
                 metadata['bitlocker_status'] = 'encrypted_but_mounted'
@@ -4436,6 +4448,8 @@ class ArtifactCollector:
 
         # Cache for scan_all_files() results — avoids repeated full MFT scans
         self._scan_cache = None
+        # Pre-built index from scan cache for O(1) extension/filename lookups
+        self._scan_index = None
 
     def _get_physical_drive_number(self) -> Optional[int]:
         """Get physical drive number from volume letter"""
@@ -4576,8 +4590,9 @@ class ArtifactCollector:
 
     def close(self):
         """Clean up resources"""
-        # Release scan cache to free memory
+        # Release scan cache and index to free memory
         self._scan_cache = None
+        self._scan_index = None
 
         if self.forensic_disk_accessor:
             try:
@@ -4595,6 +4610,52 @@ class ArtifactCollector:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def _build_scan_index(self, scan_result):
+        """Build extension and path-based indices from MFT scan results.
+
+        Converts O(n) linear scan per artifact type to O(1) dict lookup
+        by pre-grouping entries by file extension and filename.
+        Called once after the first MFT scan, then reused for all artifact types.
+        """
+        index = {
+            'by_extension': {},   # {'.evtx': [entry, ...], '.pf': [entry, ...]}
+            'by_filename': {},    # {'ntuser.dat': [entry, ...]}
+            'no_extension': [],   # entries without file extension
+        }
+
+        all_files = list(scan_result.get('active_files', []))
+        all_files.extend(scan_result.get('deleted_files', []))
+
+        for entry in all_files:
+            if entry.is_directory:
+                continue
+
+            filename_lower = entry.filename.lower()
+
+            # Index by extension
+            if '.' in filename_lower:
+                ext = '.' + filename_lower.rsplit('.', 1)[-1]
+                if ext not in index['by_extension']:
+                    index['by_extension'][ext] = []
+                index['by_extension'][ext].append(entry)
+            else:
+                index['no_extension'].append(entry)
+
+            # Index by lowercase filename (for exact name matches)
+            if filename_lower not in index['by_filename']:
+                index['by_filename'][filename_lower] = []
+            index['by_filename'][filename_lower].append(entry)
+
+        ext_count = sum(len(v) for v in index['by_extension'].values())
+        _debug_print(
+            f"[ForensicDisk] Scan index built: "
+            f"{len(index['by_extension'])} extensions, "
+            f"{len(index['by_filename'])} unique filenames, "
+            f"{ext_count + len(index['no_extension'])} total entries"
+        )
+
+        return index
 
     def get_available_artifacts(self) -> List[Dict[str, Any]]:
         """
@@ -5408,13 +5469,12 @@ class ArtifactCollector:
                 )
             scan_result = self._scan_cache
 
+            # Build index once from scan cache for O(1) lookups across artifact types
+            if self._scan_index is None:
+                self._scan_index = self._build_scan_index(scan_result)
+
             # Normalize path
             base_normalized = base_path.replace('\\', '/').strip('/') if not full_disk_scan else ''
-
-            # Combine active files and deleted files (copy to avoid mutating cache)
-            all_files = list(scan_result.get('active_files', []))
-            if include_deleted:
-                all_files.extend(scan_result.get('deleted_files', []))
 
             collected_count = 0
 
@@ -5438,22 +5498,44 @@ class ArtifactCollector:
                         ext_lower = '.' + ext_lower
                     normalized_exclude_ext.add(ext_lower)
 
-            for entry in all_files:
+            # Select candidate entries using index for fast filtering.
+            # With 1M+ MFT entries and 20+ artifact types, index lookup
+            # reduces per-type cost from O(n) to O(matches).
+            if extensions and self._scan_index:
+                # Collect entries matching any requested extension via index
+                candidate_entries = []
+                for ext in extensions:
+                    candidate_entries.extend(
+                        self._scan_index['by_extension'].get(ext, [])
+                    )
+                # Filter by include_deleted preference
+                if not include_deleted:
+                    candidate_entries = [e for e in candidate_entries if not e.is_deleted]
+            elif self._scan_index and not normalized_exclude_ext and pattern:
+                # Check for exact filename match (no wildcards)
+                if '*' not in pattern and '?' not in pattern:
+                    candidate_entries = list(
+                        self._scan_index['by_filename'].get(pattern.lower(), [])
+                    )
+                    if not include_deleted:
+                        candidate_entries = [e for e in candidate_entries if not e.is_deleted]
+                else:
+                    # Wildcard pattern — fall back to full list
+                    candidate_entries = list(scan_result.get('active_files', []))
+                    if include_deleted:
+                        candidate_entries.extend(scan_result.get('deleted_files', []))
+            else:
+                # No extension filter and no simple pattern — use full list
+                candidate_entries = list(scan_result.get('active_files', []))
+                if include_deleted:
+                    candidate_entries.extend(scan_result.get('deleted_files', []))
+
+            for entry in candidate_entries:
                 if entry.is_directory:
                     continue
 
                 filename = entry.filename
                 filename_lower = filename.lower()
-
-                # Extension include filter (apply first - fast filtering)
-                if extensions:
-                    has_ext = False
-                    if '.' in filename_lower:
-                        file_ext = '.' + filename_lower.rsplit('.', 1)[-1]
-                        if file_ext in extensions:
-                            has_ext = True
-                    if not has_ext:
-                        continue
 
                 # Extension exclude filter (e.g., Telegram: skip media files)
                 if normalized_exclude_ext and '.' in filename_lower:
@@ -5467,10 +5549,11 @@ class ArtifactCollector:
                     if not entry_path.lower().startswith(base_normalized.lower()):
                         continue
 
-                # Pattern matching (only when no extension filter)
+                # Pattern matching (only when no extension filter and wildcard pattern)
                 if not extensions and not normalized_exclude_ext and pattern:
-                    if not fnmatch.fnmatch(filename_lower, pattern.lower()):
-                        continue
+                    if '*' in pattern or '?' in pattern:
+                        if not fnmatch.fnmatch(filename_lower, pattern.lower()):
+                            continue
 
                 # Collect file
                 try:
@@ -6330,9 +6413,30 @@ class ArtifactCollector:
                                     yield str(dst_path), metadata
 
                                     # Also try to collect corresponding $R file
+                                    # Skip $R content files larger than 50MB (collect metadata-only for large deleted files)
+                                    MAX_RECYCLE_CONTENT_SIZE = 50 * 1024 * 1024  # 50MB
                                     r_file = sid_folder / entry.name.replace('$I', '$R')
                                     if r_file.exists():
                                         try:
+                                            r_size = r_file.stat().st_size
+                                            if r_size > MAX_RECYCLE_CONTENT_SIZE:
+                                                # Record metadata without copying the actual file
+                                                r_metadata = {
+                                                    'artifact_type': artifact_type,
+                                                    'original_path': str(r_file),
+                                                    'filename': r_file.name,
+                                                    'size': r_size,
+                                                    'skipped': True,
+                                                    'skip_reason': f'File too large ({r_size} bytes, limit {MAX_RECYCLE_CONTENT_SIZE})',
+                                                    'collection_method': 'direct',
+                                                    'user_sid': sid_folder.name,
+                                                    'file_type': 'content_metadata_only',
+                                                    'collected_at': datetime.utcnow().isoformat(),
+                                                }
+                                                collected_count += 1
+                                                _debug_print(f"[RecycleBin] Skipped large $R file: {r_file.name} ({r_size} bytes)")
+                                                yield str(r_file), r_metadata
+                                                continue
                                             r_dst_path = sid_output_dir / r_file.name
                                             shutil.copy2(r_file, r_dst_path)
                                             r_metadata = self._get_metadata(str(r_file), r_dst_path, artifact_type)
@@ -6530,13 +6634,24 @@ class ArtifactCollector:
         """Generate metadata for a collected file (legacy)"""
         src = Path(src_path)
 
-        # Calculate hash
-        sha256 = hashlib.sha256()
-        md5 = hashlib.md5()
-        with open(dst_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(65536), b''):
-                sha256.update(chunk)
-                md5.update(chunk)
+        # Calculate hash (skip for files larger than 100MB to avoid performance hangs)
+        MAX_HASH_SIZE = 100 * 1024 * 1024  # 100MB
+        file_size = dst_path.stat().st_size
+        hash_skipped = False
+
+        if file_size <= MAX_HASH_SIZE:
+            sha256 = hashlib.sha256()
+            md5 = hashlib.md5()
+            with open(dst_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    sha256.update(chunk)
+                    md5.update(chunk)
+            sha256_hex = sha256.hexdigest()
+            md5_hex = md5.hexdigest()
+        else:
+            sha256_hex = ''
+            md5_hex = ''
+            hash_skipped = True
 
         try:
             stat = src.stat()
@@ -6548,17 +6663,20 @@ class ArtifactCollector:
         except (OSError, ValueError):
             timestamps = {}
 
-        return {
+        metadata = {
             'artifact_type': artifact_type,
             'original_path': str(src_path),
             'filename': src.name,
-            'size': dst_path.stat().st_size,
-            'sha256': sha256.hexdigest(),
-            'md5': md5.hexdigest(),
+            'size': file_size,
+            'sha256': sha256_hex,
+            'md5': md5_hex,
             'timestamps': timestamps,
             'collected_at': datetime.utcnow().isoformat(),
             'collection_method': 'legacy_file_api',
         }
+        if hash_skipped:
+            metadata['hash_skipped'] = True
+        return metadata
 
     # =========================================================================
     # Android Forensics Collection Methods

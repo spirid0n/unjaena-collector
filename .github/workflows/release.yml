@@ -27,6 +27,8 @@ jobs:
           cache: pip
 
       - name: Install dependencies
+        # NOTE: For supply-chain safety, consider using requirements/base.lock.txt
+        # (generated via `pip freeze`) for deterministic, reproducible builds.
         run: |
           pip install -r requirements/base.txt
           pip install -r requirements/windows.txt
@@ -186,6 +188,49 @@ jobs:
       - name: Build macOS binary
         run: python build.py --production --ci --skip-usb-check
 
+      # -----------------------------------------------------------------
+      # Code Signing + Notarization
+      # -----------------------------------------------------------------
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERT_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERT_PATH -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign app bundle
+        working-directory: dist
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [ -d "IntelligenceCollector.app" ]; then
+            echo "[SIGN] Signing IntelligenceCollector.app..."
+            codesign --deep --force --options runtime \
+              --entitlements ../entitlements.plist \
+              --sign "$MACOS_SIGNING_IDENTITY" \
+              IntelligenceCollector.app
+
+            echo "[SIGN] Verifying signature..."
+            codesign --verify --deep --strict --verbose=2 IntelligenceCollector.app
+            echo "[SIGN] Done."
+          else
+            echo "[SIGN] No .app bundle found, skipping signing"
+          fi
+
       - name: Create DMG
         working-directory: dist
         run: |
@@ -207,10 +252,37 @@ jobs:
               -ov -format UDZO \
               "${DMG_NAME}"
           else
-            # Fallback: tar.gz if .app bundle failed
             chmod +x IntelligenceCollector
             tar czf "IntelligenceCollector-${VERSION}-macos-arm64.tar.gz" IntelligenceCollector
           fi
+
+      - name: Notarize DMG
+        working-directory: dist
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG_FILE=$(ls IntelligenceCollector-*-macos-arm64.dmg 2>/dev/null | head -1)
+          if [ -n "$DMG_FILE" ] && [ -n "$APPLE_ID" ]; then
+            echo "[NOTARIZE] Submitting $DMG_FILE..."
+            xcrun notarytool submit "$DMG_FILE" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait --timeout 30m
+
+            echo "[NOTARIZE] Stapling ticket..."
+            xcrun stapler staple "$DMG_FILE"
+            echo "[NOTARIZE] Done."
+          else
+            echo "[NOTARIZE] Skipped (no DMG or credentials missing)"
+          fi
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -224,7 +296,7 @@ jobs:
   # Apple Silicon (ARM64) build covers macOS via Rosetta 2 compatibility.
 
   # =========================================================================
-  # Release — SHA256 checksums + GitHub Release
+  # Release — SHA256 + GitHub Release 생성
   # =========================================================================
   release:
     needs: [build-windows, build-linux, build-macos-arm64]
