@@ -4290,7 +4290,14 @@ class LocalMFTCollector(_LocalMFTBase):
             if stat.st_size <= MAX_HASH_SIZE:
                 md5_hash = hashlib.md5()
                 sha256_hash = hashlib.sha256()
-                with open(src_path, 'rb') as f_in, open(output_file, 'wb') as f_out:
+                # Use exclusive create to prevent race conditions
+                try:
+                    fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                except FileExistsError:
+                    # Another thread created it first; use fallback name
+                    output_file = artifact_dir / f"{output_file.stem}_{os.getpid()}{output_file.suffix}"
+                    fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                with open(src_path, 'rb') as f_in, os.fdopen(fd, 'wb') as f_out:
                     while True:
                         chunk = f_in.read(65536)
                         if not chunk:

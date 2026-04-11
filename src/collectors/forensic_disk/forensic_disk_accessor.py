@@ -1809,12 +1809,15 @@ class ForensicDiskAccessor:
             # a cached ancestor or the root
             chain = []
             current = inode
-            while current in inode_info and current not in path_cache:
+            depth = 0
+            max_depth = 50
+            while current in inode_info and current not in path_cache and depth < max_depth:
                 parent, name = inode_info[current]
                 chain.append((current, name))
                 if parent == current or parent == 5:  # Reached root
                     break
                 current = parent
+                depth += 1
             # Base path from cached ancestor (if any)
             base = path_cache.get(current, '')
             # Build and cache paths for every node in the chain (top-down)
