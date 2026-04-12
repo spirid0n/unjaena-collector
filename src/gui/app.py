@@ -3707,19 +3707,40 @@ class CollectionWorker(QThread):
                 )
 
                 try:
-                    # Reuse hash from Stage 1 (already computed during collection)
+                    # File may have been removed between Stage 1 (collect) and
+                    # Stage 2 (prepare) by real-time antivirus / EDR software
+                    # scanning the temp directory. Skip gracefully instead of
+                    # failing the whole batch.
+                    if not os.path.exists(file_path):
+                        self.log_message.emit(
+                            f"[SKIP] {filename}: file disappeared before "
+                            f"preparation (likely quarantined by security software)",
+                            True,
+                        )
+                        continue
+
+                    # Reuse hash from Stage 1 (already computed during collection).
+                    # Preferring the cached hash also avoids reopening the file,
+                    # which would fail if AV quarantined it mid-pipeline.
                     original_hash = metadata.get('hash_sha256', '')
                     if not original_hash:
                         # Fallback: compute hash only if Stage 1 didn't provide it
                         hash_result = hash_calculator.calculate_file_hash(file_path)
                         original_hash = hash_result.sha256_hash
 
+                    # Prefer cached size from Stage 1; avoid filesystem stat
+                    # when possible so AV-quarantined files don't take down
+                    # the whole preparation step.
+                    original_size = metadata.get('size')
+                    if original_size is None:
+                        original_size = os.path.getsize(file_path)
+
                     # Add required metadata fields for server
                     metadata['original_hash'] = original_hash
-                    metadata['original_size'] = metadata.get('size', os.path.getsize(file_path))
+                    metadata['original_size'] = original_size
                     metadata['collection_time'] = datetime.utcnow().isoformat()
 
-                    # Legacy encryption info (now handled by server)
+                    # Legacy wire-format metadata (server-side processed)
                     metadata['encryption'] = {
                         'nonce': 'hash_only',
                         'original_hash': original_hash,
@@ -3731,6 +3752,12 @@ class CollectionWorker(QThread):
                         metadata
                     ))
 
+                except FileNotFoundError:
+                    self.log_message.emit(
+                        f"[SKIP] {filename}: file removed mid-pipeline "
+                        f"(quarantined by AV/EDR)",
+                        True,
+                    )
                 except Exception as e:
                     self.log_message.emit(f"Preparation failed ({filename}): {e}", True)
 
