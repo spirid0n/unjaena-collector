@@ -742,7 +742,7 @@ class ForensicDiskAccessor:
 
     def _detect_partitions(self):
         """Detect partition table (MBR/GPT/Volume Image)"""
-        # [2026-01] Volume image support: check filesystem signature first
+        # Volume image support: check filesystem signature first
         # Both MBR and VBR have 0x55AA at bytes 510-511,
         # so we need to check NTFS/FAT filesystem signatures first
         first_sector = self._backend.read(0, 512)
@@ -3440,7 +3440,7 @@ class ForensicDiskAccessor:
             raise FilesystemError("$UsnJrnl not found")
 
         if skip_sparse:
-            # [2026-01] Skip sparse regions and read only actual data
+            # Skip sparse regions and read only actual data
             return self._read_file_skip_sparse(usnjrnl_inode, stream_name='$J', max_size=max_size)
         else:
             # Legacy method: fill sparse regions with zeros
@@ -3453,7 +3453,7 @@ class ForensicDiskAccessor:
         max_size: int = None
     ) -> bytes:
         """
-        [2026-01] Skip sparse regions and read only actual data
+        Skip sparse regions and read only actual data
 
         Useful for large sparse files like USN Journal.
         Does not include zeros from sparse regions, significantly reducing file size.

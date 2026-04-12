@@ -4,7 +4,7 @@ Legal Consent Dialog
 Dialog for obtaining legal consent before starting collection.
 Collection cannot proceed without consent.
 
-2026-01 Server API Integration:
+Server API Integration:
 - GET /api/v1/collector/consent - Retrieve multilingual consent template
 - POST /api/v1/collector/consent/accept - Save consent record
 """
@@ -663,6 +663,6 @@ if __name__ == "__main__":
     )
 
     if record:
-        print("Consent accepted:", record)
+        logger.info("Consent accepted")
     else:
-        print("Consent rejected or cancelled")
+        logger.info("Consent rejected or cancelled")

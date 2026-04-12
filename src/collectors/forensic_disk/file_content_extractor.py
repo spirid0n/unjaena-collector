@@ -40,36 +40,9 @@ from enum import IntEnum
 from pathlib import Path
 from datetime import datetime
 
-# =============================================================================
-# Debug Logging to File
-# =============================================================================
-_DEBUG_LOG_FILE = None
-
-def _debug_log(message: str):
-    """Output debug log to both console and file"""
-    global _DEBUG_LOG_FILE
-    _debug_print(message, flush=True)
-
-    # Also write to file
-    try:
-        if _DEBUG_LOG_FILE is None:
-            import tempfile
-            log_path = Path(tempfile.gettempdir()) / "mft_collector_debug.log"
-            _DEBUG_LOG_FILE = open(log_path, 'a', encoding='utf-8')
-
-        _DEBUG_LOG_FILE.write(f"{datetime.now().isoformat()} {message}\n")
-        _DEBUG_LOG_FILE.flush()
-    except Exception:
-        pass
-
 from .unified_disk_reader import UnifiedDiskReader, FilesystemError
 
 logger = logging.getLogger(__name__)
-
-# Debug output control
-_DEBUG_OUTPUT = False
-def _debug_print(msg):
-    if _DEBUG_OUTPUT: print(f"[FileExtractor] {msg}")
 
 
 # ==============================================================================
@@ -1491,7 +1464,7 @@ class FileContentExtractor:
         # Debug: file size limit (prevent infinite loop from corrupted MFT)
         MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
         if file_size > MAX_FILE_SIZE:
-            _debug_log(f"[SANITY CHECK] Abnormally large file_size: {file_size / 1024 / 1024 / 1024:.2f}GB - limiting to 10GB")
+            logger.debug(f"[SANITY CHECK] Abnormally large file_size: {file_size / 1024 / 1024 / 1024:.2f}GB - limiting to 10GB")
             file_size = MAX_FILE_SIZE
 
         for run in data_runs:
@@ -1506,7 +1479,7 @@ class FileContentExtractor:
 
                 # Debug: sparse run warning
                 if sparse_remaining > 1024 * 1024 * 1024:  # 1GB or more
-                    _debug_log(f"[SPARSE] Large sparse run: {sparse_remaining / 1024 / 1024:.1f}MB")
+                    logger.debug(f"[SPARSE] Large sparse run: {sparse_remaining / 1024 / 1024:.1f}MB")
 
                 while sparse_remaining > 0 and bytes_read < file_size:
                     yield_size = min(chunk_size, sparse_remaining, file_size - bytes_read)
@@ -1521,7 +1494,7 @@ class FileContentExtractor:
 
                 # Debug: offset validation
                 if run_offset < 0 or run.lcn < 0:
-                    _debug_log(f"[INVALID] Negative offset: lcn={run.lcn}, offset={run_offset}")
+                    logger.debug(f"[INVALID] Negative offset: lcn={run.lcn}, offset={run_offset}")
                     continue
 
                 while run_read < run_size and bytes_read < file_size:
@@ -1534,10 +1507,10 @@ class FileContentExtractor:
 
                     # Slow read warning (1 second or more)
                     if read_elapsed > 1.0:
-                        _debug_log(f"[SLOW READ] {read_elapsed:.2f}s for {read_size} bytes at offset {run_offset + run_read}")
+                        logger.debug(f"[SLOW READ] {read_elapsed:.2f}s for {read_size} bytes at offset {run_offset + run_read}")
 
                     if not chunk:
-                        _debug_log(f"[EMPTY CHUNK] run {run_index}/{total_runs}, offset={run_offset + run_read}")
+                        logger.debug(f"[EMPTY CHUNK] run {run_index}/{total_runs}, offset={run_offset + run_read}")
                         break
 
                     yield chunk
@@ -1546,7 +1519,7 @@ class FileContentExtractor:
 
                     # Timeout check (single file max 10 minutes)
                     if time.time() - start_time > 600:
-                        _debug_log(f"[STREAM TIMEOUT] 10min limit reached at {bytes_read / 1024 / 1024:.1f}MB")
+                        logger.debug(f"[STREAM TIMEOUT] 10min limit reached at {bytes_read / 1024 / 1024:.1f}MB")
                         return
 
     # ==========================================================================

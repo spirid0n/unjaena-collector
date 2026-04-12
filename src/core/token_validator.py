@@ -177,7 +177,7 @@ class TokenValidator:
             if response.status_code == 200:
                 data = response.json()
 
-                # [2026-02-16] Check status field (defensive: server may return
+                # Check status field (defensive: server may return
                 # HTTP 200 with status="denied" for failures)
                 resp_status = data.get('status', '')
                 if resp_status and resp_status in ('denied', 'error', 'failed'):

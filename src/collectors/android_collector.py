@@ -2831,7 +2831,7 @@ class AndroidCollector:
             }
 
     # ==========================================================================
-    # [2026-02-22] Non-Root Advanced Collection Methods
+    # Non-Root Advanced Collection Methods
     # ==========================================================================
 
     def _collect_runas_app_data(
@@ -3762,7 +3762,7 @@ class AndroidCollector:
             return str(e), -1
 
     # ==================================================================
-    # [2026-02-22] External Storage Messenger Data Collection
+    # External Storage Messenger Data Collection
     # Collects media, chatroom metadata, downloads from /sdcard/ paths
     # Always works without root — external storage is adb-accessible
     # ==================================================================

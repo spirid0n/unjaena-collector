@@ -40,14 +40,6 @@ from collectors.macos_artifacts import MACOS_ARTIFACT_FILTERS
 
 logger = logging.getLogger(__name__)
 
-# Debug output control
-_DEBUG_OUTPUT = False
-
-def _debug_print(message: str):
-    """Debug output (disabled in production)"""
-    if _DEBUG_OUTPUT:
-        print(message)
-
 
 # Check for biplist (binary plist support)
 try:
@@ -592,7 +584,7 @@ class macOSCollector:
         if not self.target_root.exists():
             raise FileNotFoundError(f"Target root not found: {target_root}")
 
-        _debug_print(f"[macOSCollector] Initialized: target_root={target_root}")
+        logger.debug(f"[macOSCollector] Initialized: target_root={target_root}")
 
     def close(self):
         """Release resources (no-op for local/mount mode)"""
@@ -629,7 +621,7 @@ class macOSCollector:
         config = MACOS_ARTIFACT_TYPES[artifact_type]
         paths = config.get('paths', [])
 
-        _debug_print(f"[macOSCollector] Collecting {artifact_type} from {len(paths)} path patterns")
+        logger.debug(f"[macOSCollector] Collecting {artifact_type} from {len(paths)} path patterns")
 
         # Local/mount collection mode
         for pattern in paths:
@@ -706,7 +698,7 @@ class macOSCollector:
             if username:
                 metadata['username'] = username
 
-            # [2026-01-31] plist parsing is performed on server (removed from collector for security)
+            # plist parsing is performed on server (removed from collector for security)
             # Collector only collects raw files, parsing is done on server
 
             # Relative path from target root
@@ -717,7 +709,7 @@ class macOSCollector:
 
             yield (relative_path, content, metadata)
 
-            _debug_print(f"[macOSCollector] Collected: {relative_path} ({stat_info.st_size} bytes)")
+            logger.debug(f"[macOSCollector] Collected: {relative_path} ({stat_info.st_size} bytes)")
 
         except PermissionError:
             logger.warning(f"[macOSCollector] Permission denied: {file_path}")
@@ -746,7 +738,7 @@ class macOSCollector:
                     pass
         return None
 
-    # [2026-01-31] _extract_launch_metadata removed
+    # _extract_launch_metadata removed
     # Forensic analysis logic is performed on server (macos_basic_parser.py)
 
     def _extract_username(self, path: str) -> Optional[str]:
@@ -930,7 +922,7 @@ class macOSCollector:
         # Step 1: Find PID
         pid = self._find_process_pid(process_name)
         if pid is None:
-            _debug_print(f"[macOSCollector] Process not running: {process_name}")
+            logger.debug(f"[macOSCollector] Process not running: {process_name}")
             return None
 
         logger.info(f"[macOSCollector] Found {process_name} (PID: {pid}), starting memory dump")
@@ -1075,7 +1067,7 @@ class macOSCollector:
         except FileNotFoundError:
             logger.error("[macOSCollector] vmmap not found (requires Xcode Command Line Tools)")
 
-        _debug_print(f"[macOSCollector] Found {len(regions)} writable regions for PID {pid}")
+        logger.debug(f"[macOSCollector] Found {len(regions)} writable regions for PID {pid}")
 
         # Cap total regions to prevent excessive dump time
         # Sort by size descending, take top 200 regions
@@ -1138,7 +1130,7 @@ class macOSCollector:
             )
 
             if result.returncode != 0:
-                _debug_print(f"[macOSCollector] lldb stderr: {result.stderr[:500]}")
+                logger.debug(f"[macOSCollector] lldb stderr: {result.stderr[:500]}")
 
             # Concatenate all region dumps into single output file
             with open(output_path, 'wb') as out_f:

@@ -30,7 +30,7 @@ ERROR_PATTERNS: List[Dict] = [
         "error_code": "CANCELLED",
         "is_recoverable": False,
     },
-    # [2026-01-29] Cleanup in progress (upload blocked)
+    # Cleanup in progress (upload blocked)
     {
         "pattern": r"(CLEANUP_IN_PROGRESS|cleanup.*progress)",
         "title": "Previous Data Cleanup in Progress",

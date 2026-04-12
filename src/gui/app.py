@@ -278,14 +278,14 @@ SERVER_TO_COLLECTOR_MAPPING = {
     'mobile_ios_line_attachments': 'mobile_ios_line_attachments',
     'mobile_ios_snapchat_memories': 'mobile_ios_snapchat_memories',
 
-    # === [2026-01] Media/Document artifacts enabled ===
+    # === Media/Document artifacts enabled ===
     'email': 'email',
     'document': 'document',
     'image': 'image',
     'video': 'video',
     'compress': 'document',  # Compressed files classified as documents
 
-    # === [2026-01] P0 new artifacts - high forensic value ===
+    # === P0 new artifacts - high forensic value ===
     'activities_cache': 'activities_cache',
     'pca_launch': 'pca_launch',
     'etl_log': 'etl_log',
@@ -1632,7 +1632,7 @@ class CollectorWindow(QMainWindow):
             self.token_status.setText(f"Invalid: {result.error}")
             self.token_status.setStyleSheet("color: #f72585;")
 
-            # [2026-02-03] Display user-friendly error message popup
+            # Display user-friendly error message popup
             friendly_error = translate_error(result.error or "Unknown error")
             self._log(f"Token validation failed: {friendly_error.title} - {friendly_error.message}", error=True)
             self._log(f"Solution: {friendly_error.solution}", error=True)
@@ -2371,12 +2371,12 @@ class CollectorWindow(QMainWindow):
         self.worker.file_collected.connect(self._add_collected_file)
         self.worker.log_message.connect(self._log)
         self.worker.finished.connect(self._collection_finished)
-        # [2026-02-24] iOS USB: password dialog + status update callbacks
+        # iOS USB: password dialog + status update callbacks
         self.worker.password_requested.connect(self._on_ios_password_requested)
         self.worker.ios_status_update.connect(
             lambda msg: self._show_ios_status(msg) if hasattr(self, '_ios_status_dialog') and self._ios_status_dialog else None
         )
-        # [2026-02-25] Screen scraping: device unlock dialog
+        # Screen scraping: device unlock dialog
         self.worker.unlock_requested.connect(self._on_unlock_requested)
         self.worker.start()
 
@@ -2426,7 +2426,7 @@ class CollectorWindow(QMainWindow):
             # Must run BEFORE _clear_session_data() since it needs session_id/collection_token
             self._notify_server_cancel()
 
-            # [2026-02-16] Immediately clear session data so user must enter new token
+            # Immediately clear session data so user must enter new token
             # Prevents accidentally re-authenticating with the old (used) token
             self._clear_session_data()
             self.token_status.setText("Cancelled - New token required")
@@ -2481,7 +2481,7 @@ class CollectorWindow(QMainWindow):
 
     def _on_unlock_requested(self, error_msg: str):
         """
-        [2026-02-25] Handle screen scraping unlock request from worker thread.
+        Handle screen scraping unlock request from worker thread.
 
         Shows a modal dialog asking the user to unlock the device,
         then unblocks the worker thread with retry/skip decision.
@@ -2865,11 +2865,11 @@ class CollectionWorker(QThread):
     file_collected = pyqtSignal(str, bool)
     log_message = pyqtSignal(str, bool)
     finished = pyqtSignal(bool, str)
-    # [2026-02-24] iOS USB backup password request (error_msg → GUI dialog)
+    # iOS USB backup password request (error_msg -> GUI dialog)
     password_requested = pyqtSignal(str)
-    # [2026-02-24] iOS status text update (shown in preparing/verify dialog)
+    # iOS status text update (shown in preparing/verify dialog)
     ios_status_update = pyqtSignal(str)
-    # [2026-02-25] Screen scraping: device unlock required
+    # Screen scraping: device unlock required
     unlock_requested = pyqtSignal(str)
 
     # Stage weights (total 100%)
@@ -2949,11 +2949,11 @@ class CollectionWorker(QThread):
         # Include deleted files
         self.include_deleted = include_deleted
 
-        # [2026-02-24] iOS USB password callback: threading.Event for GUI ↔ worker sync
+        # iOS USB password callback: threading.Event for GUI/worker sync
         self._pw_event = None
         self._pw_response = None
 
-        # [2026-02-25] Screen scraping unlock callback: threading.Event for GUI ↔ worker sync
+        # Screen scraping unlock callback: threading.Event for GUI/worker sync
         self._unlock_event = None
         self._unlock_response = None  # True = retry, False/None = skip
 
@@ -2963,13 +2963,13 @@ class CollectionWorker(QThread):
         self._processed_bytes = 0
         self._total_bytes_estimate = 0
 
-        # [2026-02-22] Heartbeat thread to keep collection session alive
+        # Heartbeat thread to keep collection session alive
         self._heartbeat_stop_event = None
         self._heartbeat_thread = None
 
     def _start_heartbeat(self):
         """
-        [2026-02-22] Start heartbeat thread to keep collection session alive.
+        Start heartbeat thread to keep collection session alive.
 
         Periodically calls validate-session endpoint during long operations
         (iOS backup creation, key derivation, extraction) to prevent Redis TTL expiry.
@@ -3237,7 +3237,7 @@ class CollectionWorker(QThread):
                     collector.select_backup(backup_path)
                 return collector
 
-            # [2026-02-03] iOS USB direct connection device
+            # iOS USB direct connection device
             elif device_type == DeviceType.IOS_DEVICE:
                 from collectors.ios_collector import iOSDeviceConnector, PYMOBILEDEVICE3_AVAILABLE
                 if not PYMOBILEDEVICE3_AVAILABLE:
@@ -3257,7 +3257,7 @@ class CollectionWorker(QThread):
                     self.log_message.emit(f"iOS connection error: {e}", True)
                     return None
 
-                # [2026-02-24] Set password callback for encrypted device dialog
+                # Set password callback for encrypted device dialog
                 collector.set_password_callback(self._request_password)
 
                 udid_short = udid[:8] if len(udid) > 8 else udid
@@ -3311,10 +3311,10 @@ class CollectionWorker(QThread):
         import time
         import os
 
-        # [2026-02-16] File logging for collector diagnostics
+        # File logging for collector diagnostics
         import logging
 
-        # [2026-02-22] Filter to prevent credential VALUES from reaching log files.
+        # Filter to prevent credential VALUES from reaching log files.
         # Only blocks messages containing actual credential patterns/values,
         # NOT operational messages about encryption/decryption processes.
         class _SensitiveFilter(logging.Filter):
@@ -3369,7 +3369,7 @@ class CollectionWorker(QThread):
         try:
             self._start_time = time.time()
 
-            # [2026-02-22] Start heartbeat to keep session alive during long operations
+            # Start heartbeat to keep session alive during long operations
             self._start_heartbeat()
 
             import tempfile
@@ -3451,7 +3451,7 @@ class CollectionWorker(QThread):
                             file_count = 0
                             error_count = 0
 
-                            # [2026-02-08] iOS backup progress callback
+                            # iOS backup progress callback
                             def ios_progress_callback(msg: str):
                                 # Progress percentage → update progress bar only (no log spam)
                                 if "progress:" in msg.lower():
@@ -3480,12 +3480,12 @@ class CollectionWorker(QThread):
                                 if self._cancelled:
                                     break
 
-                                # [2026-02-06] FIX: filter error responses (empty path or status=error)
+                                # FIX: filter error responses (empty path or status=error)
                                 if not file_path or metadata.get('status') in ('error', 'not_found', 'not_implemented'):
                                     error_msg = metadata.get('error', metadata.get('message', 'Unknown error'))
                                     status = metadata.get('status', 'error')
 
-                                    # [2026-02-25] Screen scraping unlock dialog:
+                                    # Screen scraping unlock dialog:
                                     # Show modal dialog and wait for user to unlock device, then retry
                                     if (artifact_type == 'mobile_android_screen_scrape'
                                             and 'UNLOCKED' in error_msg):
@@ -3757,7 +3757,7 @@ class CollectionWorker(QThread):
             success_count = 0
             total_upload = len(encrypted_files)
 
-            # [2026-03-09] Parallel upload (up to 5 concurrent) — 3-5x faster than sequential
+            # Parallel upload (up to 5 concurrent) - 3-5x faster than sequential
             from concurrent.futures import ThreadPoolExecutor, as_completed
             import threading
 
@@ -3869,7 +3869,7 @@ class CollectionWorker(QThread):
             self.finished.emit(False, f"Error occurred: {str(e)}")
 
         finally:
-            # [2026-02-22] Stop heartbeat thread
+            # Stop heartbeat thread
             self._stop_heartbeat()
 
             # Close iOS collectors BEFORE removing temp directory

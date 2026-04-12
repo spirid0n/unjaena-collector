@@ -35,14 +35,6 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Debug output control
-_DEBUG_OUTPUT = False
-
-def _debug_print(message: str):
-    """Debug output (disabled in production)"""
-    if _DEBUG_OUTPUT:
-        print(message)
-
 
 @dataclass
 class LinuxArtifactInfo:
@@ -1383,7 +1375,7 @@ class LinuxCollector:
         if not self.target_root.exists():
             raise FileNotFoundError(f"Target root not found: {target_root}")
 
-        _debug_print(f"[LinuxCollector] Initialized: target_root={target_root}")
+        logger.debug(f"[LinuxCollector] Initialized: target_root={target_root}")
 
     def close(self):
         """Release resources (no-op for local/mount mode)"""
@@ -1420,7 +1412,7 @@ class LinuxCollector:
         config = LINUX_ARTIFACT_TYPES[artifact_type]
         paths = config.get('paths', [])
 
-        _debug_print(f"[LinuxCollector] Collecting {artifact_type} from {len(paths)} path patterns")
+        logger.debug(f"[LinuxCollector] Collecting {artifact_type} from {len(paths)} path patterns")
 
         # Local/mount collection mode
         for pattern in paths:
@@ -1515,7 +1507,7 @@ class LinuxCollector:
 
             yield (relative_path, content, metadata)
 
-            _debug_print(f"[LinuxCollector] Collected: {relative_path} ({stat_info.st_size} bytes)")
+            logger.debug(f"[LinuxCollector] Collected: {relative_path} ({stat_info.st_size} bytes)")
 
         except PermissionError:
             logger.warning(f"[LinuxCollector] Permission denied: {file_path}")

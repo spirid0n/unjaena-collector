@@ -51,16 +51,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Debug Logging (disabled in production)
-# =============================================================================
-
-def _debug_log(message: str):
-    """Debug logging (disabled in production)"""
-    # Disabled in production
-    # Uncomment below for debugging
-    # logger.debug(message)
-    pass
 
 # =============================================================================
 # Data Classes
@@ -398,7 +388,7 @@ ARTIFACT_MFT_FILTERS = {
         'include_deleted': True,
         'description': 'User profile list (SOFTWARE registry)',
     },
-    # [2026-01-29] Added image, video - server parsing support (EXIF, ffprobe)
+    # Image, video - server parsing support (EXIF, ffprobe)
     'image': {
         'path_patterns': [
             r'users/[^/]+/pictures/',
@@ -424,7 +414,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # [2026-01] P0 New Artifacts - High Forensic Value
+    # P0 New Artifacts - High Forensic Value
     # =========================================================================
     'activities_cache': {
         'path_pattern': r'appdata/local/connecteddevicesplatform/',
@@ -481,7 +471,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # [2026-01] Network/RDP/Share Artifacts
+    # Network/RDP/Share Artifacts
     # =========================================================================
     'rdp_history': {
         # RDP connection history (Terminal Server Client)
@@ -517,7 +507,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # [2026-01] Cloud Storage Artifacts
+    # Cloud Storage Artifacts
     # =========================================================================
     'cloud_onedrive': {
         'path_patterns': [
@@ -575,7 +565,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # [2026-01] Office MRU and Application MRU
+    # Office MRU and Application MRU
     # =========================================================================
     'office_mru': {
         # Office MRU is parsed from NTUSER.DAT
@@ -603,7 +593,7 @@ ARTIFACT_MFT_FILTERS = {
     },
 
     # =========================================================================
-    # [2026-02-15] PC Messengers & Programs
+    # PC Messengers & Programs
     # Collect only parser-required file types (not entire directories)
     # =========================================================================
     'windows_kakaotalk': {
@@ -1172,7 +1162,7 @@ class BaseMFTCollector(ABC):
             for ext in extensions:
                 ext_lower = ext.lower()
                 ext_count = len(self._extension_index.get(ext_lower, []))
-                _debug_log(f"[SCAN] Extension {ext_lower}: {ext_count} files to process")
+                logger.debug(f"[SCAN] Extension {ext_lower}: {ext_count} files to process")
 
                 for entry in self._extension_index.get(ext_lower, []):
                     if not include_deleted and getattr(entry, 'is_deleted', False):
@@ -1187,7 +1177,7 @@ class BaseMFTCollector(ABC):
                     file_counter += 1
                     filename = entry.filename if hasattr(entry, 'filename') else str(entry)
                     if file_counter % 500 == 0:
-                        _debug_log(f"[PROGRESS] {artifact_type}: Processing file #{file_counter} - {filename}")
+                        logger.debug(f"[PROGRESS] {artifact_type}: Processing file #{file_counter} - {filename}")
 
                     yield from self._extract_entry(artifact_type, entry, artifact_dir)
             return
@@ -1197,7 +1187,7 @@ class BaseMFTCollector(ABC):
             filename = entry.filename if hasattr(entry, 'filename') else str(entry)
             filename_lower = filename.lower()
             full_path = entry.full_path if hasattr(entry, 'full_path') else ""
-            # [2026-01-29] Normalize path separators (backslash -> forward slash)
+            # Normalize path separators (backslash -> forward slash)
             full_path_lower = full_path.lower().replace('\\', '/') if full_path else ""
 
             if not include_deleted and getattr(entry, 'is_deleted', False):
@@ -1255,7 +1245,7 @@ class BaseMFTCollector(ABC):
                 if max_file_size > 0:
                     entry_size = getattr(entry, 'size', 0)
                     if entry_size > max_file_size:
-                        _debug_log(f"[SKIP] {filename} exceeds max size ({entry_size / 1024 / 1024:.1f}MB > {max_file_size / 1024 / 1024:.0f}MB)")
+                        logger.debug(f"[SKIP] {filename} exceeds max size ({entry_size / 1024 / 1024:.1f}MB > {max_file_size / 1024 / 1024:.0f}MB)")
                         continue
                 yield from self._extract_entry(artifact_type, entry, artifact_dir)
 
@@ -1289,7 +1279,7 @@ class BaseMFTCollector(ABC):
 
         # Debug: Large file warning
         if file_size > 100 * 1024 * 1024:  # 100MB or larger
-            _debug_log(f"[DEBUG] Large file detected: {filename} ({file_size / 1024 / 1024:.1f}MB)")
+            logger.debug(f"[DEBUG] Large file detected: {filename} ({file_size / 1024 / 1024:.1f}MB)")
 
         try:
             # Generate output filename
@@ -1324,17 +1314,17 @@ class BaseMFTCollector(ABC):
             if hasattr(self._accessor, 'stream_file_by_inode'):
                 # Chunk streaming (supports large files)
                 try:
-                    _debug_log(f"[EXTRACT START] {filename} (inode={inode}, size={file_size})")
+                    logger.debug(f"[EXTRACT START] {filename} (inode={inode}, size={file_size})")
                     with open(output_file, 'wb') as f:
                         chunk_count = 0
                         stream_generator = self._accessor.stream_file_by_inode(inode)
-                        _debug_log(f"[STREAM READY] {filename}")
+                        logger.debug(f"[STREAM READY] {filename}")
                         for chunk in stream_generator:
                             current_time = time.time()
 
                             # Check overall file timeout
                             if current_time - start_time > FILE_TIMEOUT:
-                                _debug_log(f"[TIMEOUT] File extraction timeout ({FILE_TIMEOUT}s): {filename}")
+                                logger.debug(f"[TIMEOUT] File extraction timeout ({FILE_TIMEOUT}s): {filename}")
                                 break
 
                             if chunk:
@@ -1348,10 +1338,10 @@ class BaseMFTCollector(ABC):
 
                                 # Progress log (every 100MB)
                                 if total_size % (100 * 1024 * 1024) < len(chunk):
-                                    _debug_log(f"[PROGRESS] {filename}: {total_size / 1024 / 1024:.1f}MB written")
+                                    logger.debug(f"[PROGRESS] {filename}: {total_size / 1024 / 1024:.1f}MB written")
 
                 except Exception as stream_error:
-                    _debug_log(f"[STREAM ERROR] {filename}: {stream_error}")
+                    logger.debug(f"[STREAM ERROR] {filename}: {stream_error}")
                     # Delete partially written file
                     if output_file.exists() and total_size == 0:
                         output_file.unlink()
@@ -1506,7 +1496,7 @@ class BaseMFTCollector(ABC):
                 data = None
 
                 try:
-                    # [2026-01] Skip sparse regions (solves memory/size issues)
+                    # Skip sparse regions (solves memory/size issues)
                     data = self._accessor.read_usnjrnl_raw(skip_sparse=True)
                 except Exception as e:
                     logger.warning(f"[{source}] read_usnjrnl_raw failed: {e}")
@@ -1523,7 +1513,7 @@ class BaseMFTCollector(ABC):
                     except Exception as e2:
                         logger.warning(f"[{source}] Fallback USN collection failed: {e2}")
 
-                # [2026-01-29] Clear log when USN Journal is not available
+                # Clear log when USN Journal is not available
                 if not data or len(data) == 0:
                     logger.warning(f"[{source}] $UsnJrnl:$J not available (may be disabled or empty)")
 

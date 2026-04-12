@@ -627,7 +627,7 @@ MACOS_ARTIFACT_FILTERS: Dict[str, Dict[str, Any]] = {
     },
 
     # ==========================================================================
-    # [2026-03-25] Additional macOS Artifacts (25 new types)
+    # Additional macOS Artifacts (25 new types)
     # ==========================================================================
 
     # --- System Info ---

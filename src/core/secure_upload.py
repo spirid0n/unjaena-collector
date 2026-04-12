@@ -431,7 +431,7 @@ class SecureUploadManager:
                     metadata=upload_metadata
                 )
             else:
-                # [2026-01-29] Include error response body (for CLEANUP_IN_PROGRESS detection)
+                # Include error response body (for CLEANUP_IN_PROGRESS detection)
                 error_text = ""
                 try:
                     error_text = response.text[:500]  # Max 500 chars

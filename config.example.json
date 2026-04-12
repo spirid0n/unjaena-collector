@@ -32,8 +32,6 @@
     "backup_count": 5
   },
   "security": {
-    "encryption_algorithm": "AES-256-GCM",
-    "key_derivation": "HKDF-SHA256",
     "min_tls_version": "TLSv1.2",
     "certificate_pinning": false
   },

@@ -6,6 +6,7 @@ Cross-platform: Windows (UAC), Linux/macOS (euid check).
 """
 import sys
 import os
+import logging
 import platform
 
 
@@ -65,8 +66,8 @@ def run_as_admin() -> bool:
 
         # ShellExecuteW returns > 32 on success
         return result > 32
-    except Exception as e:
-        print(f"Failed to request elevation: {e}")
+    except Exception:
+        logging.getLogger(__name__).warning("Failed to request elevation")
         return False
 
 

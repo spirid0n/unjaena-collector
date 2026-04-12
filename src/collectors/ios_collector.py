@@ -14,7 +14,7 @@ Collectible Artifacts:
 - mobile_ios_location: Location history
 - mobile_ios_backup: Backup metadata
 
-[2026-01 New - Messenger Apps]
+Messenger Apps:
 - mobile_ios_kakaotalk: KakaoTalk messages
 - mobile_ios_whatsapp: WhatsApp messages
 - mobile_ios_messenger: Facebook Messenger messages
@@ -301,7 +301,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-01] Messaging App Artifacts
+    # Messaging App Artifacts
     # =========================================================================
 
     'mobile_ios_kakaotalk': {
@@ -453,7 +453,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-01] Apple Unified Logs (sysdiagnose)
+    # Apple Unified Logs (sysdiagnose)
     # =========================================================================
 
     'mobile_ios_unified_logs': {
@@ -467,7 +467,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] Additional Global Messenger Apps
+    # Additional Global Messenger Apps
     # NOTE: Parsing/decryption performed on server
     # =========================================================================
 
@@ -515,7 +515,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] Additional Global SNS Apps
+    # Additional Global SNS Apps
     # NOTE: Parsing performed on server
     # =========================================================================
 
@@ -591,7 +591,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-09] P0 - Core iOS System Artifacts
+    # P0 - Core iOS System Artifacts
     # =========================================================================
 
     'mobile_ios_notes': {
@@ -626,7 +626,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-09] P1 - User Behavior Analysis Artifacts
+    # P1 - User Behavior Analysis Artifacts
     # =========================================================================
 
     'mobile_ios_health': {
@@ -662,7 +662,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-09] P2 - Device/Network Artifacts
+    # P2 - Device/Network Artifacts
     # =========================================================================
 
     'mobile_ios_wifi': {
@@ -703,7 +703,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-20] WhatsApp Specialized Artifacts
+    # WhatsApp Specialized Artifacts
     # =========================================================================
 
     'mobile_ios_whatsapp_contacts': {
@@ -726,7 +726,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-20] iOS System DB Artifacts (high forensic value)
+    # iOS System DB Artifacts (high forensic value)
     # =========================================================================
 
     'mobile_ios_data_usage': {
@@ -764,7 +764,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-20] iOS System Plist Artifacts (location/network evidence)
+    # iOS System Plist Artifacts (location/network evidence)
     # =========================================================================
 
     'mobile_ios_location_services': {
@@ -787,7 +787,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-20] Messenger Auxiliary DB Artifacts
+    # Messenger Auxiliary DB Artifacts
     # =========================================================================
 
     'mobile_ios_kakaotalk_links': {
@@ -832,7 +832,7 @@ IOS_ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-20] Microsoft Apps
+    # Microsoft Apps
     # =========================================================================
 
     'mobile_ios_ms_teams': {
@@ -1417,7 +1417,7 @@ def parse_backup_info(backup_path: Path) -> Optional[BackupInfo]:
         else:
             return None
 
-    # [2026-02-22] FIX: IsEncrypted is in Manifest.plist, NOT Info.plist.
+    # FIX: IsEncrypted is in Manifest.plist, NOT Info.plist.
     # Info.plist only has device metadata; Manifest.plist has encryption state.
     encrypted = False
     manifest_plist = backup_path / 'Manifest.plist'
@@ -1713,7 +1713,7 @@ class iOSDeviceConnector:
     Collects forensic artifacts directly from connected iOS devices.
     Pure Python implementation, no external binaries required.
 
-    [2026-01-31] USB direct connection also supports backup-based artifacts:
+    USB direct connection also supports backup-based artifacts:
     - requires_device=True artifacts: Direct collection (syslog, crash, etc.)
     - Backup-based artifacts: Auto backup creation followed by iOSCollector parsing
     """
@@ -1733,11 +1733,11 @@ class iOSDeviceConnector:
         self.device_info: Optional[iOSDeviceInfo] = None
         self._lockdown: Optional[Any] = None
 
-        # [2026-01-31] Backup path caching (created once, reused)
+        # Backup path caching (created once, reused)
         self._backup_path: Optional[Path] = None
         self._backup_collector: Optional['iOSCollector'] = None
 
-        # [2026-02-24] Encryption state — simplified to 4 variables
+        # Encryption state — simplified to 4 variables
         # _encryption_action: None=not yet decided, 'we_enabled'=we turned it ON, 'was_already_on'
         self._encryption_action = None
         self._forensic_backup_password = None  # Password for decryption (forensic or user-provided)
@@ -2402,7 +2402,7 @@ class iOSDeviceConnector:
         return password if password else None
 
     # =========================================================================
-    # [2026-01-31] Unified collect() method - supports all artifact types
+    # Unified collect() method - supports all artifact types
     # =========================================================================
 
     def collect(
@@ -2453,7 +2453,7 @@ class iOSDeviceConnector:
         # Case 2: Backup-based artifacts -> Backup creation then file extraction via iOSCollector
         # =====================================================================
 
-        # [2026-02-24] Skip immediately if backup already failed (e.g., iOS 26 beta bug)
+        # Skip immediately if backup already failed (e.g., iOS 26 beta bug)
         # Prevents wasting 10+ seconds per artifact on repeated failures
         if self._backup_failed_reason:
             yield '', {
@@ -2489,7 +2489,7 @@ class iOSDeviceConnector:
                 }
                 return
 
-        # [2026-02-22] Early fail: encrypted backup but decryptor not available
+        # Early fail: encrypted backup but decryptor not available
         if self._forensic_backup_password and not self._encrypted_backup_obj:
             msg = self._backup_failed_reason or "Encrypted backup created but cannot decrypt. Check iphone_backup_decrypt installation."
             logger.error(f"[iOS] {msg}")
@@ -2505,7 +2505,7 @@ class iOSDeviceConnector:
         # Extract files from backup via iOSCollector (raw files only, no parsing)
         if not self._backup_collector:
             try:
-                # [2026-02-20] Pass encrypted_backup for NSFileProtectionComplete app access
+                # Pass encrypted_backup for NSFileProtectionComplete app access
                 collector = iOSCollector(
                     str(self.output_dir),
                     encrypted_backup=self._encrypted_backup_obj
@@ -2552,7 +2552,7 @@ class iOSDeviceConnector:
             yield from self.collect_installed_apps(artifact_dir, progress_callback)
 
         elif artifact_type == 'mobile_ios_device_backup':
-            # [2026-02-22] FIX: Store backup path + init decryptor so subsequent
+            # FIX: Store backup path + init decryptor so subsequent
             # backup-based artifacts can reuse this backup instead of creating a second one.
             for path, meta in self.create_backup(artifact_dir, progress_callback):
                 if path and meta.get('backup_path'):
@@ -2780,7 +2780,7 @@ class iOSCollector:
 
         self.backup_path = path
 
-        # [2026-02-22] Use encrypted parser if EncryptedBackup provided.
+        # Use encrypted parser if EncryptedBackup provided.
         # Also use it if backup is encrypted (Manifest.plist IsEncrypted=True).
         # The _encrypted_backup check is the primary signal — the EncryptedBackup
         # object already holds the derived key and can decrypt Manifest.db.
@@ -3136,7 +3136,7 @@ class iOSCollector:
                 'collected_at': datetime.utcnow().isoformat(),
             }
 
-        # [2026-02-22] Generate Manifest.db diagnostic dump
+        # Generate Manifest.db diagnostic dump
         yield from self._generate_manifest_diagnostic(output_dir, progress_callback)
 
     def _generate_manifest_diagnostic(

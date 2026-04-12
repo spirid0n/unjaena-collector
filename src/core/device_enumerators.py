@@ -111,7 +111,7 @@ class WindowsDiskEnumerator(BaseDeviceEnumerator):
         devices = []
 
         try:
-            # [2026-02-15] Build disk → drive letter mapping via WMI
+            # Build disk -> drive letter mapping via WMI
             # Use Win32_LogicalDisk → associators to find physical disk
             disk_to_volumes = {}  # disk_index -> list of drive letters
             try:
@@ -170,8 +170,8 @@ class WindowsDiskEnumerator(BaseDeviceEnumerator):
                             'partitions': disk.Partitions or 0,
                             'media_type': disk.MediaType,
                             'device_id': disk.DeviceID,
-                            'volume': primary_volume,          # [2026-02-15] Primary drive letter
-                            'all_volumes': volumes,            # [2026-02-15] All drive letters on this disk
+                            'volume': primary_volume,          # Primary drive letter
+                            'all_volumes': volumes,            # All drive letters on this disk
                         }
                     )
                     devices.append(device)

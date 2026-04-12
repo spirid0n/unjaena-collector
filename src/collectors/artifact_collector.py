@@ -32,16 +32,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Debug Output Control (disabled in production)
-# =============================================================================
-_DEBUG_OUTPUT = False  # Set to True to enable debug message output
-
-def _debug_print(message: str):
-    """Debug output (disabled in production)"""
-    if _DEBUG_OUTPUT:
-        print(message)
-
 # Try to import BaseMFTCollector (unified base class)
 try:
     from collectors.base_mft_collector import (
@@ -310,7 +300,7 @@ ARTIFACT_TYPES = {
             'recursive': True,
         },
         'requires_admin': True,
-        'collector': 'collect_recycle_bin',  # [2026-01] Use dedicated collector
+        'collector': 'collect_recycle_bin',  # Use dedicated collector
     },
     'usb': {
         'name': 'USB History',
@@ -583,7 +573,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-15] Windows PC Messenger Apps
+    # Windows PC Messenger Apps
     # Collect only parser-required artifacts (not entire directories)
     # =========================================================================
     'windows_kakaotalk': {
@@ -704,7 +694,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-15] Phase 1 PC Programs - Remote Access, Email, Cloud Storage
+    # Phase 1 PC Programs - Remote Access, Email, Cloud Storage
     # Collect only parser-required artifacts
     # =========================================================================
     'windows_discord': {
@@ -817,7 +807,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] Android Messenger Apps (Global)
+    # Android Messenger Apps (Global)
     # =========================================================================
     'mobile_android_kakaotalk': {
         'name': 'KakaoTalk',
@@ -931,7 +921,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] Android SNS Apps (Global)
+    # Android SNS Apps (Global)
     # =========================================================================
     'mobile_android_instagram': {
         'name': 'Instagram',
@@ -1243,7 +1233,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-24] Screen Scraping (Non-Root Accessibility Service)
+    # Screen Scraping (Non-Root Accessibility Service)
     # =========================================================================
     'mobile_android_screen_scrape': {
         'name': 'Screen Scraping',
@@ -1258,7 +1248,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] iOS Messenger Apps (Global)
+    # iOS Messenger Apps (Global)
     # =========================================================================
     'mobile_ios_kakaotalk': {
         'name': 'KakaoTalk',
@@ -1362,7 +1352,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-03] iOS SNS Apps (Global)
+    # iOS SNS Apps (Global)
     # =========================================================================
     'mobile_ios_instagram': {
         'name': 'Instagram',
@@ -1456,7 +1446,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-14] iOS Browser Tracking
+    # iOS Browser Tracking
     # =========================================================================
     'mobile_ios_safari_tracking': {
         'name': 'Safari Tracking Data',
@@ -1500,7 +1490,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-14] iOS System Artifacts - P0 (High Forensic Value)
+    # iOS System Artifacts - P0 (High Forensic Value)
     # =========================================================================
     'mobile_ios_notes': {
         'name': 'Notes',
@@ -1554,7 +1544,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-14] iOS System Artifacts - P1 (Medium Forensic Value)
+    # iOS System Artifacts - P1 (Medium Forensic Value)
     # =========================================================================
     'mobile_ios_health': {
         'name': 'Health Data',
@@ -1608,7 +1598,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-14] iOS System Artifacts - P2 (Supplementary)
+    # iOS System Artifacts - P2 (Supplementary)
     # =========================================================================
     'mobile_ios_wifi': {
         'name': 'WiFi Networks',
@@ -1672,7 +1662,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-14] iOS Messenger Auxiliary (Attachments / Profiles)
+    # iOS Messenger Auxiliary (Attachments / Profiles)
     # =========================================================================
     'mobile_ios_kakaotalk_profile': {
         'name': 'KakaoTalk Profile',
@@ -1816,7 +1806,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Korean Apps - Financial
+    # iOS Korean Apps - Financial
     # =========================================================================
     'mobile_ios_kakaobank': {
         'name': 'KakaoBank',
@@ -2000,7 +1990,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Korean Apps - Navigation/Transportation
+    # iOS Korean Apps - Navigation/Transportation
     # =========================================================================
     'mobile_ios_tmap': {
         'name': 'TMAP',
@@ -2084,7 +2074,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Korean Apps - Shopping/Delivery
+    # iOS Korean Apps - Shopping/Delivery
     # =========================================================================
     'mobile_ios_coupang': {
         'name': 'Coupang',
@@ -2138,7 +2128,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Apps - Browser/Email/Office
+    # iOS Apps - Browser/Email/Office
     # =========================================================================
     'mobile_ios_chrome': {
         'name': 'Chrome',
@@ -2232,7 +2222,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Apps - Streaming
+    # iOS Apps - Streaming
     # =========================================================================
     'mobile_ios_youtube': {
         'name': 'YouTube',
@@ -2266,7 +2256,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Korean Apps - Utility
+    # iOS Korean Apps - Utility
     # =========================================================================
     'mobile_ios_jikbang': {
         'name': 'Jikbang',
@@ -2380,7 +2370,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS Apps - Email/Office (Additional)
+    # iOS Apps - Email/Office (Additional)
     # =========================================================================
     'mobile_ios_outlook': {
         'name': 'Outlook',
@@ -2424,7 +2414,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-02-23] iOS System Artifacts (Additional)
+    # iOS System Artifacts (Additional)
     # =========================================================================
     'mobile_ios_installed_apps': {
         'name': 'Installed Apps',
@@ -2749,7 +2739,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-01] Media Artifacts - Server parsing support
+    # Media Artifacts - Server parsing support
     # =========================================================================
     'image': {
         'name': 'Image Files',
@@ -2796,7 +2786,7 @@ ARTIFACT_TYPES = {
     },
 
     # =========================================================================
-    # [2026-01] P0 New Artifacts - High forensic value
+    # P0 New Artifacts - High forensic value
     # =========================================================================
     'activities_cache': {
         'name': 'Windows Timeline (ActivitiesCache.db)',
@@ -3288,7 +3278,7 @@ class LocalSystemCollector:
             self.permission_error_count += 1
             self.permission_error_paths.append(str(e))
         except Exception as e:
-            _debug_print(f"[{self._os_type.upper()}] Collection failed for {artifact_type}: {e}")
+            logger.debug(f"[{self._os_type.upper()}] Collection failed for {artifact_type}: {e}")
 
     def close(self):
         """Cleanup (no-op for local collection)"""
@@ -3690,7 +3680,7 @@ class LocalMFTCollector(_LocalMFTBase):
             logger.info(f"[{self._get_source_description()}] Collecting {artifact_type} via directory traversal...")
             yield from self._collect_directory_fallback(artifact_type, progress_callback)
         else:
-            # [2026-02-15] MFT mode: if artifact is NOT in MFT filters but IS in ARTIFACT_TYPES
+            # MFT mode: if artifact is NOT in MFT filters but IS in ARTIFACT_TYPES
             # (e.g., PC messengers with glob-based collection), use directory fallback for those
             # zone_identifier: MFT ADS scan doesn't work on live disk (ads_streams not populated),
             # use Windows API to read ADS directly instead
@@ -3704,7 +3694,7 @@ class LocalMFTCollector(_LocalMFTBase):
                 # MFT-based collection (parent class)
                 yield from super().collect(artifact_type, progress_callback, **kwargs)
 
-                # [2026-02-16] Memory dump for PC messengers collected via MFT mode
+                # Memory dump for PC messengers collected via MFT mode
                 # MFT mode collects files only; messenger analysis requires process memory
                 if artifact_type in ARTIFACT_TYPES:
                     at_config = ARTIFACT_TYPES[artifact_type]
@@ -3779,7 +3769,7 @@ class LocalMFTCollector(_LocalMFTBase):
         source = self._get_source_description()
         collected_count = 0
 
-        # [2026-01-29] Special artifacts ($MFT, $UsnJrnl, $LogFile) require MFT-based collection
+        # Special artifacts ($MFT, $UsnJrnl, $LogFile) require MFT-based collection
         # Delegate to mft_collector if available, otherwise skip
         if artifact_type in ARTIFACT_MFT_FILTERS:
             mft_filter = ARTIFACT_MFT_FILTERS[artifact_type]
@@ -4003,7 +3993,7 @@ class LocalMFTCollector(_LocalMFTBase):
                                 progress_callback(result[0])
 
         elif collector_type == 'collect_recycle_bin':
-            # [2026-01-20] Recycle Bin dedicated collection - improved system folder permission handling
+            # Recycle Bin dedicated collection - improved system folder permission handling
             # Use Windows path format (backslash)
             recycle_bin_path = None
 
@@ -4024,7 +4014,7 @@ class LocalMFTCollector(_LocalMFTBase):
 
             if recycle_bin_path is None:
                 logger.warning(f"[RecycleBin] $Recycle.Bin not found on {self.volume}:")
-                _debug_print(f"[RecycleBin] $Recycle.Bin not found on {self.volume}:")
+                logger.debug(f"[RecycleBin] $Recycle.Bin not found on {self.volume}:")
             else:
                 try:
                     # Traverse each user SID folder
@@ -4034,7 +4024,7 @@ class LocalMFTCollector(_LocalMFTBase):
                     for sid_folder in sid_folders:
                         if sid_folder.is_dir() and sid_folder.name.startswith('S-1-'):
                             logger.debug(f"[RecycleBin] Processing SID folder: {sid_folder.name}")
-                            _debug_print(f"[RecycleBin] Processing SID folder: {sid_folder.name}")
+                            logger.debug(f"[RecycleBin] Processing SID folder: {sid_folder.name}")
                             try:
                                 # Collect $I files (metadata) and $R files
                                 entries = list(sid_folder.iterdir())
@@ -4066,15 +4056,15 @@ class LocalMFTCollector(_LocalMFTBase):
                                                         yield r_result
                                         except PermissionError as pe:
                                             logger.warning(f"[RecycleBin] Permission denied: {entry} - {pe}")
-                                            _debug_print(f"[RecycleBin] Permission denied: {entry} - {pe}")
+                                            logger.debug(f"[RecycleBin] Permission denied: {entry} - {pe}")
                                             continue
                                         except OSError as oe:
                                             logger.warning(f"[RecycleBin] OS error: {entry} - {oe}")
-                                            _debug_print(f"[RecycleBin] OS error: {entry} - {oe}")
+                                            logger.debug(f"[RecycleBin] OS error: {entry} - {oe}")
                                             continue
                             except PermissionError as pe:
                                 logger.warning(f"[RecycleBin] Cannot access SID folder: {sid_folder} - {pe}")
-                                _debug_print(f"[RecycleBin] Cannot access SID folder: {sid_folder}")
+                                logger.debug(f"[RecycleBin] Cannot access SID folder: {sid_folder}")
                                 continue
                             except OSError as oe:
                                 logger.warning(f"[RecycleBin] OS error on SID folder: {sid_folder} - {oe}")
@@ -4084,12 +4074,12 @@ class LocalMFTCollector(_LocalMFTBase):
 
                 except PermissionError as e:
                     logger.error(f"[RecycleBin] Cannot access Recycle Bin: {e} - requires admin privileges")
-                    _debug_print(f"[RecycleBin] Cannot access Recycle Bin: {e}")
+                    logger.debug(f"[RecycleBin] Cannot access Recycle Bin: {e}")
                 except OSError as e:
                     logger.error(f"[RecycleBin] OS error accessing Recycle Bin: {e}")
 
         elif collector_type == 'collect_zone_identifier':
-            # [2026-02-15] Zone.Identifier ADS collection via Windows API
+            # Zone.Identifier ADS collection via Windows API
             # MFT-based ADS scan doesn't work on live disk, read ADS directly
             user_dirs_to_scan = ['Downloads', 'Desktop', 'Documents']
             for user_folder in user_folders:
@@ -4411,9 +4401,9 @@ class ArtifactCollector:
                     self.forensic_disk_accessor = ForensicDiskAccessor(self.decrypted_reader)
                     self.forensic_disk_accessor.select_partition(0)
                     self.collection_mode = 'forensic_disk_accessor'
-                    _debug_print("[INFO] ForensicDiskAccessor initialized from decrypted volume")
+                    logger.debug("[INFO] ForensicDiskAccessor initialized from decrypted volume")
                 except Exception as e:
-                    _debug_print(f"[WARNING] Decrypted volume ForensicDiskAccessor failed: {e}")
+                    logger.debug(f"[WARNING] Decrypted volume ForensicDiskAccessor failed: {e}")
                     self.forensic_disk_accessor = None
             else:
                 try:
@@ -4424,9 +4414,9 @@ class ArtifactCollector:
                         if partition_idx is not None:
                             self.forensic_disk_accessor.select_partition(partition_idx)
                             self.collection_mode = 'forensic_disk_accessor'
-                            _debug_print(f"[INFO] ForensicDiskAccessor initialized for {self.volume}: (Drive {drive_number}, Partition {partition_idx})")
+                            logger.debug(f"[INFO] ForensicDiskAccessor initialized for {self.volume}: (Drive {drive_number}, Partition {partition_idx})")
                 except Exception as e:
-                    _debug_print(f"[WARNING] ForensicDiskAccessor unavailable: {e}")
+                    logger.debug(f"[WARNING] ForensicDiskAccessor unavailable: {e}")
                     self.forensic_disk_accessor = None
 
         # ==========================================================
@@ -4435,7 +4425,7 @@ class ArtifactCollector:
         if self.collection_mode != 'forensic_disk_accessor' and use_mft and MFT_AVAILABLE:
             try:
                 if self.decrypted_reader:
-                    _debug_print("[INFO] Using BitLocker decrypted volume for MFT collection")
+                    logger.debug("[INFO] Using BitLocker decrypted volume for MFT collection")
                     self.mft_collector = MFTCollector(
                         volume,
                         str(output_dir),
@@ -4444,16 +4434,16 @@ class ArtifactCollector:
                 else:
                     self.mft_collector = MFTCollector(volume, str(output_dir))
                 self.collection_mode = 'mft'
-                _debug_print("[INFO] MFTCollector initialized")
+                logger.debug("[INFO] MFTCollector initialized")
             except Exception as e:
-                _debug_print(f"[WARNING] MFT collection unavailable: {e}")
+                logger.debug(f"[WARNING] MFT collection unavailable: {e}")
                 self.mft_collector = None
 
         # ==========================================================
         # Priority 3: Legacy (shutil)
         # ==========================================================
         if self.collection_mode == 'legacy':
-            _debug_print("[INFO] Using legacy collection method (shutil)")
+            logger.debug("[INFO] Using legacy collection method (shutil)")
 
         # Flag for compatibility
         self.use_mft = self.collection_mode in ('forensic_disk_accessor', 'mft')
@@ -4529,7 +4519,7 @@ class ArtifactCollector:
             return None
 
         except Exception as e:
-            _debug_print(f"[WARNING] Cannot get physical drive number: {e}")
+            logger.debug(f"[WARNING] Cannot get physical drive number: {e}")
             return None
 
     def _find_partition_for_volume(self) -> Optional[int]:
@@ -4553,7 +4543,7 @@ class ArtifactCollector:
             for i, part in enumerate(partitions):
                 # Skip BitLocker encrypted partition
                 if part.filesystem in ('BitLocker', 'bitlocker'):
-                    _debug_print(f"[INFO] Partition {i} is BitLocker encrypted - skipping for ForensicDiskAccessor")
+                    logger.debug(f"[INFO] Partition {i} is BitLocker encrypted - skipping for ForensicDiskAccessor")
                     continue
 
                 # Skip Recovery partition (no Windows folder)
@@ -4586,18 +4576,18 @@ class ArtifactCollector:
                     if has_windows:
                         return best_partition
                     else:
-                        _debug_print(f"[INFO] Partition {best_partition} has no Windows folder - trying MFTCollector")
+                        logger.debug(f"[INFO] Partition {best_partition} has no Windows folder - trying MFTCollector")
                         return None
                 except Exception as e:
-                    _debug_print(f"[WARNING] Cannot verify partition {best_partition}: {e}")
+                    logger.debug(f"[WARNING] Cannot verify partition {best_partition}: {e}")
                     return None
 
             # If no NTFS, return None (fallback to MFTCollector)
-            _debug_print("[INFO] No suitable NTFS partition found for ForensicDiskAccessor")
+            logger.debug("[INFO] No suitable NTFS partition found for ForensicDiskAccessor")
             return None
 
         except Exception as e:
-            _debug_print(f"[WARNING] Cannot find partition: {e}")
+            logger.debug(f"[WARNING] Cannot find partition: {e}")
             return None
 
     def close(self):
@@ -4665,7 +4655,7 @@ class ArtifactCollector:
                 index['has_ads'].append(entry)
 
         ext_count = sum(len(v) for v in index['by_extension'].values())
-        _debug_print(
+        logger.debug(
             f"[ForensicDisk] Scan index built: "
             f"{len(index['by_extension'])} extensions, "
             f"{len(index['by_filename'])} unique filenames, "
@@ -4771,15 +4761,15 @@ class ArtifactCollector:
 
         # Check availability based on category
         if artifact_info.get('requires_mft', False) and not self.use_mft:
-            _debug_print(f"[WARNING] {artifact_type} requires MFT collection")
+            logger.debug(f"[WARNING] {artifact_type} requires MFT collection")
             return
 
         if artifact_info.get('requires_adb', False) and not ADB_AVAILABLE:
-            _debug_print(f"[WARNING] {artifact_type} requires ADB (not in PATH)")
+            logger.debug(f"[WARNING] {artifact_type} requires ADB (not in PATH)")
             return
 
         if artifact_info.get('requires_backup', False) and not IOS_AVAILABLE:
-            _debug_print(f"[WARNING] {artifact_type} requires iOS backup support")
+            logger.debug(f"[WARNING] {artifact_type} requires iOS backup support")
             return
 
         # Create artifact-specific output directory
@@ -4913,7 +4903,7 @@ class ArtifactCollector:
                         if progress_callback:
                             progress_callback(result[0])
                 except Exception as e:
-                    _debug_print(f"[MFT BROWSER] Firefox profiles error for {user_dir.name}: {e}")
+                    logger.debug(f"[MFT BROWSER] Firefox profiles error for {user_dir.name}: {e}")
             else:
                 # Chrome/Edge: specific files
                 full_base_path = f"Users/{user_dir.name}/{mft_path}"
@@ -4930,7 +4920,7 @@ class ArtifactCollector:
                             if progress_callback:
                                 progress_callback(result[0])
                     except Exception as e:
-                        _debug_print(f"[MFT BROWSER] Error collecting {filename} for {user_dir.name}: {e}")
+                        logger.debug(f"[MFT BROWSER] Error collecting {filename} for {user_dir.name}: {e}")
 
     def _collect_browser_legacy(
         self,
@@ -4967,7 +4957,7 @@ class ArtifactCollector:
                         if progress_callback:
                             progress_callback(str(dst_path))
                     except (PermissionError, OSError) as e:
-                        _debug_print(f"[BROWSER] Cannot access {expanded_path}: {e}")
+                        logger.debug(f"[BROWSER] Cannot access {expanded_path}: {e}")
 
     def _collect_forensic_disk(
         self,
@@ -5023,7 +5013,7 @@ class ArtifactCollector:
         if artifact_type in {'document', 'image', 'video', 'email'}:
             extensions = mft_config.get('extensions', None)
             if extensions:
-                _debug_print(f"[ForensicDisk] Full disk scan for {artifact_type} (Digital Forensics mode)")
+                logger.debug(f"[ForensicDisk] Full disk scan for {artifact_type} (Digital Forensics mode)")
                 yield from self._collect_forensic_disk_pattern(
                     '',  # Ignore base_path
                     '*.*',  # pattern
@@ -5075,7 +5065,7 @@ class ArtifactCollector:
         for sys_path in mft_config.get('system_base_paths', []):
             extensions = mft_config.get('extensions', None)
             exclude_extensions = mft_config.get('exclude_extensions', None)
-            _debug_print(f"[ForensicDisk] System path scan: {sys_path}")
+            logger.debug(f"[ForensicDisk] System path scan: {sys_path}")
             yield from self._collect_forensic_disk_pattern(
                 sys_path, '*', artifact_type, artifact_dir,
                 progress_callback, include_deleted,
@@ -5124,7 +5114,7 @@ class ArtifactCollector:
         try:
             if method_name == 'collect_mft_raw':
                 # $MFT (inode 0) — streaming to avoid loading entire MFT into memory
-                _debug_print("[ForensicDisk] Collecting $MFT (inode 0)...")
+                logger.debug("[ForensicDisk] Collecting $MFT (inode 0)...")
                 output_file = artifact_dir / '$MFT'
                 md5_hash = hashlib.md5()
                 sha256_hash = hashlib.sha256()
@@ -5169,32 +5159,32 @@ class ArtifactCollector:
 
             elif method_name == 'collect_usn_journal':
                 # $UsnJrnl:$J - $J ADS of $UsnJrnl file in $Extend folder
-                _debug_print("[ForensicDisk] Collecting $UsnJrnl:$J...")
+                logger.debug("[ForensicDisk] Collecting $UsnJrnl:$J...")
 
                 # Collect $UsnJrnl - use dedicated method
                 data = None
                 try:
-                    # [2026-01] Skip sparse regions (fix memory/size issues)
+                    # Skip sparse regions (fix memory/size issues)
                     data = self.forensic_disk_accessor.read_usnjrnl_raw(skip_sparse=True)
                 except Exception as e1:
-                    _debug_print(f"[DEBUG] read_usnjrnl_raw failed: {e1}")
+                    logger.debug(f"[DEBUG] read_usnjrnl_raw failed: {e1}")
                     # Alternative: find directly in $Extend directory
                     try:
                         # Find $UsnJrnl in $Extend directory (inode 11)
                         usnjrnl_inode = self.forensic_disk_accessor._find_in_directory(11, '$UsnJrnl')
                         if usnjrnl_inode:
-                            # [2026-01] Alternative method also skips sparse
+                            # Alternative method also skips sparse
                             data = self.forensic_disk_accessor._read_file_skip_sparse(
                                 usnjrnl_inode, stream_name='$J'
                             )
                     except Exception as e2:
-                        _debug_print(f"[DEBUG] Alternative USN Journal collection failed: {e2}")
+                        logger.debug(f"[DEBUG] Alternative USN Journal collection failed: {e2}")
 
                 if data and len(data) > 0:
                     # USN Journal is sparse file, mostly filled with zeros
                     # Check if there's actual data
                     non_zero_bytes = sum(1 for b in data[:min(len(data), 1024*1024)] if b != 0)
-                    _debug_print(f"[ForensicDisk] $UsnJrnl:$J size={len(data)} bytes, non-zero (first 1MB)={non_zero_bytes}")
+                    logger.debug(f"[ForensicDisk] $UsnJrnl:$J size={len(data)} bytes, non-zero (first 1MB)={non_zero_bytes}")
 
                     output_file = artifact_dir / '$UsnJrnl_J'
                     output_file.write_bytes(data)
@@ -5215,11 +5205,11 @@ class ArtifactCollector:
                     if progress_callback:
                         progress_callback(str(output_file))
                 else:
-                    _debug_print("[WARNING] $UsnJrnl:$J not found or empty (data is None or 0 bytes)")
+                    logger.debug("[WARNING] $UsnJrnl:$J not found or empty (data is None or 0 bytes)")
 
             elif method_name == 'collect_logfile':
                 # $LogFile (inode 2) — streaming to avoid loading entire LogFile into memory
-                _debug_print("[ForensicDisk] Collecting $LogFile (inode 2)...")
+                logger.debug("[ForensicDisk] Collecting $LogFile (inode 2)...")
                 output_file = artifact_dir / '$LogFile'
                 md5_hash = hashlib.md5()
                 sha256_hash = hashlib.sha256()
@@ -5264,7 +5254,7 @@ class ArtifactCollector:
 
             elif method_name == 'collect_zone_identifier':
                 # Zone.Identifier ADS - download file source info
-                _debug_print("[ForensicDisk] Collecting Zone.Identifier ADS streams...")
+                logger.debug("[ForensicDisk] Collecting Zone.Identifier ADS streams...")
 
                 # Target user directories (case-insensitive)
                 user_paths = ['downloads', 'desktop', 'documents']
@@ -5287,7 +5277,7 @@ class ArtifactCollector:
                     ads_entries = [e for e in self._scan_cache.get('active_files', [])
                                    if hasattr(e, 'ads_streams') and e.ads_streams]
 
-                _debug_print(f"[ForensicDisk] Checking {len(ads_entries)} ADS entries for Zone.Identifier...")
+                logger.debug(f"[ForensicDisk] Checking {len(ads_entries)} ADS entries for Zone.Identifier...")
 
                 for entry in ads_entries:
                     try:
@@ -5390,13 +5380,13 @@ class ArtifactCollector:
                                 progress_callback(str(output_file))
 
                     except Exception as entry_err:
-                        _debug_print(f"[DEBUG] Zone.Identifier entry error: {entry_err}")
+                        logger.debug(f"[DEBUG] Zone.Identifier entry error: {entry_err}")
                         continue
 
-                _debug_print(f"[ForensicDisk] Zone.Identifier: checked {checked_count} user files, collected {collected_count} ADS streams")
+                logger.debug(f"[ForensicDisk] Zone.Identifier: checked {checked_count} user files, collected {collected_count} ADS streams")
 
         except Exception as e:
-            _debug_print(f"[ERROR] ForensicDisk special collection failed ({method_name}): {e}")
+            logger.debug(f"[ERROR] ForensicDisk special collection failed ({method_name}): {e}")
 
     def _collect_forensic_disk_file(
         self,
@@ -5414,7 +5404,7 @@ class ArtifactCollector:
             if not normalized_path.startswith('/'):
                 normalized_path = '/' + normalized_path
 
-            _debug_print(f"[ForensicDisk] Reading: {normalized_path}")
+            logger.debug(f"[ForensicDisk] Reading: {normalized_path}")
             data = self.forensic_disk_accessor.read_file(normalized_path)
 
             if data:
@@ -5449,7 +5439,7 @@ class ArtifactCollector:
                     progress_callback(str(output_file))
 
         except Exception as e:
-            _debug_print(f"[WARNING] ForensicDisk cannot read {file_path}: {e}")
+            logger.debug(f"[WARNING] ForensicDisk cannot read {file_path}: {e}")
 
     def _collect_forensic_disk_pattern(
         self,
@@ -5487,9 +5477,9 @@ class ArtifactCollector:
         try:
             # MFT scan
             if full_disk_scan:
-                _debug_print(f"[ForensicDisk] Full disk scan for {artifact_type} (extensions: {extensions})")
+                logger.debug(f"[ForensicDisk] Full disk scan for {artifact_type} (extensions: {extensions})")
             else:
-                _debug_print(f"[ForensicDisk] Scanning for pattern: {base_path}/{pattern}")
+                logger.debug(f"[ForensicDisk] Scanning for pattern: {base_path}/{pattern}")
 
             # Use cached scan result to avoid repeated full MFT scans (OOM prevention)
             if self._scan_cache is None:
@@ -5630,12 +5620,12 @@ class ArtifactCollector:
                             progress_callback(str(output_file))
 
                 except Exception as e:
-                    _debug_print(f"[WARNING] Cannot read {entry.full_path}: {e}")
+                    logger.debug(f"[WARNING] Cannot read {entry.full_path}: {e}")
 
-            _debug_print(f"[ForensicDisk] Pattern collection completed: {collected_count} files (no limits)")
+            logger.debug(f"[ForensicDisk] Pattern collection completed: {collected_count} files (no limits)")
 
         except Exception as e:
-            _debug_print(f"[ERROR] ForensicDisk pattern collection failed: {e}")
+            logger.debug(f"[ERROR] ForensicDisk pattern collection failed: {e}")
 
     def _collect_forensic_disk_user_paths(
         self,
@@ -5713,7 +5703,7 @@ class ArtifactCollector:
                             yield result
 
                 except Exception as e:
-                    _debug_print(f"[WARNING] ForensicDisk error for user {user_dir.name}/{user_path}: {e}")
+                    logger.debug(f"[WARNING] ForensicDisk error for user {user_dir.name}/{user_path}: {e}")
 
     def _collect_mft(
         self,
@@ -5901,7 +5891,7 @@ class ArtifactCollector:
                                 progress_callback(result[0])
 
                 except Exception as e:
-                    _debug_print(f"[MFT] Error collecting from {user_dir.name}/{user_path}: {e}")
+                    logger.debug(f"[MFT] Error collecting from {user_dir.name}/{user_path}: {e}")
 
     def _dump_process_memory(
         self,
@@ -5923,12 +5913,12 @@ class ArtifactCollector:
             dump_filename = f"{process_name.replace('.exe', '').lower()}_memory.dmp"
             dump_path = str(artifact_dir / dump_filename)
 
-            _debug_print(f"[MEMORY] Dumping {process_name}...")
+            logger.debug(f"[MEMORY] Dumping {process_name}...")
             dump_result = dumper.dump_process_lightweight(process_name, dump_path)
 
             if dump_result.get('success'):
                 size_mb = dump_result.get('size', 0) / 1024 / 1024
-                _debug_print(f"[MEMORY] Dump success: {dump_filename} ({size_mb:.1f} MB)")
+                logger.debug(f"[MEMORY] Dump success: {dump_filename} ({size_mb:.1f} MB)")
                 yield dump_path, {
                     'type': artifact_type,
                     'name': dump_filename,
@@ -5939,11 +5929,11 @@ class ArtifactCollector:
                     'collection_method': 'process_memory_dump',
                 }
             else:
-                _debug_print(f"[MEMORY] Dump skipped: {dump_result.get('error', 'process not found')}")
+                logger.debug(f"[MEMORY] Dump skipped: {dump_result.get('error', 'process not found')}")
         except ImportError:
-            _debug_print("[MEMORY] ProcessMemoryDumper not available")
+            logger.debug("[MEMORY] ProcessMemoryDumper not available")
         except Exception as e:
-            _debug_print(f"[MEMORY] Error: {e}")
+            logger.debug(f"[MEMORY] Error: {e}")
 
     def _collect_legacy(
         self,
@@ -6002,7 +5992,7 @@ class ArtifactCollector:
             Tuple of (file_path, metadata) for each recovered file
         """
         if not self.use_mft or not self.mft_collector:
-            _debug_print("[WARNING] Deleted file recovery requires MFT collection")
+            logger.debug("[WARNING] Deleted file recovery requires MFT collection")
             return
 
         deleted_dir = self.output_dir / 'deleted_files'
@@ -6017,7 +6007,7 @@ class ArtifactCollector:
                 ):
                     yield result
             except Exception as e:
-                _debug_print(f"[MFT] Cannot recover deleted file {entry_info.filename}: {e}")
+                logger.debug(f"[MFT] Cannot recover deleted file {entry_info.filename}: {e}")
 
     # =========================================================================
     # Legacy Collection Methods (Fallback)
@@ -6036,7 +6026,7 @@ class ArtifactCollector:
                 shutil.copy2(src_path, dst_path)
                 yield str(dst_path), self._get_metadata(src_path, dst_path, artifact_type)
             except (PermissionError, OSError) as e:
-                _debug_print(f"[LEGACY] Cannot access {src_path}: {e}")
+                logger.debug(f"[LEGACY] Cannot access {src_path}: {e}")
                 continue
 
     def collect_files(
@@ -6053,7 +6043,7 @@ class ArtifactCollector:
                 shutil.copy2(src_path, dst_path)
                 yield str(dst_path), self._get_metadata(str(src_path), dst_path, artifact_type)
             except (PermissionError, OSError) as e:
-                _debug_print(f"[LEGACY] Cannot access {file_path}: {e}")
+                logger.debug(f"[LEGACY] Cannot access {file_path}: {e}")
 
     def collect_locked_files(
         self,
@@ -6092,8 +6082,8 @@ class ArtifactCollector:
         except Exception:
             pass
 
-        _debug_print(f"[LEGACY] Cannot collect locked file {file_path}")
-        _debug_print("[INFO] Consider using MFT collection for locked files")
+        logger.debug(f"[LEGACY] Cannot collect locked file {file_path}")
+        logger.debug("[INFO] Consider using MFT collection for locked files")
 
     def collect_user_files(
         self,
@@ -6111,7 +6101,7 @@ class ArtifactCollector:
                 shutil.copy2(src_path, dst_path)
                 yield str(dst_path), self._get_metadata(expanded_path, dst_path, artifact_type)
             except (PermissionError, OSError) as e:
-                _debug_print(f"[LEGACY] Cannot access {expanded_path}: {e}")
+                logger.debug(f"[LEGACY] Cannot access {expanded_path}: {e}")
 
     def collect_user_glob(
         self,
@@ -6153,7 +6143,7 @@ class ArtifactCollector:
                 shutil.copy2(src_path, dst_path)
                 yield str(dst_path), self._get_metadata(src_path, dst_path, artifact_type)
             except (PermissionError, OSError) as e:
-                _debug_print(f"[LEGACY] Cannot access {src_path}: {e}")
+                logger.debug(f"[LEGACY] Cannot access {src_path}: {e}")
                 continue
 
     def collect_messenger_with_memory(
@@ -6220,7 +6210,7 @@ class ArtifactCollector:
                 shutil.copy2(src_path, dst_path)
                 yield str(dst_path), self._get_metadata(src_path, dst_path, artifact_type)
             except (PermissionError, OSError) as e:
-                _debug_print(f"[LEGACY] Cannot access {src_path}: {e}")
+                logger.debug(f"[LEGACY] Cannot access {src_path}: {e}")
                 continue
 
         # 2. Collect process memory dump (only once per artifact type)
@@ -6236,12 +6226,12 @@ class ArtifactCollector:
                 dump_filename = f"{process_name.replace('.exe', '').lower()}_memory.dmp"
                 dump_path = str(output_dir / dump_filename)
 
-                _debug_print(f"[MEMORY] Dumping {process_name}...")
+                logger.debug(f"[MEMORY] Dumping {process_name}...")
                 dump_result = dumper.dump_process_lightweight(process_name, dump_path)
 
                 if dump_result.get('success'):
                     size_mb = dump_result.get('size', 0) / 1024 / 1024
-                    _debug_print(f"[MEMORY] Dump success: {dump_filename} ({size_mb:.1f} MB)")
+                    logger.debug(f"[MEMORY] Dump success: {dump_filename} ({size_mb:.1f} MB)")
                     yield dump_path, {
                         'type': artifact_type,
                         'name': dump_filename,
@@ -6252,11 +6242,11 @@ class ArtifactCollector:
                         'collection_method': 'process_memory_dump',
                     }
                 else:
-                    _debug_print(f"[MEMORY] Dump failed: {dump_result.get('error')}")
+                    logger.debug(f"[MEMORY] Dump failed: {dump_result.get('error')}")
             except ImportError:
-                _debug_print("[MEMORY] ProcessMemoryDumper not available")
+                logger.debug("[MEMORY] ProcessMemoryDumper not available")
             except Exception as e:
-                _debug_print(f"[MEMORY] Error: {e}")
+                logger.debug(f"[MEMORY] Error: {e}")
 
         # 3. Collect hardware metadata (for server-side processing)
         if artifact_type == 'windows_kakaotalk':
@@ -6351,14 +6341,14 @@ class ArtifactCollector:
 
         hw_meta = self._collect_hardware_metadata()
         if not hw_meta:
-            _debug_print("[HW_META] Hardware metadata collection failed")
+            logger.debug("[HW_META] Hardware metadata collection failed")
             return None
 
         hw_path = output_dir / '_hardware_info.json'
         try:
             with open(hw_path, 'w') as f:
                 _json.dump(hw_meta, f, indent=2)
-            _debug_print(f"[HW_META] Saved hardware metadata: {list(hw_meta.keys())}")
+            logger.debug(f"[HW_META] Saved hardware metadata: {list(hw_meta.keys())}")
             return str(hw_path), {
                 'artifact_type': artifact_type,
                 'original_path': str(hw_path),
@@ -6371,7 +6361,7 @@ class ArtifactCollector:
                 'collection_method': 'hardware_metadata',
             }
         except Exception as e:
-            _debug_print(f"[HW_META] Failed to save hardware metadata: {e}")
+            logger.debug(f"[HW_META] Failed to save hardware metadata: {e}")
             return None
 
     def collect_recycle_bin(
@@ -6397,28 +6387,28 @@ class ArtifactCollector:
 
         for variant in variants:
             test_path = Path(f"{self.volume}:\\{variant}")
-            _debug_print(f"[RecycleBin] Checking path: {test_path}")
+            logger.debug(f"[RecycleBin] Checking path: {test_path}")
             try:
                 if test_path.exists():
                     recycle_bin_path = test_path
-                    _debug_print(f"[RecycleBin] Found at: {recycle_bin_path}")
+                    logger.debug(f"[RecycleBin] Found at: {recycle_bin_path}")
                     break
             except (PermissionError, OSError) as e:
-                _debug_print(f"[RecycleBin] Cannot check {test_path}: {e}")
+                logger.debug(f"[RecycleBin] Cannot check {test_path}: {e}")
                 continue
 
         if recycle_bin_path is None:
-            _debug_print(f"[RecycleBin] $Recycle.Bin not found on {self.volume}:")
+            logger.debug(f"[RecycleBin] $Recycle.Bin not found on {self.volume}:")
             return
 
         try:
             # Traverse each user SID folder
             sid_folders = list(recycle_bin_path.iterdir())
-            _debug_print(f"[RecycleBin] Found {len(sid_folders)} folders in Recycle Bin")
+            logger.debug(f"[RecycleBin] Found {len(sid_folders)} folders in Recycle Bin")
 
             for sid_folder in sid_folders:
                 if sid_folder.is_dir() and sid_folder.name.startswith('S-1-'):
-                    _debug_print(f"[RecycleBin] Processing SID folder: {sid_folder.name}")
+                    logger.debug(f"[RecycleBin] Processing SID folder: {sid_folder.name}")
 
                     # Create per-SID output directory
                     sid_output_dir = output_dir / sid_folder.name
@@ -6426,7 +6416,7 @@ class ArtifactCollector:
 
                     try:
                         entries = list(sid_folder.iterdir())
-                        _debug_print(f"[RecycleBin] Found {len(entries)} entries in {sid_folder.name}")
+                        logger.debug(f"[RecycleBin] Found {len(entries)} entries in {sid_folder.name}")
 
                         for entry in entries:
                             # Collect $I file (metadata)
@@ -6438,7 +6428,7 @@ class ArtifactCollector:
                                     metadata['user_sid'] = sid_folder.name
                                     metadata['file_type'] = 'metadata'
                                     collected_count += 1
-                                    _debug_print(f"[RecycleBin] Collected: {entry.name}")
+                                    logger.debug(f"[RecycleBin] Collected: {entry.name}")
                                     yield str(dst_path), metadata
 
                                     # Also try to collect corresponding $R file
@@ -6463,7 +6453,7 @@ class ArtifactCollector:
                                                     'collected_at': datetime.utcnow().isoformat(),
                                                 }
                                                 collected_count += 1
-                                                _debug_print(f"[RecycleBin] Skipped large $R file: {r_file.name} ({r_size} bytes)")
+                                                logger.debug(f"[RecycleBin] Skipped large $R file: {r_file.name} ({r_size} bytes)")
                                                 yield str(r_file), r_metadata
                                                 continue
                                             r_dst_path = sid_output_dir / r_file.name
@@ -6472,28 +6462,28 @@ class ArtifactCollector:
                                             r_metadata['user_sid'] = sid_folder.name
                                             r_metadata['file_type'] = 'content'
                                             collected_count += 1
-                                            _debug_print(f"[RecycleBin] Collected: {r_file.name}")
+                                            logger.debug(f"[RecycleBin] Collected: {r_file.name}")
                                             yield str(r_dst_path), r_metadata
                                         except (PermissionError, OSError) as e:
-                                            _debug_print(f"[RecycleBin] Cannot access $R file {r_file}: {e}")
+                                            logger.debug(f"[RecycleBin] Cannot access $R file {r_file}: {e}")
 
                                 except (PermissionError, OSError) as e:
-                                    _debug_print(f"[RecycleBin] Permission denied: {entry} - {e}")
+                                    logger.debug(f"[RecycleBin] Permission denied: {entry} - {e}")
                                     continue
 
                     except PermissionError as e:
-                        _debug_print(f"[RecycleBin] Cannot access SID folder: {sid_folder} - {e}")
+                        logger.debug(f"[RecycleBin] Cannot access SID folder: {sid_folder} - {e}")
                         continue
                     except OSError as e:
-                        _debug_print(f"[RecycleBin] OS error on SID folder: {sid_folder} - {e}")
+                        logger.debug(f"[RecycleBin] OS error on SID folder: {sid_folder} - {e}")
                         continue
 
-            _debug_print(f"[RecycleBin] Collection complete: {collected_count} files")
+            logger.debug(f"[RecycleBin] Collection complete: {collected_count} files")
 
         except PermissionError as e:
-            _debug_print(f"[RecycleBin] Cannot access Recycle Bin: {e} - requires admin privileges")
+            logger.debug(f"[RecycleBin] Cannot access Recycle Bin: {e} - requires admin privileges")
         except OSError as e:
-            _debug_print(f"[RecycleBin] OS error accessing Recycle Bin: {e}")
+            logger.debug(f"[RecycleBin] OS error accessing Recycle Bin: {e}")
 
     def collect_ntuser(
         self,
@@ -6560,7 +6550,7 @@ class ArtifactCollector:
                             result[1]['artifact_type'] = 'shellbags'
                             yield str(final_path), result[1]
                         except Exception as e:
-                            _debug_print(f"[WARNING] Failed to rename UsrClass.dat for {user_dir.name}: {e}")
+                            logger.debug(f"[WARNING] Failed to rename UsrClass.dat for {user_dir.name}: {e}")
                             yield result[0], result[1]
 
     def collect_all_browsers(
@@ -6604,7 +6594,7 @@ class ArtifactCollector:
                             metadata['browser_id'] = browser_id
                             yield str(dst_path), metadata
                         except (PermissionError, OSError) as e:
-                            _debug_print(f"[BROWSER] Cannot access {expanded_path}: {e}")
+                            logger.debug(f"[BROWSER] Cannot access {expanded_path}: {e}")
 
     def _collect_firefox_profiles(
         self,
@@ -6643,7 +6633,7 @@ class ArtifactCollector:
                         metadata['profile'] = profile_name
                         yield str(dst_path), metadata
                     except (PermissionError, OSError) as e:
-                        _debug_print(f"[FIREFOX] Cannot access {src_path}: {e}")
+                        logger.debug(f"[FIREFOX] Cannot access {src_path}: {e}")
 
     def _sanitize_filename(self, filename: str) -> str:
         """Remove invalid characters from filename"""
@@ -6735,7 +6725,7 @@ class ArtifactCollector:
 
         # Check if artifact_type is supported by AndroidCollector
         if artifact_type not in ANDROID_ARTIFACT_TYPES:
-            _debug_print(f"[ANDROID] Artifact type not in ANDROID_ARTIFACT_TYPES: {artifact_type}")
+            logger.debug(f"[ANDROID] Artifact type not in ANDROID_ARTIFACT_TYPES: {artifact_type}")
             return
 
         try:
@@ -6744,7 +6734,7 @@ class ArtifactCollector:
             with AndroidCollector(str(artifact_dir), device_serial) as collector:
                 # Connect to device
                 collector.connect(device_serial)
-                _debug_print(f"[ANDROID] Connected to device: {collector.device_serial}")
+                logger.debug(f"[ANDROID] Connected to device: {collector.device_serial}")
 
                 # Use generic collect() method - handles all artifact types
                 for result in collector.collect(artifact_type, progress_callback):
@@ -6753,7 +6743,7 @@ class ArtifactCollector:
                     # Skip error results (empty path)
                     if not file_path:
                         if file_metadata.get('status') == 'error':
-                            _debug_print(f"[ANDROID] Collection error: {file_metadata.get('error', 'Unknown')}")
+                            logger.debug(f"[ANDROID] Collection error: {file_metadata.get('error', 'Unknown')}")
                         continue
 
                     # Add standard fields if not already present
@@ -6768,12 +6758,12 @@ class ArtifactCollector:
 
         except RuntimeError as e:
             # USB/device connection errors
-            _debug_print(f"[ANDROID] Connection failed: {e}")
+            logger.debug(f"[ANDROID] Connection failed: {e}")
         except ValueError as e:
             # Invalid artifact type or device not found
-            _debug_print(f"[ANDROID] Invalid configuration: {e}")
+            logger.debug(f"[ANDROID] Invalid configuration: {e}")
         except Exception as e:
-            _debug_print(f"[ANDROID] Collection failed for {artifact_type}: {e}")
+            logger.debug(f"[ANDROID] Collection failed for {artifact_type}: {e}")
 
     # =========================================================================
     # iOS Forensics Collection Methods
@@ -6803,18 +6793,18 @@ class ArtifactCollector:
 
         # Check if artifact_type is supported by iOSCollector
         if artifact_type not in IOS_ARTIFACT_TYPES:
-            _debug_print(f"[iOS] Artifact type not in IOS_ARTIFACT_TYPES: {artifact_type}")
+            logger.debug(f"[iOS] Artifact type not in IOS_ARTIFACT_TYPES: {artifact_type}")
             return
 
         # If no backup path specified, try to find one
         if not backup_path:
             backups = find_ios_backups()
             if not backups:
-                _debug_print("[iOS] No iOS backups found on this system")
+                logger.debug("[iOS] No iOS backups found on this system")
                 return
             # Use the most recent backup
             backup_path = str(backups[0].path)
-            _debug_print(f"[iOS] Using backup: {backups[0].device_name} ({backups[0].ios_version})")
+            logger.debug(f"[iOS] Using backup: {backups[0].device_name} ({backups[0].ios_version})")
 
         try:
             # iOSCollector(output_dir, backup_path) - correct order
@@ -6822,12 +6812,12 @@ class ArtifactCollector:
 
             # Select backup first
             if not collector.select_backup(backup_path):
-                _debug_print(f"[iOS] Failed to select backup: {backup_path}")
+                logger.debug(f"[iOS] Failed to select backup: {backup_path}")
                 return
 
             # Check if backup is encrypted without decryptor
             if collector.is_encrypted and not getattr(collector, '_encrypted_backup', None):
-                _debug_print("[iOS] Backup is encrypted - decryptor not provided, skipping")
+                logger.debug("[iOS] Backup is encrypted - decryptor not provided, skipping")
                 return
 
             # Use generic collect() method - handles all artifact types
@@ -6837,7 +6827,7 @@ class ArtifactCollector:
                 # Skip error results (empty path)
                 if not file_path:
                     if file_metadata.get('status') == 'error':
-                        _debug_print(f"[iOS] Collection error: {file_metadata.get('error', 'Unknown')}")
+                        logger.debug(f"[iOS] Collection error: {file_metadata.get('error', 'Unknown')}")
                     continue
 
                 # Add standard fields if not already present
@@ -6854,12 +6844,12 @@ class ArtifactCollector:
 
         except RuntimeError as e:
             # Backup selection errors
-            _debug_print(f"[iOS] Backup error: {e}")
+            logger.debug(f"[iOS] Backup error: {e}")
         except ValueError as e:
             # Invalid artifact type
-            _debug_print(f"[iOS] Invalid configuration: {e}")
+            logger.debug(f"[iOS] Invalid configuration: {e}")
         except Exception as e:
-            _debug_print(f"[iOS] Collection failed for {artifact_type}: {e}")
+            logger.debug(f"[iOS] Collection failed for {artifact_type}: {e}")
 
     # =========================================================================
     # Linux Forensics Collection Methods
@@ -6884,7 +6874,7 @@ class ArtifactCollector:
             **kwargs: target_root for mounted filesystem (default: '/')
         """
         if not LINUX_AVAILABLE or LinuxCollector is None:
-            _debug_print(f"[LINUX] LinuxCollector not available")
+            logger.debug(f"[LINUX] LinuxCollector not available")
             return
 
         target_root = kwargs.get('target_root', '/')
@@ -6914,7 +6904,7 @@ class ArtifactCollector:
                     progress_callback(f"Collected: {relative_path}")
 
         except Exception as e:
-            _debug_print(f"[LINUX] Collection failed for {artifact_type}: {e}")
+            logger.debug(f"[LINUX] Collection failed for {artifact_type}: {e}")
 
     # =========================================================================
     # macOS Forensics Collection Methods
@@ -6939,7 +6929,7 @@ class ArtifactCollector:
             **kwargs: target_root for mounted filesystem (default: '/')
         """
         if not MACOS_AVAILABLE or macOSCollector is None:
-            _debug_print(f"[MACOS] macOSCollector not available")
+            logger.debug(f"[MACOS] macOSCollector not available")
             return
 
         target_root = kwargs.get('target_root', '/')
@@ -6969,7 +6959,7 @@ class ArtifactCollector:
                     progress_callback(f"Collected: {relative_path}")
 
         except Exception as e:
-            _debug_print(f"[MACOS] Collection failed for {artifact_type}: {e}")
+            logger.debug(f"[MACOS] Collection failed for {artifact_type}: {e}")
 
     def _get_vss_path(self, file_path: str) -> Optional[str]:
         """Get path to file in latest Volume Shadow Copy
@@ -7050,20 +7040,20 @@ def get_collection_mode() -> str:
 if __name__ == "__main__":
     import sys
 
-    _debug_print(f"Collection mode: {get_collection_mode()}")
-    _debug_print(f"MFT available: {MFT_AVAILABLE}")
+    logger.debug(f"Collection mode: {get_collection_mode()}")
+    logger.debug(f"MFT available: {MFT_AVAILABLE}")
 
     if len(sys.argv) > 1 and sys.argv[1] == '--test':
         import tempfile
 
         with tempfile.TemporaryDirectory() as temp_dir:
             collector = ArtifactCollector(temp_dir)
-            _debug_print(f"\nUsing {collector.collection_mode} collection method")
+            logger.debug(f"\nUsing {collector.collection_mode} collection method")
 
-            _debug_print("\nAvailable artifacts:")
+            logger.debug("\nAvailable artifacts:")
             for artifact in collector.get_available_artifacts():
                 status = "OK" if artifact['available'] else "N/A"
                 admin = " [ADMIN]" if artifact['requires_admin'] else ""
-                _debug_print(f"  [{status}] {artifact['type']}: {artifact['name']}{admin}")
+                logger.debug(f"  [{status}] {artifact['type']}: {artifact['name']}{admin}")
 
             collector.close()

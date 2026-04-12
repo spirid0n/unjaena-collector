@@ -12,6 +12,7 @@ Supports:
 import sys
 import os
 import json
+import logging
 import argparse
 
 # Add src to path
@@ -91,10 +92,8 @@ def get_secure_config(cli_server_url: str = None) -> dict:
         'is_release': getattr(sys, 'frozen', False),
     }
 
-    if server_url:
-        print(f"[Config] Server: {server_url}")
-    else:
-        print("[Config] No server configured - setup wizard will appear")
+    if not server_url:
+        logging.getLogger(__name__).debug("No server configured - setup wizard will appear")
 
     return config
 
@@ -251,11 +250,9 @@ def main():
 
     if args.headless:
         if not args.token:
-            print("[ERROR] --token is required in headless mode")
-            sys.exit(1)
+            sys.exit("Error: --token is required in headless mode")
         if not args.server:
-            print("[ERROR] --server is required in headless mode")
-            sys.exit(1)
+            sys.exit("Error: --server is required in headless mode")
         config = get_secure_config(cli_server_url=args.server)
         main_headless(args, config)
     else:
